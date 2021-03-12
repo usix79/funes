@@ -2,6 +2,8 @@
 
     <PropertyGroup>
         <TargetFramework>net5.0</TargetFramework>
+        <RootNamespace>Funes</RootNamespace>
+        <Nullable>enable</Nullable>
     </PropertyGroup>
-
+    
 </Project>
