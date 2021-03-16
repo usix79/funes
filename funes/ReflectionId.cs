@@ -69,6 +69,9 @@ namespace Funes {
         public static bool operator !=(ReflectionId left, ReflectionId right) {
             return !left.Equals(right);
         }
-        
+
+        public override string ToString() {
+            return $"RID:{Id}";
+        }
     }
 }

@@ -40,5 +40,9 @@ namespace Funes {
         public static bool operator !=(MemKey left, MemKey right) {
             return !left.Equals(right);
         }
+
+        public override string ToString() {
+            return $"MemKey {nameof(Category)}: {Category}, {nameof(Id)}: {Id}";
+        }
     }
 }

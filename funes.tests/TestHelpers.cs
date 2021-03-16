@@ -27,21 +27,21 @@ namespace Funes.Tests {
 
         public static Mem CreateRandomMem(MemKey? key = null) {
             
-            var nonNullKey = key ?? new MemKey("Cat" + RandomString(10), "id" + RandomString(10));
+            var nonNullKey = key ?? new MemKey("cat-" + RandomString(10), "id-" + RandomString(10));
             
             var headers = new NameValueCollection {
-                {"Key" + RandomString(10), "Value" + RandomString(10)},
-                {"Key" + RandomString(10), "Value" + RandomString(10)},
-                {"Key" + RandomString(10), "Value" + RandomString(10)}
+                {"key-" + RandomString(10), "value-" + RandomString(10)},
+                {"key-" + RandomString(10), "value-" + RandomString(10)},
+                {"key-" + RandomString(10), "value-" + RandomString(10)}
             };
             return new Mem (nonNullKey, headers, StringToBytes(RandomString(1024)));
         }
         
         public static async Task LoadRandomMemories(IRepository repo) {
             for (var i = 0; i < 42; i++) {
-                var cat = "cat" + RandomString(1);
+                var cat = "cat-" + RandomString(1);
                 for (var j = 0; j < 42; j++) {
-                    var id = "id" + RandomString(5);
+                    var id = "id-" + RandomString(5);
                     await repo.Put(CreateRandomMem(new MemKey(cat, id)), ReflectionId.NewId());
                 }
             }
