@@ -8,6 +8,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "funes.fs", "funes.fs\funes.
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "funes.fs.tests", "funes.fs.tests\funes.fs.tests.csproj", "{1F2C82CE-836E-4611-B647-23AF1F5B799A}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "funes.s3", "funes.s3\funes.s3.csproj", "{DEFD7F41-545D-4905-9E72-3BE38E3892BF}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "funes.s3.tests", "funes.s3.tests\funes.s3.tests.csproj", "{830AF221-E29D-41AC-B727-C7F0FD12A34C}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -30,5 +34,13 @@ Global
 		{1F2C82CE-836E-4611-B647-23AF1F5B799A}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{1F2C82CE-836E-4611-B647-23AF1F5B799A}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{1F2C82CE-836E-4611-B647-23AF1F5B799A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{DEFD7F41-545D-4905-9E72-3BE38E3892BF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{DEFD7F41-545D-4905-9E72-3BE38E3892BF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{DEFD7F41-545D-4905-9E72-3BE38E3892BF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{DEFD7F41-545D-4905-9E72-3BE38E3892BF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{830AF221-E29D-41AC-B727-C7F0FD12A34C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{830AF221-E29D-41AC-B727-C7F0FD12A34C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{830AF221-E29D-41AC-B727-C7F0FD12A34C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{830AF221-E29D-41AC-B727-C7F0FD12A34C}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

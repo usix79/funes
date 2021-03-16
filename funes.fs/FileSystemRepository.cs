@@ -1,10 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
-using System.Data.Common;
 using System.IO;
 using System.Linq;
-using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -40,9 +38,10 @@ namespace Funes.Fs {
             var fileName = Path.Combine(path, reflectionId.Id);
 
             if (File.Exists(fileName)) {
-                var data = await File.ReadAllBytesAsync(fileName);
+                
+                var content = File.OpenRead(fileName);
                 var headers = await ReadHeaders(fileName);
-                return new Mem(key, headers, data);
+                return new Mem(key, headers, content);
             }
             else {
                 return null;
@@ -53,7 +52,8 @@ namespace Funes.Fs {
             var path = GetMemPath(mem.Key);
             Directory.CreateDirectory(path);
             var fileName = Path.Combine(path, reflectionId.Id);
-            await File.WriteAllBytesAsync(fileName, mem.Data);
+            await using FileStream fs = File.OpenWrite(fileName);
+            await mem.Content.CopyToAsync(fs);
             await WriteHeaders(fileName, mem.Headers);
         }
 

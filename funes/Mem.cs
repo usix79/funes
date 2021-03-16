@@ -6,12 +6,12 @@ namespace Funes {
     public class Mem {
         public MemKey Key { get; }
         public NameValueCollection Headers { get; }
-        public byte[] Data { get; }
+        public Stream Content { get; }
 
-        public Mem(MemKey key, NameValueCollection? headers, byte[]? data) {
+        public Mem(MemKey key, NameValueCollection? headers, Stream? content) {
             Key = key;
             Headers = headers ?? new NameValueCollection();
-            Data = data ?? Array.Empty<byte>();
+            Content = content ?? Stream.Null;
         }
     }
 }

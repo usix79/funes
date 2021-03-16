@@ -20,7 +20,7 @@ namespace Funes.Tests {
         [Fact]
         public async void PutTest() {
             var repo = CreateRepo();
-            
+
             var testMem = TestHelpers.CreateRandomMem();
             var testReflectionId = ReflectionId.NewId();
             
@@ -35,7 +35,7 @@ namespace Funes.Tests {
         public async void GetLastTest() {
             var repo = CreateRepo();
             
-            await TestHelpers.LoadRandomMemories(repo);
+            //await TestHelpers.LoadRandomMemories(repo);
 
             var key = new MemKey("cat-s", "id-b2");
             
@@ -62,7 +62,7 @@ namespace Funes.Tests {
         public async void GetHistoryTest() {
             var repo = CreateRepo();
             
-            await TestHelpers.LoadRandomMemories(repo);
+            //await TestHelpers.LoadRandomMemories(repo);
 
             var key = new MemKey("cat-s", "id-b2");
             var history = new List<(Mem, ReflectionId)>();

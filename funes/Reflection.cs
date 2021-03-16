@@ -51,7 +51,7 @@ namespace Funes {
             var tasks =
                 newFacts
                     .Concat(outputKnowledge)
-                    .Append(ReflectionToMem(reflection))
+                    .Append(await ReflectionToMem(reflection))
                     .Select(mem => repo.Put(mem, reflectionId));
             
             await Task.WhenAll(tasks);
@@ -69,7 +69,7 @@ namespace Funes {
                 throw new Exception("Reflection not found: " + reflectionId.Id);
             }
             
-            var reflection = Deserialize(mem.Data);
+            var reflection = await Deserialize(mem.Content);
 
             if (reflection == null) {
                 throw new Exception("Unable to deserialize reflection: " + reflectionId.Id);
@@ -97,18 +97,20 @@ namespace Funes {
             return new (reflection, collisions.ToArray());
         }
         
-        public static byte[] Serialize(Reflection reflection) {
-            return JsonSerializer.SerializeToUtf8Bytes(reflection);
+        public static async Task<Stream> Serialize(Reflection reflection) {
+            await using MemoryStream stream = new MemoryStream();
+            await JsonSerializer.SerializeAsync(stream, reflection);
+            return stream;
         }
 
-        public static Reflection? Deserialize(byte[] data) {
-            return JsonSerializer.Deserialize<Reflection>(data);
+        public static async Task<Reflection?> Deserialize(Stream content) {
+            return await JsonSerializer.DeserializeAsync<Reflection>(content);
         }
         
         public static readonly MemKey ReflectionKey = new MemKey("funes", "reflection");
 
-        public static Mem ReflectionToMem(Reflection reflection) {
-            return new Mem(ReflectionKey, null, Serialize(reflection));
+        public static async Task<Mem> ReflectionToMem(Reflection reflection) {
+            return new Mem(ReflectionKey, null, await Serialize(reflection));
         }
     }
 }
