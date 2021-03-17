@@ -5,11 +5,11 @@ using Xunit.Abstractions;
 
 namespace Funes.S3.Tests {
     
-    public class S3RepositoryTests : AbstractRepoTests {
+    public class S3RepoTests : AbstractRepoTests {
         
         private readonly ITestOutputHelper _testOutputHelper;
         
-        public S3RepositoryTests(ITestOutputHelper testOutputHelper) {
+        public S3RepoTests(ITestOutputHelper testOutputHelper) {
             _testOutputHelper = testOutputHelper;
         }
         

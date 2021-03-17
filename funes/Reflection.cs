@@ -52,7 +52,7 @@ namespace Funes {
                 newFacts
                     .Concat(outputKnowledge)
                     .Append(await ReflectionToMem(reflection))
-                    .Select(mem => repo.Put(mem, reflectionId));
+                    .Select(mem => repo.PutMem(mem, reflectionId));
             
             await Task.WhenAll(tasks);
 
@@ -63,7 +63,7 @@ namespace Funes {
             IRepository repo, 
             ReflectionId reflectionId) {
 
-            var mem = await repo.Get(Reflection.ReflectionKey, reflectionId);
+            var mem = await repo.GetMem(Reflection.ReflectionKey, reflectionId);
 
             if (mem == null) {
                 throw new Exception("Reflection not found: " + reflectionId.Id);

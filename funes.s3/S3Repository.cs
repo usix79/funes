@@ -4,6 +4,7 @@ using System.Collections.Specialized;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Text;
 using System.Threading.Tasks;
 using Amazon.S3;
 using Amazon.S3.Model;
@@ -24,33 +25,38 @@ namespace Funes.S3 {
             _client = new AmazonS3Client();
         }
         
-        public async Task<(Mem, ReflectionId)?> GetLatest(MemKey key) {
-            var req = new ListObjectsV2Request {
-                BucketName = BucketName,
-                Prefix = CombineS3Prefix(key),
-                MaxKeys = 1
-            };
+        public async Task<ReflectionId> GetLatestRid(MemKey key) {
+            try {
 
-            var resp = await _client.ListObjectsV2Async(req);
+                var resp = await _client.GetObjectAsync(BucketName, CreateLatestS3Key(key));
 
-            var s3Obj = resp?.S3Objects.FirstOrDefault();
-            
-            if (s3Obj != null) {
-                var rid = new ReflectionId {Id = s3Obj.Key.Substring(req.Prefix.Length)};
-                var mem = await Get(key, rid);
-                if (mem != null) {
-                    return (mem, rid);
+                if (resp != null) {
+                    using StreamReader reader = new (resp.ResponseStream);
+                    return new ReflectionId {Id = await reader.ReadToEndAsync()};
                 }
+
+                return ReflectionId.Null;
             }
-            
-            return null;
+            catch (AmazonS3Exception ex) when (ex.StatusCode == HttpStatusCode.NotFound) {
+                return ReflectionId.Null;
+            }
         }
 
-        public async Task<Mem?> Get(MemKey key, ReflectionId reflectionId) {
+        public async Task SetLatestRid(MemKey key, ReflectionId rid) {
+            var req = new PutObjectRequest {
+                BucketName = BucketName,
+                Key = CreateLatestS3Key(key),
+                InputStream = new MemoryStream(Encoding.UTF8.GetBytes(rid.Id))
+            };
+
+            var resp = await _client.PutObjectAsync(req);
+        }
+
+        public async Task<Mem?> GetMem(MemKey key, ReflectionId reflectionId) {
 
             try {
 
-                var resp = await _client.GetObjectAsync(BucketName, CombineS3Key(key, reflectionId));
+                var resp = await _client.GetObjectAsync(BucketName, CreateMemS3Key(key, reflectionId));
 
                 if (resp != null) {
                     var headers = new NameValueCollection();
@@ -73,11 +79,11 @@ namespace Funes.S3 {
             }
         }
 
-        public async Task Put(Mem mem, ReflectionId reflectionId) {
+        public async Task PutMem(Mem mem, ReflectionId reflectionId) {
 
             var req = new PutObjectRequest {
                 BucketName = BucketName,
-                Key = CombineS3Key(mem.Key, reflectionId),
+                Key = CreateMemS3Key(mem.Key, reflectionId),
                 InputStream = mem.Content
             };
 
@@ -94,8 +100,8 @@ namespace Funes.S3 {
             
             var req = new ListObjectsV2Request {
                 BucketName = BucketName,
-                Prefix = CombineS3Prefix(key),
-                StartAfter = CombineS3Key(key, before),
+                Prefix = CreateMemS3Prefix(key),
+                StartAfter = CreateMemS3Key(key, before),
                 MaxKeys = maxCount
             };
 
@@ -106,10 +112,13 @@ namespace Funes.S3 {
                     .Select(s3Obj => new ReflectionId {Id = s3Obj.Key.Substring(req.Prefix.Length)});
         }
 
-        private string CombineS3Key(MemKey key, ReflectionId rid)
+        private string CreateMemS3Key(MemKey key, ReflectionId rid)
             => $"{Prefix}/{key.Category}/{key.Id}/{rid.Id}";
-
-        private string CombineS3Prefix(MemKey key)
+        
+        private string CreateMemS3Prefix(MemKey key)
             => $"{Prefix}/{key.Category}/{key.Id}/";
+
+        private string CreateLatestS3Key(MemKey key)
+            => $"{Prefix}/_latest/{key.Category}/{key.Id}";
     }
 }

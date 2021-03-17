@@ -7,7 +7,7 @@ namespace Funes {
     public struct ReflectionId : IEquatable<ReflectionId>, IComparable<ReflectionId>, IComparable {
         public string Id { get; init; }
 
-        public static readonly ReflectionId Empty = new ReflectionId {Id = ""};
+        public static readonly ReflectionId Null = new ReflectionId {Id = ""};
 
         private static readonly DateTimeOffset FryReawakening = new DateTimeOffset(3000, 1, 1, 0, 0, 0, TimeSpan.Zero);
 

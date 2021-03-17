@@ -13,7 +13,7 @@ namespace Funes.Tests {
 
             var testMemKey = new MemKey ("TestCategory", "TestId");
             var testReflectionId = new ReflectionId {Id = "TestReflectionId"};
-            var mem = await repo.Get(testMemKey, testReflectionId);
+            var mem = await repo.GetMem(testMemKey, testReflectionId);
             Assert.Null(mem);
         }
 
@@ -24,9 +24,9 @@ namespace Funes.Tests {
             var testMem = TestHelpers.CreateRandomMem();
             var testReflectionId = ReflectionId.NewId();
             
-            await repo.Put(testMem, testReflectionId);
+            await repo.PutMem(testMem, testReflectionId);
             
-            var mem = await repo.Get(testMem.Key, testReflectionId);
+            var mem = await repo.GetMem(testMem.Key, testReflectionId);
             
             TestHelpers.AssertMemEquals(testMem, mem);
         }
@@ -35,42 +35,32 @@ namespace Funes.Tests {
         public async void GetLastTest() {
             var repo = CreateRepo();
             
-            //await TestHelpers.LoadRandomMemories(repo);
-
             var key = new MemKey("cat-s", "id-b2");
-            
-            var testMem1 = TestHelpers.CreateRandomMem(key);
             var testReflectionId1 = ReflectionId.NewId();
-            await repo.Put(testMem1, testReflectionId1);
+            await repo.SetLatestRid(key, testReflectionId1);
 
             await Task.Delay(50);
             
-            var testMem2 = TestHelpers.CreateRandomMem(key);
             var testReflectionId2 = ReflectionId.NewId();
-            await repo.Put(testMem2, testReflectionId2);
+            await repo.SetLatestRid(key, testReflectionId2);
             
-            var pair = await repo.GetLatest(key);
+            var rid = await repo.GetLatestRid(key);
             
-            Assert.NotNull(pair);
-            Assert.NotEqual(testReflectionId1, pair?.Item2);
-            TestHelpers.AssertMemChanged(testMem1, pair?.Item1);
-            Assert.Equal(testReflectionId2, pair?.Item2);
-            TestHelpers.AssertMemEquals(testMem2, pair?.Item1);
+            Assert.NotEqual(testReflectionId1, rid);
+            Assert.Equal(testReflectionId2, rid);
         }
 
         [Fact]
         public async void GetHistoryTest() {
             var repo = CreateRepo();
             
-            //await TestHelpers.LoadRandomMemories(repo);
-
             var key = new MemKey("cat-s", "id-b2");
             var history = new List<(Mem, ReflectionId)>();
             for (var i = 0; i < 42; i++) {
                 var mem = TestHelpers.CreateRandomMem(key);
                 var rid = ReflectionId.NewId();
                 history.Add((mem, rid));
-                await repo.Put(mem, rid);
+                await repo.PutMem(mem, rid);
                 await Task.Delay(10);
             }
             
@@ -85,7 +75,7 @@ namespace Funes.Tests {
             resultList = result.ToList();
             Assert.Empty(resultList);
 
-            result = await repo.GetHistory(key, ReflectionId.Empty, 2);
+            result = await repo.GetHistory(key, ReflectionId.Null, 2);
             resultList = result.ToList();
             Assert.Equal(2, resultList.Count);
             Assert.Equal(history[41].Item2, resultList[0]);

@@ -48,7 +48,7 @@ namespace Funes.Tests {
                 var cat = "cat-" + RandomString(1);
                 for (var j = 0; j < 6; j++) {
                     var id = "id-" + RandomString(5);
-                    await repo.Put(CreateRandomMem(new MemKey(cat, id)), ReflectionId.NewId());
+                    await repo.PutMem(CreateRandomMem(new MemKey(cat, id)), ReflectionId.NewId());
                 }
             }
         }

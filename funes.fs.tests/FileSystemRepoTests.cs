@@ -6,10 +6,10 @@ using Xunit.Abstractions;
 
 namespace Funes.Fs.Tests {
     
-    public class FileSystemRepositoryTests : AbstractRepoTests {
+    public class FileSystemRepoTests : AbstractRepoTests {
         private readonly ITestOutputHelper _testOutputHelper;
 
-        public FileSystemRepositoryTests(ITestOutputHelper testOutputHelper) {
+        public FileSystemRepoTests(ITestOutputHelper testOutputHelper) {
             _testOutputHelper = testOutputHelper;
         }
 

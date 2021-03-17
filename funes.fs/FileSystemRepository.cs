@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
+using System.Data.Common;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -14,44 +15,30 @@ namespace Funes.Fs {
         
         public FileSystemRepository(string root) => Root = root; 
 
-        public async Task<(Mem,ReflectionId)?> GetLatest(MemKey key) {
-            var path = GetMemPath(key);
-            var fileName =
-                Directory.GetFiles(path)
-                    .Where(name => !name.EndsWith(HeadersExtention))
-                    .OrderBy(x => x)
-                    .FirstOrDefault();
-            
-            if (fileName != null) {
-                var rid = new ReflectionId {Id = Path.GetFileName(fileName)};
-                var mem = await Get(key, rid);
-                if (mem != null) {
-                    return (mem, rid);
-                }
-            }
-
-            return null;
+        public async Task<ReflectionId> GetLatestRid(MemKey key) {
+            var fileName = GetLatestFileName(key);
+            return
+                File.Exists(fileName)
+                    ? new ReflectionId {Id = await File.ReadAllTextAsync(fileName)}
+                    : ReflectionId.Null;
         }
 
-        public async Task<Mem?> Get(MemKey key, ReflectionId reflectionId) {
-            var path = GetMemPath(key);
-            var fileName = Path.Combine(path, reflectionId.Id);
-
-            if (File.Exists(fileName)) {
-                
-                var content = File.OpenRead(fileName);
-                var headers = await ReadHeaders(fileName);
-                return new Mem(key, headers, content);
-            }
-            else {
-                return null;
-            }
+        public async Task SetLatestRid(MemKey key, ReflectionId rid) {
+            Directory.CreateDirectory(GetLatestPath(key));
+            await File.WriteAllTextAsync(GetLatestFileName(key), rid.Id);
         }
 
-        public async Task Put(Mem mem, ReflectionId reflectionId) {
-            var path = GetMemPath(mem.Key);
-            Directory.CreateDirectory(path);
-            var fileName = Path.Combine(path, reflectionId.Id);
+        public async Task<Mem?> GetMem(MemKey key, ReflectionId reflectionId) {
+            var fileName = GetMemFileName(key, reflectionId);
+            return
+                File.Exists(fileName)
+                    ? new Mem(key, await ReadHeaders(fileName), File.OpenRead(fileName))
+                    : null;
+        }
+
+        public async Task PutMem(Mem mem, ReflectionId reflectionId) {
+            Directory.CreateDirectory(GetMemPath(mem.Key));
+            var fileName = GetMemFileName(mem.Key, reflectionId);
             await using FileStream fs = File.OpenWrite(fileName);
             await mem.Content.CopyToAsync(fs);
             await WriteHeaders(fileName, mem.Headers);
@@ -73,6 +60,12 @@ namespace Funes.Fs {
         }
 
         private string GetMemPath(MemKey key) => Path.Combine(Root, key.Category, key.Id);
+
+        private string GetMemFileName(MemKey key, ReflectionId rid) 
+            => Path.Combine(Root, key.Category, key.Id, rid.Id);
+
+        private string GetLatestPath(MemKey key) => Path.Combine(Root, "_latest", key.Category);
+        private string GetLatestFileName(MemKey key) => Path.Combine(Root, "_latest", key.Category, key.Id);
 
         private const string KwSeparator = "__=__";
 

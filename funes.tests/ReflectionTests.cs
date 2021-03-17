@@ -54,7 +54,7 @@ namespace Funes.Tests
 
             var rid = await Reflection.Reflect( repo, facts, inputs, outputs);
 
-            var reflection = repo.Get(Reflection.ReflectionKey, rid);
+            var reflection = repo.GetMem(Reflection.ReflectionKey, rid);
             
             
         }
