@@ -1,5 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using Enyim.Caching;
 using Enyim.Caching.Configuration;
@@ -24,32 +26,62 @@ namespace Funes.Memcached {
             _client = new MemcachedClient(loggerFactory, cfg);
         }
 
-        public async Task<ReflectionId> GetLatestRid(MemKey key) {
-            var result = await _client.GetAsync(CreateKeyForLatest(key)+"AAA");
-            if (result.Success) {
-                return new ReflectionId {Id = (string) result.Value};
-            }
+        private const int EncodingSize = 16;
 
-            return ReflectionId.Null;
+        public ValueTask<Result<bool>> Put<T>(Mem<T> mem, ReflectionId rid, IRepository.Encoder<T> encoder) {
+            throw new NotImplementedException();
+            
+            // await using var stream = new MemoryStream();
+            // await using var writer = new BinaryWriter(stream);
+            // writer.Seek(EncodingSize, SeekOrigin.Begin); // reserve space for encoding
+            // var encoding = await encoder(stream, mem.Content);
+            // if (encoding.Length > 15)
+            //     throw new FormatException($"Expected encoding name less than 15 characters, but got {encoding}");
+            //
+            // // encoding
+            // writer.Seek(0, SeekOrigin.Begin);
+            // writer.Write((byte)encoding.Length);
+            // foreach (var ch in encoding)
+            //     writer.Write((byte)ch);
+            //
+            // if (mem.Headers is not null) {
+            //     writer.Seek(0, SeekOrigin.End);
+            //     
+            //     writer.Write(mem.Headers.Count);
+            //     foreach (var pair in mem.Headers!) {
+            //         writer.Write(pair.Key);
+            //         writer.Write(pair.Value);
+            //     }
+            // }
+            //
+            // var key = CreateKey(mem.Id, rid);
+            // if (!stream.TryGetBuffer(out var buffer))
+            //     throw new FormatException("Cann''t extract buffer from stream");
+            //
+            // var success = await _client.SetAsync(key, buffer, _expirationTime);
+
+
+            // Span<byte> xxx = stackalloc byte[21];
+            // var successHistory = _client.Prepend(historyKey, xxx.ToArray());
+            //stream.GetBuffer()
+
+            // _realRepo.PutMem(mem, rid, (output, _) => {
+            //     output.WriteAsync(buffer.Array!, EncodingSize, (int) stream.Position);
+            //     return default;
+            // });
         }
 
-        public async Task SetLatestRid(MemKey key, ReflectionId rid) {
-            var result = await _client.SetAsync(CreateKeyForLatest(key), rid.Id, _expirationTime);
-        }
-
-        public Task<Mem?> GetMem(MemKey key, ReflectionId reflectionId) {
+        
+        public ValueTask<Result<Mem<T>>> Get<T>(MemId id, ReflectionId reflectionId, IRepository.Decoder<T> _) {
             throw new NotImplementedException();
         }
-
-        public Task PutMem(Mem mem, ReflectionId reflectionId) {
-            throw new NotImplementedException();
+        
+        public ValueTask<Result<IEnumerable<ReflectionId>>> GetHistory(MemId id, ReflectionId before, int maxCount = 1) {
+            return _realRepo.GetHistory(id, before, maxCount);
         }
 
-        public Task<IEnumerable<ReflectionId>> GetHistory(MemKey key, ReflectionId before, int maxCount = 1) {
-            throw new NotImplementedException();
-        }
+        public string CreateKey(MemId id, ReflectionId rid)
+            => $"{id.Category}/{id.Name}/{rid}";
 
-        public string CreateKeyForLatest(MemKey key)
-            => $"_latest/{key.Category}/{key.Id}";
     }
 }

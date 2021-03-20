@@ -11,48 +11,39 @@ namespace Funes {
     /// </summary>
     public class InMemoryRepository : IRepository {
 
-        private readonly ConcurrentDictionary<MemKey, ReflectionId> _latest = new();
-        private readonly ConcurrentDictionary<MemKey, ConcurrentDictionary<ReflectionId, Mem>> _storage = new();
+        private readonly ConcurrentDictionary<MemId, ConcurrentDictionary<ReflectionId, object>> _memories = new();
 
-        public Task<ReflectionId> GetLatestRid(MemKey key) {
-            var result = _latest.TryGetValue(key, out var rid) ? rid : ReflectionId.Null;
-            return Task.FromResult(result);
-        }
-
-        public Task SetLatestRid(MemKey key, ReflectionId rid) {
-            _latest[key] = rid;
-            return Task.CompletedTask;
-        }
-
-        public Task<Mem?> GetMem(MemKey key, ReflectionId reflectionId) {
-            var result =
-                _storage.TryGetValue(key, out var dict)
-                    ? dict.TryGetValue(reflectionId, out var mem) ? mem : null
-                    : null;
-
-            return Task.FromResult(result);
-        }
-
-        public Task PutMem(Mem mem, ReflectionId reflectionId) {
-            if (!_storage.ContainsKey(mem.Key)) {
-                _storage.TryAdd(mem.Key, new ConcurrentDictionary<ReflectionId, Mem>());
+        public ValueTask<Result<bool>> Put<T>(Mem<T> mem, ReflectionId rid, IRepository.Encoder<T> _) {
+            
+            if (!_memories.ContainsKey(mem.Id)) {
+                _memories.TryAdd(mem.Id, new ConcurrentDictionary<ReflectionId, object>());
             }
 
-            _storage[mem.Key][reflectionId] = mem;
+            _memories[mem.Id][rid] = mem;
 
-            return Task.CompletedTask;
+            return ValueTask.FromResult(new Result<bool>(true));
         }
 
-        public Task<IEnumerable<ReflectionId>> GetHistory(MemKey key, ReflectionId before, int maxCount = 1) {
+        public ValueTask<Result<Mem<T>>> Get<T>(MemId id, ReflectionId rid, IRepository.Decoder<T> _) {
             var result =
-                _storage.TryGetValue(key, out var dict)
+                _memories.TryGetValue(id, out var dict)
+                    ? dict.TryGetValue(rid, out var mem) 
+                        ? new Result<Mem<T>>((Mem<T>)mem) : Result<Mem<T>>.MemNotFound
+                    : Result<Mem<T>>.MemNotFound;
+
+            return ValueTask.FromResult(result);
+        }
+        
+        public ValueTask<Result<IEnumerable<ReflectionId>>> GetHistory(MemId id, ReflectionId before, int maxCount = 1) {
+            var result =
+                _memories.TryGetValue(id, out var dict)
                     ? dict!.Keys
                         .OrderBy(rid => rid.Id)
                         .SkipWhile(rid => string.CompareOrdinal(rid.Id, before.Id) <= 0)
                         .Take(maxCount)
                     : Enumerable.Empty<ReflectionId>();
 
-            return Task.FromResult(result);
+            return ValueTask.FromResult(new Result<IEnumerable<ReflectionId>>(result));
         }
     }
 }

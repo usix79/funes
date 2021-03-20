@@ -10,7 +10,7 @@ using Xunit;
 namespace Funes.Tests {
     
     public class InMemoryRepoTests : AbstractRepoTests{
-        public override IRepository CreateRepo() {
+        protected override IRepository CreateRepo() {
             return new InMemoryRepository();
         }
     }

@@ -1,17 +1,17 @@
 using System;
-using System.Collections.Specialized;
-using System.IO;
+using System.Collections.Generic;
 
 namespace Funes {
-    public class Mem {
-        public MemKey Key { get; }
-        public NameValueCollection Headers { get; }
-        public Stream Content { get; }
+    public readonly struct Mem<T> {
 
-        public Mem(MemKey key, NameValueCollection? headers, Stream? content) {
-            Key = key;
-            Headers = headers ?? new NameValueCollection();
-            Content = content ?? Stream.Null;
+        public MemId Id { get; }
+        public IReadOnlyDictionary<string,string>? Headers { get; }
+        public T Content { get; }
+
+        public Mem(MemId id, IReadOnlyDictionary<string,string>? headers, T content) {
+            Id = id;
+            Headers = headers;
+            Content = content;
         }
     }
 }

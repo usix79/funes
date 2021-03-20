@@ -4,7 +4,6 @@ using System.Collections.Specialized;
 using System.IO;
 using System.Linq;
 using System.Net;
-using System.Text;
 using System.Threading.Tasks;
 using Amazon.S3;
 using Amazon.S3.Model;
@@ -24,101 +23,120 @@ namespace Funes.S3 {
             Prefix = prefix;
             _client = new AmazonS3Client();
         }
+
+        private const string EncodingKey = "encoding";
         
-        public async Task<ReflectionId> GetLatestRid(MemKey key) {
+        public async ValueTask<Result<bool>> Put<T>(Mem<T> mem, ReflectionId rid, IRepository.Encoder<T> encoder) {
             try {
+                await using var stream = new MemoryStream();
+                var encodeResult = await encoder(stream, mem.Content);
+                if (encodeResult.IsError) return new Result<bool>(encodeResult.Error);
 
-                var resp = await _client.GetObjectAsync(BucketName, CreateLatestS3Key(key));
+                var encoding = encodeResult.Value;
+                stream.Position = 0;
 
-                if (resp != null) {
-                    using StreamReader reader = new (resp.ResponseStream);
-                    return new ReflectionId {Id = await reader.ReadToEndAsync()};
+                var req = new PutObjectRequest {
+                    BucketName = BucketName,
+                    Key = CreateMemS3Key(mem.Id, rid),
+                    ContentType = ResolveContentType(),
+                    InputStream = stream,
+                    Metadata = {[EncodingKey] = encoding}
+                };
+
+                if (mem.Headers?.Count > 0) {
+                    foreach (var key in mem.Headers.Keys) {
+                        req.Metadata[key] = mem.Headers[key];
+                    }
                 }
 
-                return ReflectionId.Null;
+                var resp = await _client.PutObjectAsync(req);
+
+                return new Result<bool>(true);
+
+                string ResolveContentType() =>
+                    encoding switch {
+                        var str when str.StartsWith("json") => "application/json",
+                        _ => "application/octet-stream"
+                    };
             }
-            catch (AmazonS3Exception ex) when (ex.StatusCode == HttpStatusCode.NotFound) {
-                return ReflectionId.Null;
+            catch (AmazonS3Exception e) {
+                return Result<bool>.IoError(e.ToString());
+            }
+            catch (Exception e) {
+                return Result<bool>.Exception(e);
             }
         }
-
-        public async Task SetLatestRid(MemKey key, ReflectionId rid) {
-            var req = new PutObjectRequest {
-                BucketName = BucketName,
-                Key = CreateLatestS3Key(key),
-                InputStream = new MemoryStream(Encoding.UTF8.GetBytes(rid.Id))
-            };
-
-            var resp = await _client.PutObjectAsync(req);
-        }
-
-        public async Task<Mem?> GetMem(MemKey key, ReflectionId reflectionId) {
-
+        
+        public async ValueTask<Result<Mem<T>>> Get<T>(MemId id, ReflectionId rid, IRepository.Decoder<T> decoder) {
             try {
+                var resp = await _client.GetObjectAsync(BucketName, CreateMemS3Key(id, rid));
+                
+                
+                var encoding = resp.Headers.ContentType;
+                Dictionary<string, string>? headers = null;
+                if (resp.Metadata.Keys.Count > 0) {
+                    headers = new();
 
-                var resp = await _client.GetObjectAsync(BucketName, CreateMemS3Key(key, reflectionId));
-
-                if (resp != null) {
-                    var headers = new NameValueCollection();
                     foreach (var headerKey in resp.Metadata.Keys) {
                         var actualKey =
-                            headerKey.StartsWith("x-amz-meta-") 
-                            ? headerKey.Substring("x-amz-meta-".Length)
-                            : headerKey;
-                        
-                        headers[actualKey] = resp.Metadata[headerKey];
+                            headerKey.StartsWith("x-amz-meta-")
+                                ? headerKey.Substring("x-amz-meta-".Length)
+                                : headerKey;
+
+                        var value = resp.Metadata[headerKey];
+                        if (actualKey == EncodingKey) {
+                            encoding = value;
+                        }
+                        else {
+                            headers[actualKey] = resp.Metadata[headerKey];
+                        }
                     }
-
-                    return new Mem(key, headers, resp.ResponseStream);
                 }
 
-                return null;
+                var decodeResult = await decoder(resp.ResponseStream, encoding);
+                if (decodeResult.IsError) return new Result<Mem<T>>(decodeResult.Error);
+
+                return new Result<Mem<T>>(new Mem<T>(id, headers, decodeResult.Value));
             }
-            catch (AmazonS3Exception ex) when (ex.StatusCode == HttpStatusCode.NotFound) {
-                return null;
+            catch (AmazonS3Exception e) when (e.StatusCode == HttpStatusCode.NotFound) {
+                return Result<Mem<T>>.MemNotFound;
+            }
+            catch (AmazonS3Exception e) {
+                return Result<Mem<T>>.IoError(e.ToString());
+            }
+            catch (Exception e) {
+                return Result<Mem<T>>.Exception(e);
             }
         }
-
-        public async Task PutMem(Mem mem, ReflectionId reflectionId) {
-
-            var req = new PutObjectRequest {
-                BucketName = BucketName,
-                Key = CreateMemS3Key(mem.Key, reflectionId),
-                InputStream = mem.Content
-            };
-
-            if (mem.Headers?.Count > 0) {
-                foreach (var key in mem.Headers.AllKeys) {
-                    req.Metadata[key] = mem.Headers[key];
-                }
-            }
-
-            var resp = await _client.PutObjectAsync(req);
-        }
-
-        public async Task<IEnumerable<ReflectionId>> GetHistory(MemKey key, ReflectionId before, int maxCount = 1) {
-            
-            var req = new ListObjectsV2Request {
-                BucketName = BucketName,
-                Prefix = CreateMemS3Prefix(key),
-                StartAfter = CreateMemS3Key(key, before),
-                MaxKeys = maxCount
-            };
-
-            var resp = await _client.ListObjectsV2Async(req);
-
-            return
-                resp!.S3Objects
-                    .Select(s3Obj => new ReflectionId {Id = s3Obj.Key.Substring(req.Prefix.Length)});
-        }
-
-        private string CreateMemS3Key(MemKey key, ReflectionId rid)
-            => $"{Prefix}/{key.Category}/{key.Id}/{rid.Id}";
         
-        private string CreateMemS3Prefix(MemKey key)
-            => $"{Prefix}/{key.Category}/{key.Id}/";
+        public async ValueTask<Result<IEnumerable<ReflectionId>>> GetHistory(MemId id, ReflectionId before, int maxCount = 1) {
+            try {
+                var req = new ListObjectsV2Request {
+                    BucketName = BucketName,
+                    Prefix = CreateMemS3Id(id),
+                    StartAfter = CreateMemS3Key(id, before),
+                    MaxKeys = maxCount
+                };
 
-        private string CreateLatestS3Key(MemKey key)
-            => $"{Prefix}/_latest/{key.Category}/{key.Id}";
+                var resp = await _client.ListObjectsV2Async(req);
+
+                return
+                    new Result<IEnumerable<ReflectionId>>(
+                        resp!.S3Objects
+                            .Select(s3Obj => new ReflectionId (s3Obj.Key.Substring(req.Prefix.Length))));
+            }
+            catch (AmazonS3Exception e) {
+                return Result<IEnumerable<ReflectionId>>.IoError(e.ToString());
+            }
+            catch (Exception e) {
+                return Result<IEnumerable<ReflectionId>>.Exception(e);
+            }
+        }
+
+        private string CreateMemS3Key(MemId id, ReflectionId rid)
+            => $"{Prefix}/{id.Category}/{id.Name}/{rid.Id}";
+        
+        private string CreateMemS3Id(MemId id)
+            => $"{Prefix}/{id.Category}/{id.Name}/";
     }
 }
