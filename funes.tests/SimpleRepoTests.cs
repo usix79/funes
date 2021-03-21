@@ -9,9 +9,9 @@ using Xunit;
 
 namespace Funes.Tests {
     
-    public class InMemoryRepoTests : AbstractRepoTests{
+    public class SimpleRepoTests : AbstractRepoTests{
         protected override IRepository CreateRepo() {
-            return new InMemoryRepository();
+            return new SimpleRepository();
         }
     }
 }

@@ -6,7 +6,7 @@ namespace Funes.Memcached.Tests {
     
     public class MemcachedRepoTests : AbstractRepoTests {
         protected override IRepository CreateRepo() {
-            var realRepo = new InMemoryRepository();
+            var realRepo = new SimpleRepository();
 
             var host = Environment.GetEnvironmentVariable("FUNES_TEST_MEMCACHED_HOST") ?? "localhost";
             var port = Environment.GetEnvironmentVariable("FUNES_TEST_MEMCACHED_PORT") ?? "11211";

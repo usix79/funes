@@ -14,7 +14,7 @@ namespace Funes.Tests {
             var testMemId = new MemId("TestCategory", "TestId");
             var testMemKey = new MemKey(testMemId, new ReflectionId("TestReflectionId"));
             var mem = await repo.Get(testMemKey, Serde.Decoder<Simple>);
-            Assert.True(mem.Error == Error.MemNotFound);
+            Assert.True(mem.Error == Error.NotFound);
         }
 
         [Fact]

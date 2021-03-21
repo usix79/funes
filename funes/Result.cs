@@ -10,7 +10,7 @@ namespace Funes {
         public Result(T val) => (Value, Error) = (val, Error.No);
         public Result(Error err) => (Value, Error) = (default!, err);
 
-        public static Result<T> MemNotFound => new (Error.MemNotFound);
+        public static Result<T> NotFound => new (Error.NotFound);
         public static Result<T> Exception(Exception exn) => new (new Error.ExceptionError(exn));
         public static Result<T> NotSupportedEncoding(string encoding) => new (new Error.NotSupportedEncodingError(encoding));
         public static Result<T> SerdeError(string msg) => new (new Error.SerdeError(msg));
@@ -26,7 +26,7 @@ namespace Funes {
         public record IoError(string Msg) : Error;
 
         public static readonly Error No = new NoError();
-        public static readonly Error MemNotFound = new MemNotFoundError();
+        public static readonly Error NotFound = new MemNotFoundError();
     }
  
 }

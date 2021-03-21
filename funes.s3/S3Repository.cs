@@ -99,7 +99,7 @@ namespace Funes.S3 {
                 return new Result<Mem<T>>(new Mem<T>(key, headers, decodeResult.Value));
             }
             catch (AmazonS3Exception e) when (e.StatusCode == HttpStatusCode.NotFound) {
-                return Result<Mem<T>>.MemNotFound;
+                return Result<Mem<T>>.NotFound;
             }
             catch (AmazonS3Exception e) {
                 return Result<Mem<T>>.IoError(e.ToString());

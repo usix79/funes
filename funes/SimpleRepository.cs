@@ -9,7 +9,7 @@ namespace Funes {
     /// <summary>
     /// InMemory Repository for testing purpose
     /// </summary>
-    public class InMemoryRepository : IRepository {
+    public class SimpleRepository : IRepository {
 
         private readonly ConcurrentDictionary<MemKey, object> _memories = new();
 
@@ -24,7 +24,7 @@ namespace Funes {
             var result =
                 _memories.TryGetValue(key, out var mem)
                     ? new Result<Mem<T>>((Mem<T>) mem)
-                    : Result<Mem<T>>.MemNotFound;
+                    : Result<Mem<T>>.NotFound;
 
             return ValueTask.FromResult(result);
         }

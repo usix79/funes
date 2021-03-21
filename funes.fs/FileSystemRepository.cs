@@ -41,7 +41,7 @@ namespace Funes.Fs {
                     return new Result<Mem<T>>(new Mem<T>(key, headers, decodeResult.Value));
                 } 
             
-                return Result<Mem<T>>.MemNotFound;
+                return Result<Mem<T>>.NotFound;
             }
             catch (Exception e) {
                 return Result<Mem<T>>.Exception(e);
