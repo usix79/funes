@@ -28,7 +28,7 @@ namespace Funes.Memcached {
 
         private const int EncodingSize = 16;
 
-        public ValueTask<Result<bool>> Put<T>(Mem<T> mem, ReflectionId rid, IRepository.Encoder<T> encoder) {
+        public ValueTask<Result<bool>> Put<T>(Mem<T> mem, IRepository.Encoder<T> encoder) {
             throw new NotImplementedException();
             
             // await using var stream = new MemoryStream();
@@ -72,7 +72,7 @@ namespace Funes.Memcached {
         }
 
         
-        public ValueTask<Result<Mem<T>>> Get<T>(MemId id, ReflectionId reflectionId, IRepository.Decoder<T> _) {
+        public ValueTask<Result<Mem<T>>> Get<T>(MemKey key, IRepository.Decoder<T> _) {
             throw new NotImplementedException();
         }
         

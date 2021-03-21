@@ -13,10 +13,10 @@ namespace Funes.Fs {
         
         public FileSystemRepository(string root) => Root = root;
 
-        public async ValueTask<Result<bool>> Put<T>(Mem<T> mem, ReflectionId rid, IRepository.Encoder<T> encoder) {
+        public async ValueTask<Result<bool>> Put<T>(Mem<T> mem, IRepository.Encoder<T> encoder) {
             try {
-                Directory.CreateDirectory(GetMemPath(mem.Id));
-                var fileName = GetMemFileName(mem.Id, rid);
+                Directory.CreateDirectory(GetMemPath(mem.Key.Id));
+                var fileName = GetMemFileName(mem.Key);
                 await using FileStream fs = File.OpenWrite(fileName);
                 var encodeResult = await encoder(fs, mem.Content);
                 if (encodeResult.IsError) return new Result<bool>(encodeResult.Error);
@@ -30,15 +30,15 @@ namespace Funes.Fs {
             }
         }
 
-        public async ValueTask<Result<Mem<T>>> Get<T>(MemId id, ReflectionId rid, IRepository.Decoder<T> decoder) {
+        public async ValueTask<Result<Mem<T>>> Get<T>(MemKey key, IRepository.Decoder<T> decoder) {
             try {
-                var fileName = GetMemFileName(id, rid);
+                var fileName = GetMemFileName(key);
 
                 if (File.Exists(fileName)) {
                     var (encoding, headers) = await ReadHeaders(fileName);
                     var decodeResult = await decoder(File.OpenRead(fileName), encoding);
                     if (decodeResult.IsError) return new Result<Mem<T>>(decodeResult.Error);
-                    return new Result<Mem<T>>(new Mem<T>(id, headers, decodeResult.Value));
+                    return new Result<Mem<T>>(new Mem<T>(key, headers, decodeResult.Value));
                 } 
             
                 return Result<Mem<T>>.MemNotFound;
@@ -70,8 +70,8 @@ namespace Funes.Fs {
 
         private string GetMemPath(MemId id) => Path.Combine(Root, id.Category, id.Name);
 
-        private string GetMemFileName(MemId id, ReflectionId rid) => 
-            Path.Combine(Root, id.Category, id.Name, rid.Id);
+        private string GetMemFileName(MemKey key) => 
+            Path.Combine(Root, key.Id.Category, key.Id.Name, key.Rid.Id);
 
         private const string KwSeparator = "__=__";
         private const string EncodingKey = "encoding";

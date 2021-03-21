@@ -15,7 +15,7 @@ namespace Funes.Tests {
                 }
             });
         
-        public static Mem<Simple> CreateSimpleMem(MemId? key = null) {
+        public static Mem<Simple> CreateSimpleMem(ReflectionId rid, MemId? key = null) {
             
             var nonNullKey = key ?? new MemId("cat-" + RandomString(10), "id-" + RandomString(10));
             
@@ -27,7 +27,7 @@ namespace Funes.Tests {
 
             var content = new Simple(Rand.Next(1024), RandomString(1024));
             
-            return new Mem<Simple> (nonNullKey, headers, content);
+            return new Mem<Simple> (new MemKey(nonNullKey, rid), headers, content);
         }
         
         public static async Task LoadRandomMemories(IRepository repo) {
@@ -35,13 +35,13 @@ namespace Funes.Tests {
                 var cat = "cat-" + RandomString(1);
                 for (var j = 0; j < 6; j++) {
                     var id = "id-" + RandomString(5);
-                    await repo.Put(CreateSimpleMem(new MemId(cat, id)), ReflectionId.NewId(), Serde.Encoder);
+                    await repo.Put(CreateSimpleMem(ReflectionId.NewId(),new MemId(cat, id)), Serde.Encoder);
                 }
             }
         }
         
         public static void AssertMemEquals<T>(Mem<T> expected, Mem<T> actual) {
-            Assert.Equal(expected.Id, actual.Id);
+            Assert.Equal(expected.Key, actual.Key);
             Assert.Equal(expected.Headers, actual.Headers);
             Assert.Equal(expected.Content, actual.Content);
         }

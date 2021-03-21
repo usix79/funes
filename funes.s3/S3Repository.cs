@@ -26,7 +26,7 @@ namespace Funes.S3 {
 
         private const string EncodingKey = "encoding";
         
-        public async ValueTask<Result<bool>> Put<T>(Mem<T> mem, ReflectionId rid, IRepository.Encoder<T> encoder) {
+        public async ValueTask<Result<bool>> Put<T>(Mem<T> mem, IRepository.Encoder<T> encoder) {
             try {
                 await using var stream = new MemoryStream();
                 var encodeResult = await encoder(stream, mem.Content);
@@ -37,7 +37,7 @@ namespace Funes.S3 {
 
                 var req = new PutObjectRequest {
                     BucketName = BucketName,
-                    Key = CreateMemS3Key(mem.Id, rid),
+                    Key = CreateMemS3Key(mem.Key),
                     ContentType = ResolveContentType(),
                     InputStream = stream,
                     Metadata = {[EncodingKey] = encoding}
@@ -67,9 +67,9 @@ namespace Funes.S3 {
             }
         }
         
-        public async ValueTask<Result<Mem<T>>> Get<T>(MemId id, ReflectionId rid, IRepository.Decoder<T> decoder) {
+        public async ValueTask<Result<Mem<T>>> Get<T>(MemKey key, IRepository.Decoder<T> decoder) {
             try {
-                var resp = await _client.GetObjectAsync(BucketName, CreateMemS3Key(id, rid));
+                var resp = await _client.GetObjectAsync(BucketName, CreateMemS3Key(key));
                 
                 
                 var encoding = resp.Headers.ContentType;
@@ -96,7 +96,7 @@ namespace Funes.S3 {
                 var decodeResult = await decoder(resp.ResponseStream, encoding);
                 if (decodeResult.IsError) return new Result<Mem<T>>(decodeResult.Error);
 
-                return new Result<Mem<T>>(new Mem<T>(id, headers, decodeResult.Value));
+                return new Result<Mem<T>>(new Mem<T>(key, headers, decodeResult.Value));
             }
             catch (AmazonS3Exception e) when (e.StatusCode == HttpStatusCode.NotFound) {
                 return Result<Mem<T>>.MemNotFound;
@@ -114,7 +114,7 @@ namespace Funes.S3 {
                 var req = new ListObjectsV2Request {
                     BucketName = BucketName,
                     Prefix = CreateMemS3Id(id),
-                    StartAfter = CreateMemS3Key(id, before),
+                    StartAfter = CreateMemS3Key(new MemKey(id, before)),
                     MaxKeys = maxCount
                 };
 
@@ -133,8 +133,8 @@ namespace Funes.S3 {
             }
         }
 
-        private string CreateMemS3Key(MemId id, ReflectionId rid)
-            => $"{Prefix}/{id.Category}/{id.Name}/{rid.Id}";
+        private string CreateMemS3Key(MemKey key)
+            => $"{Prefix}/{key.Id.Category}/{key.Id.Name}/{key.Rid.Id}";
         
         private string CreateMemS3Id(MemId id)
             => $"{Prefix}/{id.Category}/{id.Name}/";

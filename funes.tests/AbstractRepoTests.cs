@@ -11,9 +11,9 @@ namespace Funes.Tests {
         public async void GetNonExistingTest() {
             var repo = CreateRepo();
 
-            var testMemKey = new MemId ("TestCategory", "TestId");
-            var testReflectionId = new ReflectionId("TestReflectionId");
-            var mem = await repo.Get(testMemKey, testReflectionId, Serde.Decoder<Simple>);
+            var testMemId = new MemId("TestCategory", "TestId");
+            var testMemKey = new MemKey(testMemId, new ReflectionId("TestReflectionId"));
+            var mem = await repo.Get(testMemKey, Serde.Decoder<Simple>);
             Assert.True(mem.Error == Error.MemNotFound);
         }
 
@@ -21,13 +21,13 @@ namespace Funes.Tests {
         public async void PutTest() {
             var repo = CreateRepo();
 
-            var testMem = TestHelpers.CreateSimpleMem();
             var testReflectionId = ReflectionId.NewId();
+            var testMem = TestHelpers.CreateSimpleMem(testReflectionId);
             
-            var putResult = await repo.Put(testMem, testReflectionId, Serde.Encoder);
+            var putResult = await repo.Put(testMem, Serde.Encoder);
             Assert.True(putResult.IsOk);
             
-            var getResult = await repo.Get(testMem.Id, testReflectionId, Serde.Decoder<Simple>);
+            var getResult = await repo.Get(testMem.Key, Serde.Decoder<Simple>);
             Assert.True(getResult.IsOk);
             TestHelpers.AssertMemEquals(testMem, getResult.Value);
         }
@@ -36,21 +36,21 @@ namespace Funes.Tests {
         public async void GetLastTest() {
             var repo = CreateRepo();
             
-            var key = new MemId("cat-s", "id-b2");
+            var id = new MemId("cat-s", "id-b2");
             
-            var testMem1 = TestHelpers.CreateSimpleMem(key);
             var testReflectionId1 = ReflectionId.NewId();
-            var putResult1 = await repo.Put(testMem1, testReflectionId1, Serde.Encoder);
+            var testMem1 = TestHelpers.CreateSimpleMem(testReflectionId1, id);
+            var putResult1 = await repo.Put(testMem1, Serde.Encoder);
             Assert.True(putResult1.IsOk);
 
             await Task.Delay(50);
             
-            var testMem2 = TestHelpers.CreateSimpleMem(key);
             var testReflectionId2 = ReflectionId.NewId();
-            var putResult2 = await repo.Put(testMem2, testReflectionId2, Serde.Encoder);
+            var testMem2 = TestHelpers.CreateSimpleMem(testReflectionId2, id);
+            var putResult2 = await repo.Put(testMem2, Serde.Encoder);
             Assert.True(putResult2.IsOk);
             
-            var historyResult = await repo.GetHistory(key, ReflectionId.Singularity, 1);
+            var historyResult = await repo.GetHistory(id, ReflectionId.Singularity, 1);
             Assert.True(historyResult.IsOk);
             var rids = historyResult.Value.ToArray();
             Assert.Single(rids);
@@ -66,10 +66,10 @@ namespace Funes.Tests {
             var key = new MemId("cat-s", "id-b2");
             var history = new List<(Mem<Simple>, ReflectionId)>();
             for (var i = 0; i < 42; i++) {
-                var mem = TestHelpers.CreateSimpleMem(key);
                 var rid = ReflectionId.NewId();
+                var mem = TestHelpers.CreateSimpleMem(rid, key);
                 history.Add((mem, rid));
-                var putResult = await repo.Put(mem, rid, Serde.Encoder);
+                var putResult = await repo.Put(mem, Serde.Encoder);
                 Assert.True(putResult.IsOk);
                 await Task.Delay(10);
             }
@@ -87,7 +87,7 @@ namespace Funes.Tests {
             rids = historyResult.Value.ToArray();
             Assert.Empty(rids);
 
-            historyResult = await repo.GetHistory(key, ReflectionId.None, 2);
+            historyResult = await repo.GetHistory(key, ReflectionId.Singularity, 2);
             Assert.True(historyResult.IsOk);
             rids = historyResult.Value.ToArray();
             Assert.Equal(2, rids.Length);

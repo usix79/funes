@@ -7,28 +7,23 @@ using System.Threading.Tasks;
 namespace Funes {
 
     /// <summary>
-    /// InMemory Repository for testing purposes
+    /// InMemory Repository for testing purpose
     /// </summary>
     public class InMemoryRepository : IRepository {
 
-        private readonly ConcurrentDictionary<MemId, ConcurrentDictionary<ReflectionId, object>> _memories = new();
+        private readonly ConcurrentDictionary<MemKey, object> _memories = new();
 
-        public ValueTask<Result<bool>> Put<T>(Mem<T> mem, ReflectionId rid, IRepository.Encoder<T> _) {
-            
-            if (!_memories.ContainsKey(mem.Id)) {
-                _memories.TryAdd(mem.Id, new ConcurrentDictionary<ReflectionId, object>());
-            }
+        public ValueTask<Result<bool>> Put<T>(Mem<T> mem, IRepository.Encoder<T> _) {
 
-            _memories[mem.Id][rid] = mem;
+            _memories[mem.Key] = mem;
 
             return ValueTask.FromResult(new Result<bool>(true));
         }
 
-        public ValueTask<Result<Mem<T>>> Get<T>(MemId id, ReflectionId rid, IRepository.Decoder<T> _) {
+        public ValueTask<Result<Mem<T>>> Get<T>(MemKey key, IRepository.Decoder<T> _) {
             var result =
-                _memories.TryGetValue(id, out var dict)
-                    ? dict.TryGetValue(rid, out var mem) 
-                        ? new Result<Mem<T>>((Mem<T>)mem) : Result<Mem<T>>.MemNotFound
+                _memories.TryGetValue(key, out var mem)
+                    ? new Result<Mem<T>>((Mem<T>) mem)
                     : Result<Mem<T>>.MemNotFound;
 
             return ValueTask.FromResult(result);
@@ -36,12 +31,12 @@ namespace Funes {
         
         public ValueTask<Result<IEnumerable<ReflectionId>>> GetHistory(MemId id, ReflectionId before, int maxCount = 1) {
             var result =
-                _memories.TryGetValue(id, out var dict)
-                    ? dict!.Keys
-                        .OrderBy(rid => rid.Id)
-                        .SkipWhile(rid => string.CompareOrdinal(rid.Id, before.Id) <= 0)
-                        .Take(maxCount)
-                    : Enumerable.Empty<ReflectionId>();
+                _memories.Keys
+                    .Where(key => key.Id == id)
+                    .OrderBy(key => key.Rid)
+                    .SkipWhile(key => string.CompareOrdinal(key.Rid.Id, before.Id) <= 0)
+                    .Take(maxCount)
+                    .Select(key => key.Rid);
 
             return ValueTask.FromResult(new Result<IEnumerable<ReflectionId>>(result));
         }

@@ -23,7 +23,6 @@ namespace Funes {
         public record ExceptionError(Exception Enn) : Error;
         public record NotSupportedEncodingError(string Encoding) : Error;
         public record SerdeError(string Msg) : Error;
-
         public record IoError(string Msg) : Error;
 
         public static readonly Error No = new NoError();
