@@ -3,7 +3,7 @@ using System.Threading.Tasks;
 
 namespace Funes {
     
-    public interface ITruthSource {
+    public interface ISourceOfTruth {
         
         ValueTask<Result<ReflectionId>> GetActualConclusion(MemId id);
  

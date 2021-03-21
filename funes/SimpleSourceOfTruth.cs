@@ -3,11 +3,10 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.VisualBasic;
 
 namespace Funes {
     
-    public class SimpleTruthSource : ITruthSource {
+    public class SimpleSourceOfTruth : ISourceOfTruth {
 
         private readonly ConcurrentDictionary<MemId, ReflectionId> _latest = new();
         private readonly SemaphoreSlim _lock = new SemaphoreSlim(1, 1); 
