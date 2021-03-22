@@ -20,6 +20,7 @@ namespace Funes {
         public string Id { get; }
 
         public static readonly ReflectionId Singularity = new ("");
+        public static readonly ReflectionId None = new ("");
 
         private static readonly DateTimeOffset FryReawakening = 
             new (3000, 1, 1, 0, 0, 0, TimeSpan.Zero);
@@ -50,7 +51,7 @@ namespace Funes {
             
             return new ReflectionId(id);
         }
-
+        
         public static ReflectionId NewId() => ComposeId(DateTimeOffset.UtcNow, Rand.Value);
         public bool Equals(ReflectionId other) => Id == other.Id;
         public override bool Equals(object? obj) => obj is ReflectionId other && Equals(other);

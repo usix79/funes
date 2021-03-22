@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 namespace Funes.Tests {
     
     public static class Serde {
-        public static async ValueTask<Result<string>> Encoder<T>(Stream output, T content) {
+        public static async ValueTask<Result<string>> Encoder(Stream output, object content) {
             try {
                 await JsonSerializer.SerializeAsync(output, content);
                 return new Result<string>("json");
@@ -16,17 +16,17 @@ namespace Funes.Tests {
             }
         }
 
-        public static async ValueTask<Result<T>> Decoder<T>(Stream input, string encoding) {
+        public static async ValueTask<Result<object>> Decoder<T>(Stream input, string encoding) {
             try {
-                if ("json" != encoding) return Result<T>.NotSupportedEncoding(encoding);
+                if ("json" != encoding) return Result<object>.NotSupportedEncoding(encoding);
 
                 var content = await JsonSerializer.DeserializeAsync<T>(input);
                 return content != null
-                    ? new Result<T>(content)
-                    : Result<T>.SerdeError($"Failed to deserialize instance of {typeof(T)}");
+                    ? new Result<object>(content)
+                    : Result<object>.SerdeError($"Failed to deserialize instance of {typeof(T)}");
             }
             catch (Exception ex) {
-                return Result<T>.Exception(ex);
+                return Result<object>.Exception(ex);
             }
         }
     }

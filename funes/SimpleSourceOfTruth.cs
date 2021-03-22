@@ -11,7 +11,7 @@ namespace Funes {
         private readonly ConcurrentDictionary<MemId, ReflectionId> _latest = new();
         private readonly SemaphoreSlim _lock = new SemaphoreSlim(1, 1); 
         
-        public ValueTask<Result<ReflectionId>> GetActualConclusion(MemId id) {
+        public ValueTask<Result<ReflectionId>> GetActualRid(MemId id) {
             var result =
                 _latest.TryGetValue(id, out var rid)
                     ? new Result<ReflectionId>(rid)
@@ -19,7 +19,7 @@ namespace Funes {
             return ValueTask.FromResult<Result<ReflectionId>>(result);
         }
 
-        public ValueTask<Result<ReflectionId>[]> GetActualConclusions(IEnumerable<MemId> ids) {
+        public ValueTask<Result<ReflectionId>[]> GetActualRids(IEnumerable<MemId> ids) {
             var idsArray = ids as MemId[] ?? ids.ToArray();
             var results = new Result<ReflectionId>[idsArray.Length];
             for (var i = 0; i < idsArray.Length; i++) {
@@ -37,7 +37,7 @@ namespace Funes {
             try {
                 var premisesKeys = premises as MemKey[] ?? premises.ToArray();
                 var premisesIds = premisesKeys.Select(key => key.Id).ToArray();
-                var actualConclusions = await GetActualConclusions(premisesIds);
+                var actualConclusions = await GetActualRids(premisesIds);
 
                 for (var i = 0; i < premisesKeys.Length; i++){
                     var actual = actualConclusions[i];

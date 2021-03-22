@@ -11,20 +11,20 @@ namespace Funes {
     /// </summary>
     public class SimpleRepository : IRepository {
 
-        private readonly ConcurrentDictionary<MemKey, object> _memories = new();
+        private readonly ConcurrentDictionary<MemKey, Mem> _memories = new();
 
-        public ValueTask<Result<bool>> Put<T>(Mem<T> mem, IRepository.Encoder<T> _) {
+        public ValueTask<Result<bool>> Put(Mem mem, IRepository.Encoder _) {
 
             _memories[mem.Key] = mem;
 
             return ValueTask.FromResult(new Result<bool>(true));
         }
 
-        public ValueTask<Result<Mem<T>>> Get<T>(MemKey key, IRepository.Decoder<T> _) {
+        public ValueTask<Result<Mem>> Get(MemKey key, IRepository.Decoder _) {
             var result =
                 _memories.TryGetValue(key, out var mem)
-                    ? new Result<Mem<T>>((Mem<T>) mem)
-                    : Result<Mem<T>>.NotFound;
+                    ? new Result<Mem>(mem)
+                    : Result<Mem>.NotFound;
 
             return ValueTask.FromResult(result);
         }

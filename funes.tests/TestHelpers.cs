@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Threading.Tasks;
 using Xunit;
 
@@ -15,19 +14,13 @@ namespace Funes.Tests {
                 }
             });
         
-        public static Mem<Simple> CreateSimpleMem(ReflectionId rid, MemId? key = null) {
+        public static Mem CreateSimpleMem(ReflectionId rid, MemId? key = null) {
             
             var nonNullKey = key ?? new MemId("cat-" + RandomString(10), "id-" + RandomString(10));
             
-            var headers = new Dictionary<string,string> {
-                {"key-" + RandomString(10), "value-" + RandomString(10)},
-                {"key-" + RandomString(10), "value-" + RandomString(10)},
-                {"key-" + RandomString(10), "value-" + RandomString(10)}
-            };
-
             var content = new Simple(Rand.Next(1024), RandomString(1024));
             
-            return new Mem<Simple> (new MemKey(nonNullKey, rid), headers, content);
+            return new Mem (new MemKey(nonNullKey, rid), content);
         }
         
         public static async Task LoadRandomMemories(IRepository repo) {
@@ -40,10 +33,9 @@ namespace Funes.Tests {
             }
         }
         
-        public static void AssertMemEquals<T>(Mem<T> expected, Mem<T> actual) {
+        public static void AssertMemEquals(Mem expected, Mem actual) {
             Assert.Equal(expected.Key, actual.Key);
-            Assert.Equal(expected.Headers, actual.Headers);
-            Assert.Equal(expected.Content, actual.Content);
+            Assert.Equal(expected.Value, actual.Value);
         }
     }
 }

@@ -5,9 +5,9 @@ namespace Funes {
     
     public interface ISourceOfTruth {
         
-        ValueTask<Result<ReflectionId>> GetActualConclusion(MemId id);
+        ValueTask<Result<ReflectionId>> GetActualRid(MemId id);
  
-        ValueTask<Result<ReflectionId>[]> GetActualConclusions(IEnumerable<MemId> ids);
+        ValueTask<Result<ReflectionId>[]> GetActualRids(IEnumerable<MemId> ids);
         
         ValueTask<Result<bool>> TrySetConclusions(IEnumerable<MemKey> premises, IEnumerable<MemKey> conclusions);
     }

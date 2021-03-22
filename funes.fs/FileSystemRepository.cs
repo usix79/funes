@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace Funes.Fs {
@@ -13,16 +12,19 @@ namespace Funes.Fs {
         
         public FileSystemRepository(string root) => Root = root;
 
-        public async ValueTask<Result<bool>> Put<T>(Mem<T> mem, IRepository.Encoder<T> encoder) {
-            try {
-                Directory.CreateDirectory(GetMemPath(mem.Key.Id));
-                var fileName = GetMemFileName(mem.Key);
-                await using FileStream fs = File.OpenWrite(fileName);
-                var encodeResult = await encoder(fs, mem.Content);
-                if (encodeResult.IsError) return new Result<bool>(encodeResult.Error);
+        public async ValueTask<Result<bool>> Put(Mem mem, IRepository.Encoder encoder) {
+            await using MemoryStream stream = new();
+            var encoderResult = await encoder(stream, mem.Value);
+            if (encoderResult.IsError) return new Result<bool>(encoderResult.Error);
+            return await Put(mem.Key, stream.GetBuffer(), encoderResult.Value);
+        }
 
-                await WriteHeaders(fileName, encodeResult.Value, mem.Headers);
-                
+        public async ValueTask<Result<bool>> Put(MemKey key, ReadOnlyMemory<byte> value, string encoding) {
+            try {
+                Directory.CreateDirectory(GetMemPath(key.Id));
+                var fileName = GetMemFileName(key, encoding);
+                await using FileStream fs = File.OpenWrite(fileName);
+                await fs.WriteAsync(value);
                 return new Result<bool>(true);
             }
             catch (Exception e) {
@@ -30,21 +32,25 @@ namespace Funes.Fs {
             }
         }
 
-        public async ValueTask<Result<Mem<T>>> Get<T>(MemKey key, IRepository.Decoder<T> decoder) {
+        public async ValueTask<Result<Mem>> Get(MemKey key, IRepository.Decoder decoder) {
             try {
-                var fileName = GetMemFileName(key);
+                var memDirectory = GetMemDirectory(key);
+                if (Directory.Exists(memDirectory)) {
+                    foreach (var fileName in Directory.GetFiles(memDirectory, GetMemFileMask(key))) {
+                        var (rid, encoding) = ParseFileName(fileName);
+                        var decodeResult = await decoder(File.OpenRead(fileName), encoding);
 
-                if (File.Exists(fileName)) {
-                    var (encoding, headers) = await ReadHeaders(fileName);
-                    var decodeResult = await decoder(File.OpenRead(fileName), encoding);
-                    if (decodeResult.IsError) return new Result<Mem<T>>(decodeResult.Error);
-                    return new Result<Mem<T>>(new Mem<T>(key, headers, decodeResult.Value));
-                } 
-            
-                return Result<Mem<T>>.NotFound;
+                        if (decodeResult.IsOk) 
+                            return new Result<Mem>(new Mem(key, decodeResult.Value));
+                    
+                        if (decodeResult.Error != Error.NotSupportedEncoding)
+                            return new Result<Mem>(decodeResult.Error);
+                    }
+                }
+                return Result<Mem>.NotFound;
             }
             catch (Exception e) {
-                return Result<Mem<T>>.Exception(e);
+                return Result<Mem>.Exception(e);
             }
         }
         
@@ -54,12 +60,10 @@ namespace Funes.Fs {
 
                 var rids =
                     Directory.GetFiles(path)
-                        .Where(name => !name.EndsWith(HeadersExtension))
-                        .Select(Path.GetFileName)
+                        .Select(name => ParseFileName(Path.GetFileName(name)).Item1)
                         .OrderBy(x => x)
-                        .SkipWhile(name => string.CompareOrdinal(before.Id, name) >= 0)
-                        .Take(maxCount)
-                        .Select(name => new ReflectionId(name!));
+                        .SkipWhile(rid => before.CompareTo(rid) >= 0)
+                        .Take(maxCount);
 
                 return ValueTask.FromResult(new Result<IEnumerable<ReflectionId>>(rids));
             }
@@ -70,45 +74,19 @@ namespace Funes.Fs {
 
         private string GetMemPath(MemId id) => Path.Combine(Root, id.Category, id.Name);
 
-        private string GetMemFileName(MemKey key) => 
-            Path.Combine(Root, key.Id.Category, key.Id.Name, key.Rid.Id);
+        private string GetMemDirectory(MemKey key) => 
+            Path.Combine(Root, key.Id.Category, key.Id.Name);
 
-        private const string KwSeparator = "__=__";
-        private const string EncodingKey = "encoding";
-        private const string HeadersExtension = ".__headers";
+        private string GetMemFileMask(MemKey key) =>
+            key.Rid.Id + ".*";
 
-        private string HeadersFileName(string mainFileName) => mainFileName + HeadersExtension;
-
-        private async ValueTask WriteHeaders(string mainFileName, string contentType, IReadOnlyDictionary<string, string>? headers) {
-            var txt = new StringBuilder();
-            txt.Append(EncodingKey).Append(KwSeparator).AppendLine(contentType);
-            if (headers?.Count > 0)
-                foreach (var key in headers.Keys)
-                    txt.Append(key).Append(KwSeparator).AppendLine(headers[key]);
-
-            await File.WriteAllTextAsync(HeadersFileName(mainFileName), txt.ToString());
+        private (ReflectionId, string) ParseFileName(string fullFileName) {
+            var fileName = Path.GetFileName(fullFileName);
+            var parts = fileName.Split('.');
+            return (new ReflectionId(parts[0]), parts.Length > 1 ? parts[1] : "");
         }
-
-        private async ValueTask<(string, Dictionary<string,string>?)> ReadHeaders(string mainFileName) {
-            var headersFileName = HeadersFileName(mainFileName);
-
-            var encoding = "???";
-            Dictionary<string,string>? coll = null;
-            if (File.Exists(headersFileName)) {
-                foreach (var line in await File.ReadAllLinesAsync(headersFileName)) {
-                    var parts = line.Split(KwSeparator);
-                    var key = parts[0];
-                    var value = parts.Length > 1 ? parts[1] : "";
-                    if (key == EncodingKey) {
-                        encoding = value;
-                    }
-                    else {
-                        if (coll == null) coll = new();
-                        coll[key] = value;
-                    }
-                }
-            }
-            return (encoding,coll);
-        }
+        
+        private string GetMemFileName(MemKey key, string encoding) => 
+            Path.Combine(Root, key.Id.Category, key.Id.Name, key.Rid.Id + "." + encoding);
     }
 }

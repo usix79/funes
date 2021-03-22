@@ -5,8 +5,8 @@ namespace Funes {
     
     public interface ICache {
         
-        ValueTask<Result<bool>> Put<T>(IEnumerable<Mem<T>> mems, int ttl, IRepository.Encoder<T> encoder);
+        ValueTask<Result<bool>> Put(IEnumerable<Mem> mems, int ttl, IRepository.Encoder encoder);
         
-        ValueTask<Result<Mem<T>>[]> Get<T>(MemId[] ids, IRepository.Decoder<T> decoder);
+        ValueTask<Result<Mem>[]> Get(IEnumerable<(MemId, IRepository.Decoder)> ids);
     }
 }

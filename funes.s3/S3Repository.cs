@@ -24,12 +24,12 @@ namespace Funes.S3 {
             _client = new AmazonS3Client();
         }
 
-        private const string EncodingKey = "encoding";
+        private const string EncodingKey = "x-amz-meta-encoding";
         
-        public async ValueTask<Result<bool>> Put<T>(Mem<T> mem, IRepository.Encoder<T> encoder) {
+        public async ValueTask<Result<bool>> Put(Mem mem, IRepository.Encoder encoder) {
             try {
                 await using var stream = new MemoryStream();
-                var encodeResult = await encoder(stream, mem.Content);
+                var encodeResult = await encoder(stream, mem.Value);
                 if (encodeResult.IsError) return new Result<bool>(encodeResult.Error);
 
                 var encoding = encodeResult.Value;
@@ -40,15 +40,9 @@ namespace Funes.S3 {
                     Key = CreateMemS3Key(mem.Key),
                     ContentType = ResolveContentType(),
                     InputStream = stream,
-                    Metadata = {[EncodingKey] = encoding}
+                    Headers = {[EncodingKey] = encoding}
                 };
-
-                if (mem.Headers?.Count > 0) {
-                    foreach (var key in mem.Headers.Keys) {
-                        req.Metadata[key] = mem.Headers[key];
-                    }
-                }
-
+                
                 var resp = await _client.PutObjectAsync(req);
 
                 return new Result<bool>(true);
@@ -66,46 +60,25 @@ namespace Funes.S3 {
                 return Result<bool>.Exception(e);
             }
         }
-        
-        public async ValueTask<Result<Mem<T>>> Get<T>(MemKey key, IRepository.Decoder<T> decoder) {
+        public async ValueTask<Result<Mem>> Get(MemKey key, IRepository.Decoder decoder) {
             try {
                 var resp = await _client.GetObjectAsync(BucketName, CreateMemS3Key(key));
                 
-                
-                var encoding = resp.Headers.ContentType;
-                Dictionary<string, string>? headers = null;
-                if (resp.Metadata.Keys.Count > 0) {
-                    headers = new();
-
-                    foreach (var headerKey in resp.Metadata.Keys) {
-                        var actualKey =
-                            headerKey.StartsWith("x-amz-meta-")
-                                ? headerKey.Substring("x-amz-meta-".Length)
-                                : headerKey;
-
-                        var value = resp.Metadata[headerKey];
-                        if (actualKey == EncodingKey) {
-                            encoding = value;
-                        }
-                        else {
-                            headers[actualKey] = resp.Metadata[headerKey];
-                        }
-                    }
-                }
+                var encoding = resp.Metadata[EncodingKey];
 
                 var decodeResult = await decoder(resp.ResponseStream, encoding);
-                if (decodeResult.IsError) return new Result<Mem<T>>(decodeResult.Error);
+                if (decodeResult.IsError) return new Result<Mem>(decodeResult.Error);
 
-                return new Result<Mem<T>>(new Mem<T>(key, headers, decodeResult.Value));
+                return new Result<Mem>(new Mem(key, decodeResult.Value));
             }
             catch (AmazonS3Exception e) when (e.StatusCode == HttpStatusCode.NotFound) {
-                return Result<Mem<T>>.NotFound;
+                return Result<Mem>.NotFound;
             }
             catch (AmazonS3Exception e) {
-                return Result<Mem<T>>.IoError(e.ToString());
+                return Result<Mem>.IoError(e.ToString());
             }
             catch (Exception e) {
-                return Result<Mem<T>>.Exception(e);
+                return Result<Mem>.Exception(e);
             }
         }
         

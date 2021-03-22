@@ -64,7 +64,7 @@ namespace Funes.Tests {
             var repo = CreateRepo();
             
             var key = new MemId("cat-s", "id-b2");
-            var history = new List<(Mem<Simple>, ReflectionId)>();
+            var history = new List<(Mem, ReflectionId)>();
             for (var i = 0; i < 42; i++) {
                 var rid = ReflectionId.NewId();
                 var mem = TestHelpers.CreateSimpleMem(rid, key);

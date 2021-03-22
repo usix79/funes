@@ -1,17 +1,14 @@
 using System;
-using System.Collections.Generic;
 
 namespace Funes {
-    public readonly struct Mem<T> {
+    public readonly struct Mem {
 
         public MemKey Key { get; }
-        public IReadOnlyDictionary<string,string>? Headers { get; }
-        public T Content { get; }
+        public object Value { get; }
 
-        public Mem(MemKey key, IReadOnlyDictionary<string,string>? headers, T content) {
+        public Mem(MemKey key,  object value) {
             Key = key;
-            Headers = headers;
-            Content = content;
+            Value = value;
         }
     }
 }
