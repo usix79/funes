@@ -6,29 +6,32 @@ using System.Threading.Tasks;
 namespace Funes {
     
     public struct MemHolder {
+        private enum Status { IsNotAvailable = 0, IsNotExist, IsOk }
+        
+        private Status _status;
         public Mem Mem { get; }
-        public bool IsNotAvailable { get; init; }
-        public bool IsNotExist { get; init; }
-        public bool IsOk => !IsNotAvailable && !IsNotExist;
+        public bool IsNotAvailable => _status == Status.IsNotAvailable;
+        public bool IsNotExist => _status == Status.IsNotExist;
+        public bool IsOk => _status == Status.IsOk;
 
-        private MemHolder(Mem mem) => (Mem, IsNotAvailable, IsNotExist) = (mem, false, false);
-        public static MemHolder Ok(Mem mem) => new MemHolder(mem);
-        public static MemHolder NotAvailable = new MemHolder {IsNotAvailable = true};
-        public static MemHolder NotFound = new MemHolder {IsNotExist = true};
+        private MemHolder(Mem mem) => (Mem, _status) = (mem, Status.IsOk);
+        public static MemHolder Ok(Mem mem) => new (mem);
+        public static readonly MemHolder NotAvailable = new MemHolder {_status = Status.IsNotAvailable};
+        public static readonly MemHolder NotExist = new MemHolder {_status = Status.IsNotExist};
     }
 
-    public class Logic<TState,TMsg,TSideEffect> {
+    public static class Logic<TState,TMsg,TSideEffect> {
         
         public abstract record Cmd {
             public record MsgCmd(TMsg Msg) : Cmd;
             public record RetrieveCmd(MemId MemId, Func<MemHolder, TMsg> Action) : Cmd;
-            public record RetrieveManyCmd(MemId[] MemIds, Func<MemHolder[], TMsg> Action) : Cmd;
-            public record BatchCmd(Cmd[] Items) : Cmd;
+            public record RetrieveManyCmd(IEnumerable<MemId> MemIds, Func<MemHolder[], TMsg> Action) : Cmd;
+            public record BatchCmd(IEnumerable<Cmd> Items) : Cmd;
             public abstract record OutputCmd : Cmd;
             public record ConclusionCmd(Mem Mem) : OutputCmd;
             public record DerivedFactCmd(Mem Mem) : OutputCmd;
             public record SideEffectCmd(TSideEffect SideEffect) : OutputCmd;
-            public record BatchOutputCmd(OutputCmd[] Items) : OutputCmd;
+            public record BatchOutputCmd(IEnumerable<OutputCmd> Items) : OutputCmd;
         }
         
         public delegate Task<Result<MemStamp>> Retrieve(MemId id);
@@ -63,6 +66,7 @@ namespace Funes {
                 
                 if (pendingMessages.Count == 0 && pendingCommands.First != null) {
                     await Task.WhenAny(retrievingTasks.Values);
+                    ProcessPendingCommands();
                 }
             }
 
@@ -76,10 +80,12 @@ namespace Funes {
                         pendingMessages.Enqueue(x.Msg);
                         break;
                     case Cmd.BatchCmd x:
-                        Array.ForEach(x.Items, ProcessCommand);
+                        foreach (var item in x.Items) 
+                            ProcessCommand(item);
                         break;
                     case Cmd.BatchOutputCmd x:
-                        Array.ForEach(x.Items, ProcessCommand);
+                        foreach (var item in x.Items) 
+                            ProcessCommand(item);
                         break;
                     case Cmd.ConclusionCmd x:
                         output.Conclusions[x.Mem.Id] = x.Mem;
@@ -101,7 +107,8 @@ namespace Funes {
                     case Cmd.RetrieveManyCmd x:
                         if (!TryCompleteRetrieveMany(x)) {
                             pendingCommands.AddLast(x);
-                            Array.ForEach(x.MemIds, StartRetrievingTask);
+                            foreach(var memId in x.MemIds)
+                                StartRetrievingTask(memId);
                         }
                         break;
                 }
@@ -162,18 +169,18 @@ namespace Funes {
             }
                 
             void RegisterPremise(MemId memId, Result<MemStamp> result) {
-                if (!mems.ContainsKey(memId)) {
+                if (!mems!.ContainsKey(memId)) {
                     var holder = result.IsOk
                         ? MemHolder.Ok(result.Value.Mem)
                         : result.Error == Error.NotFound
-                            ? MemHolder.NotFound
+                            ? MemHolder.NotExist
                             : MemHolder.NotAvailable;
 
 
                     mems[memId] = holder;
 
                     if (result.IsOk) {
-                        output.Premises.Add(result.Value.Key);
+                        output!.Premises.Add(result.Value.Key);
                     }
                 }
             }
