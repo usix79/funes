@@ -5,7 +5,7 @@ using Xunit;
 
 namespace Funes.Tests {
     public abstract class AbstractRepoTests {
-        protected abstract IRepository CreateRepo();
+        protected abstract Mem.IRepository CreateRepo();
         
         [Fact]
         public async void GetNonExistingTest() {
@@ -64,7 +64,7 @@ namespace Funes.Tests {
             var repo = CreateRepo();
             
             var key = new MemId("cat-s", "id-b2");
-            var history = new List<(Mem, ReflectionId)>();
+            var history = new List<(MemStamp, ReflectionId)>();
             for (var i = 0; i < 42; i++) {
                 var rid = ReflectionId.NewId();
                 var mem = TestHelpers.CreateSimpleMem(rid, key);

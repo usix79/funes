@@ -9,13 +9,13 @@ using Enyim.Caching.Memcached;
 
 namespace Funes.Memcached {
     
-    public class MemcachedRepository : IRepository {
+    public class MemcachedRepository : Mem.IRepository {
 
-        private readonly IRepository _realRepo;
+        private readonly Mem.IRepository _realRepo;
         private readonly IMemcachedClient _client;
         private readonly int _expirationTime = 60 * 60; // 1 hour;
 
-        public MemcachedRepository(IRepository realRepo, string host = "localhost", int port = 11211) {
+        public MemcachedRepository(Mem.IRepository realRepo, string host = "localhost", int port = 11211) {
             _realRepo = realRepo;
 
             var loggerFactory = new Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory();
@@ -28,7 +28,7 @@ namespace Funes.Memcached {
 
         private const int EncodingSize = 16;
 
-        public ValueTask<Result<bool>> Put(Mem mem, IRepository.Encoder encoder) {
+        public ValueTask<Result<bool>> Put(MemStamp memStamp, Mem.IRepository.Encoder encoder) {
             throw new NotImplementedException();
             
             // await using var stream = new MemoryStream();
@@ -72,7 +72,7 @@ namespace Funes.Memcached {
         }
 
         
-        public ValueTask<Result<Mem>> Get(MemKey key, IRepository.Decoder _) {
+        public ValueTask<Result<MemStamp>> Get(MemKey key, Mem.IRepository.Decoder _) {
             throw new NotImplementedException();
         }
         

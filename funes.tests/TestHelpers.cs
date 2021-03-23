@@ -14,16 +14,16 @@ namespace Funes.Tests {
                 }
             });
         
-        public static Mem CreateSimpleMem(ReflectionId rid, MemId? key = null) {
+        public static MemStamp CreateSimpleMem(ReflectionId rid, MemId? key = null) {
             
             var nonNullKey = key ?? new MemId("cat-" + RandomString(10), "id-" + RandomString(10));
             
             var content = new Simple(Rand.Next(1024), RandomString(1024));
             
-            return new Mem (new MemKey(nonNullKey, rid), content);
+            return new MemStamp (new Mem(nonNullKey, content), rid);
         }
         
-        public static async Task LoadRandomMemories(IRepository repo) {
+        public static async Task LoadRandomMemories(Mem.IRepository repo) {
             for (var i = 0; i < 2; i++) {
                 var cat = "cat-" + RandomString(1);
                 for (var j = 0; j < 6; j++) {
@@ -33,7 +33,7 @@ namespace Funes.Tests {
             }
         }
         
-        public static void AssertMemEquals(Mem expected, Mem actual) {
+        public static void AssertMemEquals(MemStamp expected, MemStamp actual) {
             Assert.Equal(expected.Key, actual.Key);
             Assert.Equal(expected.Value, actual.Value);
         }

@@ -6,17 +6,17 @@ using System.Threading.Tasks;
 
 namespace Funes.Fs {
     
-    public class FileSystemRepository : IRepository {
+    public class FileSystemRepository : Mem.IRepository {
         
         public string Root { get; }
         
         public FileSystemRepository(string root) => Root = root;
 
-        public async ValueTask<Result<bool>> Put(Mem mem, IRepository.Encoder encoder) {
+        public async ValueTask<Result<bool>> Put(MemStamp memStamp, Mem.IRepository.Encoder encoder) {
             await using MemoryStream stream = new();
-            var encoderResult = await encoder(stream, mem.Value);
+            var encoderResult = await encoder(stream, memStamp.Value);
             if (encoderResult.IsError) return new Result<bool>(encoderResult.Error);
-            return await Put(mem.Key, stream.GetBuffer(), encoderResult.Value);
+            return await Put(memStamp.Key, stream.GetBuffer(), encoderResult.Value);
         }
 
         public async ValueTask<Result<bool>> Put(MemKey key, ReadOnlyMemory<byte> value, string encoding) {
@@ -32,7 +32,7 @@ namespace Funes.Fs {
             }
         }
 
-        public async ValueTask<Result<Mem>> Get(MemKey key, IRepository.Decoder decoder) {
+        public async ValueTask<Result<MemStamp>> Get(MemKey key, Mem.IRepository.Decoder decoder) {
             try {
                 var memDirectory = GetMemDirectory(key);
                 if (Directory.Exists(memDirectory)) {
@@ -41,16 +41,16 @@ namespace Funes.Fs {
                         var decodeResult = await decoder(File.OpenRead(fileName), encoding);
 
                         if (decodeResult.IsOk) 
-                            return new Result<Mem>(new Mem(key, decodeResult.Value));
+                            return new Result<MemStamp>(new MemStamp(key, decodeResult.Value));
                     
                         if (decodeResult.Error != Error.NotSupportedEncoding)
-                            return new Result<Mem>(decodeResult.Error);
+                            return new Result<MemStamp>(decodeResult.Error);
                     }
                 }
-                return Result<Mem>.NotFound;
+                return Result<MemStamp>.NotFound;
             }
             catch (Exception e) {
-                return Result<Mem>.Exception(e);
+                return Result<MemStamp>.Exception(e);
             }
         }
         

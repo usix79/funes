@@ -5,7 +5,7 @@ using Xunit;
 namespace Funes.Memcached.Tests {
     
     public class MemcachedRepoTests : AbstractRepoTests {
-        protected override IRepository CreateRepo() {
+        protected override Mem.IRepository CreateRepo() {
             var realRepo = new SimpleRepository();
 
             var host = Environment.GetEnvironmentVariable("FUNES_TEST_MEMCACHED_HOST") ?? "localhost";

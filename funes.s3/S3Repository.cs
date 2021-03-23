@@ -10,7 +10,7 @@ using Amazon.S3.Model;
 
 namespace Funes.S3 {
     
-    public class S3Repository : IRepository {
+    public class S3Repository : Mem.IRepository {
         
         public string BucketName { get; }
         
@@ -26,10 +26,10 @@ namespace Funes.S3 {
 
         private const string EncodingKey = "x-amz-meta-encoding";
         
-        public async ValueTask<Result<bool>> Put(Mem mem, IRepository.Encoder encoder) {
+        public async ValueTask<Result<bool>> Put(MemStamp memStamp, Mem.IRepository.Encoder encoder) {
             try {
                 await using var stream = new MemoryStream();
-                var encodeResult = await encoder(stream, mem.Value);
+                var encodeResult = await encoder(stream, memStamp.Value);
                 if (encodeResult.IsError) return new Result<bool>(encodeResult.Error);
 
                 var encoding = encodeResult.Value;
@@ -37,7 +37,7 @@ namespace Funes.S3 {
 
                 var req = new PutObjectRequest {
                     BucketName = BucketName,
-                    Key = CreateMemS3Key(mem.Key),
+                    Key = CreateMemS3Key(memStamp.Key),
                     ContentType = ResolveContentType(),
                     InputStream = stream,
                     Headers = {[EncodingKey] = encoding}
@@ -60,25 +60,25 @@ namespace Funes.S3 {
                 return Result<bool>.Exception(e);
             }
         }
-        public async ValueTask<Result<Mem>> Get(MemKey key, IRepository.Decoder decoder) {
+        public async ValueTask<Result<MemStamp>> Get(MemKey key, Mem.IRepository.Decoder decoder) {
             try {
                 var resp = await _client.GetObjectAsync(BucketName, CreateMemS3Key(key));
                 
                 var encoding = resp.Metadata[EncodingKey];
 
                 var decodeResult = await decoder(resp.ResponseStream, encoding);
-                if (decodeResult.IsError) return new Result<Mem>(decodeResult.Error);
+                if (decodeResult.IsError) return new Result<MemStamp>(decodeResult.Error);
 
-                return new Result<Mem>(new Mem(key, decodeResult.Value));
+                return new Result<MemStamp>(new MemStamp(key, decodeResult.Value));
             }
             catch (AmazonS3Exception e) when (e.StatusCode == HttpStatusCode.NotFound) {
-                return Result<Mem>.NotFound;
+                return Result<MemStamp>.NotFound;
             }
             catch (AmazonS3Exception e) {
-                return Result<Mem>.IoError(e.ToString());
+                return Result<MemStamp>.IoError(e.ToString());
             }
             catch (Exception e) {
-                return Result<Mem>.Exception(e);
+                return Result<MemStamp>.Exception(e);
             }
         }
         

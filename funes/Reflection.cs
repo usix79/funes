@@ -1,13 +1,65 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Funes {
     
     public enum ReflectionStatus { Opinion = -1, Fallacy = 0, Truth = 1, Lost = 404 }
+    
+    public readonly struct ReflectionId : IEquatable<ReflectionId>, IComparable<ReflectionId>, IComparable {
+        public int CompareTo(object? obj) {
+            if (ReferenceEquals(null, obj)) return 1;
+            return obj is ReflectionId other ? CompareTo(other) : throw new ArgumentException($"Object must be of type {nameof(ReflectionId)}");
+        }
+        
+        public string Id { get; }
+
+        public static readonly ReflectionId Singularity = new ("");
+        public static readonly ReflectionId None = new ("");
+        private static readonly DateTimeOffset FryReawakening = 
+            new (3000, 1, 1, 0, 0, 0, TimeSpan.Zero);
+
+        public ReflectionId(string id) => Id = id;
+        
+        public static long MillisecondsBeforeFryReawakening(DateTimeOffset dt) => 
+            Convert.ToInt64((FryReawakening - dt).TotalMilliseconds);
+
+        private const int DigitsLength = 14;
+        private const int TailLenght = 6;
+
+        private static readonly ThreadLocal<Random> Rand = new (() => new Random(DateTime.Now.Millisecond));
+        
+        public static ReflectionId ComposeId(DateTimeOffset dt, Random? rand) {
+            Debug.Assert(rand != null, nameof(rand) + " != null");
+
+            var id = string.Create(DigitsLength + 1 + TailLenght, MillisecondsBeforeFryReawakening(dt), 
+                (span, num) => {
+                    for (var i = 0; i < DigitsLength; i++, num /= 10) {
+                        span[DigitsLength - i - 1] = (char)('0' + num % 10);
+                    }
+                    span[DigitsLength] = '-';
+                    for (var i = 0; i < TailLenght; i++) {
+                        span[DigitsLength + i + 1] = (char) ('a' + rand.Next(25));
+                    }
+                });
+            
+            return new ReflectionId(id);
+        }
+        
+        public static ReflectionId NewId() => ComposeId(DateTimeOffset.UtcNow, Rand.Value);
+        public bool Equals(ReflectionId other) => Id == other.Id;
+        public override bool Equals(object? obj) => obj is ReflectionId other && Equals(other);
+        public override int GetHashCode() => Id.GetHashCode();
+        public static bool operator ==(ReflectionId left, ReflectionId right) => left.Equals(right);
+        public static bool operator !=(ReflectionId left, ReflectionId right) => !left.Equals(right);
+        public int CompareTo(ReflectionId other) => string.Compare(Id, other.Id, StringComparison.Ordinal);
+        public override string ToString() => $"RID:{Id}";
+    }
     
     public record Reflection(
         ReflectionId Id, ReflectionId ParentId, ReflectionStatus Status,
@@ -23,12 +75,19 @@ namespace Funes {
 
         public static MemId CreateMemId(ReflectionId rid) => new MemId(Category, rid.Id);
         public static MemKey CreateMemKey(ReflectionId rid) => new MemKey(CreateMemId(rid), rid);
+        
+        public interface ISourceOfTruth {
+            ValueTask<Result<ReflectionId>> GetActualRid(MemId id);
+            ValueTask<Result<ReflectionId>[]> GetActualRids(IEnumerable<MemId> ids);
+            ValueTask<Result<bool>> TrySetConclusions(IEnumerable<MemKey> premises, IEnumerable<MemKey> conclusions);
+        }
+        
         public static async ValueTask<Result<Reflection>> Reflect (
-            IRepository repo, ICache cache, ISourceOfTruth sot, IRepository.Encoder encoder,
+            Mem.IRepository repo, Mem.ICache cache, ISourceOfTruth sot, Mem.IRepository.Encoder encoder,
             ReflectionId parentId,
-            (MemId, object) fact,
+            Mem fact,
             IEnumerable<MemKey> premises,
-            IEnumerable<(MemId, object)> conclusions,
+            IEnumerable<Mem> conclusions,
             IEnumerable<KeyValuePair<string,string>> details) {
 
             var reflectTime = DateTime.UtcNow;
@@ -36,8 +95,7 @@ namespace Funes {
             try {
                 var rid = ReflectionId.NewId();
                 var premisesArr = premises as MemKey[] ?? premises.ToArray();
-                var conclusionsArr = conclusions.Select(pair => 
-                    new Mem(new MemKey(pair.Item1, rid), pair.Item2)).ToArray();
+                var conclusionsArr = conclusions.Select(mem => new MemStamp(mem, rid)).ToArray();
                 
                 var sotResult = await sot.TrySetConclusions(premisesArr, conclusionsArr.Select(x => x.Key));
                 
@@ -58,10 +116,10 @@ namespace Funes {
 
                 var detailsDict = new Dictionary<string,string>(details);
                 
-                var factMem = new Mem(new MemKey(fact.Item1, rid), fact.Item2);
+                var factMem = new MemStamp(fact, rid);
                 var reflection = new Reflection(rid, parentId, status, 
-                    fact.Item1, premisesArr, conclusionsArr.Select(x => x.Key.Id).ToArray(), detailsDict);
-                var reflectionMem = new Mem(CreateMemKey(rid), reflection);
+                    fact.Id, premisesArr, conclusionsArr.Select(x => x.Key.Id).ToArray(), detailsDict);
+                var reflectionMem = new MemStamp(new Mem(CreateMemId(rid), reflection), rid);
 
                 detailsDict[DetailsReflectTime] = reflectTime.ToFileTimeUtc().ToString();
                 detailsDict[DetailsRepoTime] = DateTime.UtcNow.ToFileTimeUtc().ToString();
@@ -111,7 +169,7 @@ namespace Funes {
             }
         }
 
-        public static async ValueTask<Result<Reflection>> Load(IRepository repo, ReflectionId rid) {
+        public static async ValueTask<Result<Reflection>> Load(Mem.IRepository repo, ReflectionId rid) {
             var getResult = await repo.Get(CreateMemKey(rid), Decoder);
             return getResult.IsOk
                 ? new Result<Reflection>((Reflection) getResult.Value.Value)
@@ -124,7 +182,7 @@ namespace Funes {
             public Fallacy(MemKey premise, ReflectionId actualRid) => (PremiseKey, ActualRid) = (premise, actualRid);
         }
         
-        public static async ValueTask<Result<Fallacy[]>> Check (IRepository repo, ReflectionId rid) {
+        public static async ValueTask<Result<Fallacy[]>> Check (Mem.IRepository repo, ReflectionId rid) {
             var loadResult = await Load(repo, rid);
             if (loadResult.IsError) return new Result<Fallacy[]>(loadResult.Error);
 
@@ -153,9 +211,8 @@ namespace Funes {
             public Collision(MemId memId, ReflectionId[] opinions) => (MemId, Opinions) = (memId, opinions);
         }
 
-        public static ValueTask<Result<Collision[]>> FindForks(IRepository repo, ReflectionId since) {
+        public static ValueTask<Result<Collision[]>> FindForks(Mem.IRepository repo, ReflectionId since) {
             throw new NotImplementedException();
         }
-
     }
 }
