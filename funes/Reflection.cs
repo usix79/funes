@@ -71,80 +71,81 @@ namespace Funes {
         public static string DetailsStartTime = "StartTime";
         public static string DetailsReflectTime = "ReflectTime";
         public static string DetailsRepoTime = "RepoTime";
-        private const int DefaultTtl = 360; // 1 hour
+        public static string DetailsAttempt = "Attempt";
+        // private const int DefaultTtl = 360; // 1 hour
 
         public static MemId CreateMemId(ReflectionId rid) => new MemId(Category, rid.Id);
         public static MemKey CreateMemKey(ReflectionId rid) => new MemKey(CreateMemId(rid), rid);
         
-        public interface ISourceOfTruth {
-            ValueTask<Result<ReflectionId>> GetActualRid(MemId id);
-            ValueTask<Result<ReflectionId>[]> GetActualRids(IEnumerable<MemId> ids);
-            ValueTask<Result<bool>> TrySetConclusions(IEnumerable<MemKey> premises, IEnumerable<MemKey> conclusions);
-        }
+        // public interface ISourceOfTruth {
+        //     ValueTask<Result<ReflectionId>> GetActualRid(MemId id);
+        //     ValueTask<Result<ReflectionId>[]> GetActualRids(IEnumerable<MemId> ids);
+        //     ValueTask<Result<bool>> TrySetConclusions(IEnumerable<MemKey> premises, IEnumerable<MemKey> conclusions);
+        // }
         
-        public static async ValueTask<Result<Reflection>> Reflect (
-            Mem.IRepository repo, Mem.ICache cache, ISourceOfTruth sot, Mem.IRepository.Encoder encoder,
-            ReflectionId parentId,
-            Mem fact,
-            IEnumerable<MemKey> premises,
-            IEnumerable<Mem> conclusions,
-            IEnumerable<KeyValuePair<string,string>> details) {
-
-            var reflectTime = DateTime.UtcNow;
-
-            try {
-                var rid = ReflectionId.NewId();
-                var premisesArr = premises as MemKey[] ?? premises.ToArray();
-                var conclusionsArr = conclusions.Select(mem => new MemStamp(mem, rid)).ToArray();
-                
-                var sotResult = await sot.TrySetConclusions(premisesArr, conclusionsArr.Select(x => x.Key));
-                
-                var status = sotResult.IsOk ? ReflectionStatus.Truth : ReflectionStatus.Fallacy;
-
-                var cacheError = Error.No; 
-                if (sotResult.IsOk) {
-                    // TODO: avoid double serializing
-                    // serialize to ReadOnlyMemory or stream and pass to cache and repo
-                    var cacheResult = await cache.Put(conclusionsArr, DefaultTtl, encoder);
-                    if (cacheResult.IsError) {
-                        status = ReflectionStatus.Lost;
-                        cacheError = cacheResult.Error;
-                        // TODO: rollback truth
-                        // need return MemKey[] of the conclusions predecessors from  TrySetConclusions
-                    }
-                }
-
-                var detailsDict = new Dictionary<string,string>(details);
-                
-                var factMem = new MemStamp(fact, rid);
-                var reflection = new Reflection(rid, parentId, status, 
-                    fact.Id, premisesArr, conclusionsArr.Select(x => x.Key.Id).ToArray(), detailsDict);
-                var reflectionMem = new MemStamp(new Mem(CreateMemId(rid), reflection), rid);
-
-                detailsDict[DetailsReflectTime] = reflectTime.ToFileTimeUtc().ToString();
-                detailsDict[DetailsRepoTime] = DateTime.UtcNow.ToFileTimeUtc().ToString();
-                
-                var repoTasks =
-                    conclusionsArr
-                        .Select(mem => repo.Put(mem, encoder).AsTask())
-                        .Append(repo.Put(factMem, encoder).AsTask())
-                        .Append(repo.Put(reflectionMem, Encoder).AsTask());
-
-                var repoResults = await Task.WhenAll(repoTasks);
-
-                var errors = repoResults.Where(x => x.IsError).Select(x => x.Error);
-                if (cacheError != Error.No) errors = errors.Prepend(cacheError);
-                if (sotResult.IsError) errors = errors.Prepend(sotResult.Error);
-
-                var errorsArray = errors.ToArray();
-                return errorsArray.Length == 0
-                    ? new Result<Reflection>(reflection)
-                    : Result<Reflection>.ReflectionError(reflection, errorsArray);
-            }
-            catch (Exception e) {
-                return Result<Reflection>.Exception(e);
-            }
-        }
+        // public static async ValueTask<Result<Reflection>> Reflect (
+        //     Mem.IRepository repo, Mem.ICache cache, ISourceOfTruth sot, Mem.IRepository.Encoder encoder,
+        //     ReflectionId parentId,
+        //     Mem fact,
+        //     IEnumerable<MemKey> premises,
+        //     IEnumerable<Mem> conclusions,
+        //     IEnumerable<KeyValuePair<string,string>> details) {
+        //
+        //     var reflectTime = DateTime.UtcNow;
+        //
+        //     try {
+        //         var rid = ReflectionId.NewId();
+        //         var premisesArr = premises as MemKey[] ?? premises.ToArray();
+        //         var conclusionsArr = conclusions.Select(mem => new MemStamp(mem, rid)).ToArray();
+        //         
+        //         var sotResult = await sot.TrySetConclusions(premisesArr, conclusionsArr.Select(x => x.Key));
+        //         
+        //         var status = sotResult.IsOk ? ReflectionStatus.Truth : ReflectionStatus.Fallacy;
+        //
+        //         var cacheError = Error.No; 
+        //         if (sotResult.IsOk) {
+        //             // TODO: avoid double serializing
+        //             // serialize to ReadOnlyMemory or stream and pass to cache and repo
+        //             var cacheResult = await cache.Put(conclusionsArr, DefaultTtl, encoder);
+        //             if (cacheResult.IsError) {
+        //                 status = ReflectionStatus.Lost;
+        //                 cacheError = cacheResult.Error;
+        //                 // TODO: rollback truth
+        //                 // need return MemKey[] of the conclusions predecessors from  TrySetConclusions
+        //             }
+        //         }
+        //
+        //         var detailsDict = new Dictionary<string,string>(details);
+        //         
+        //         var factMem = new MemStamp(fact, rid);
+        //         var reflection = new Reflection(rid, parentId, status, 
+        //             fact.Id, premisesArr, conclusionsArr.Select(x => x.Key.Id).ToArray(), detailsDict);
+        //         var reflectionMem = new MemStamp(new Mem(CreateMemId(rid), reflection), rid);
+        //
+        //         detailsDict[DetailsReflectTime] = reflectTime.ToFileTimeUtc().ToString();
+        //         detailsDict[DetailsRepoTime] = DateTime.UtcNow.ToFileTimeUtc().ToString();
+        //         
+        //         var repoTasks =
+        //             conclusionsArr
+        //                 .Select(mem => repo.Put(mem, encoder).AsTask())
+        //                 .Append(repo.Put(factMem, encoder).AsTask())
+        //                 .Append(repo.Put(reflectionMem, Encoder).AsTask());
+        //
+        //         var repoResults = await Task.WhenAll(repoTasks);
+        //
+        //         var errors = repoResults.Where(x => x.IsError).Select(x => x.Error);
+        //         if (cacheError != Error.No) errors = errors.Prepend(cacheError);
+        //         if (sotResult.IsError) errors = errors.Prepend(sotResult.Error);
+        //
+        //         var errorsArray = errors.ToArray();
+        //         return errorsArray.Length == 0
+        //             ? new Result<Reflection>(reflection)
+        //             : Result<Reflection>.ReflectionError(reflection, errorsArray);
+        //     }
+        //     catch (Exception e) {
+        //         return Result<Reflection>.Exception(e);
+        //     }
+        // }
 
         public static async ValueTask<Result<string>> Encoder(Stream output, object content) {
             try {
@@ -205,13 +206,13 @@ namespace Funes {
             return new (fallacies.ToArray());
         }
 
-        public struct Collision {
+        public struct Fork {
             public MemId MemId { get;}
-            public ReflectionId[] Opinions { get;}
-            public Collision(MemId memId, ReflectionId[] opinions) => (MemId, Opinions) = (memId, opinions);
+            public ReflectionId[] Heads { get;}
+            public Fork(MemId memId, ReflectionId[] heads) => (MemId, Heads) = (memId, heads);
         }
 
-        public static ValueTask<Result<Collision[]>> FindForks(Mem.IRepository repo, ReflectionId since) {
+        public static ValueTask<Result<Fork[]>> FindForks(Mem.IRepository repo, ReflectionId since) {
             throw new NotImplementedException();
         }
     }

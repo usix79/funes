@@ -14,12 +14,12 @@ namespace Funes {
             Value = value;
         }
         
-        public interface ICache {
-        
-            ValueTask<Result<bool>> Put(IEnumerable<MemStamp> mems, int ttl, IRepository.Encoder encoder);
-        
-            ValueTask<Result<MemStamp>[]> Get(IEnumerable<(MemId, IRepository.Decoder)> ids);
-        }
+        // public interface ICache {
+        //
+        //     ValueTask<Result<bool>> Put(IEnumerable<MemStamp> mems, int ttl, IRepository.Encoder encoder);
+        //
+        //     ValueTask<Result<MemStamp>[]> Get(IEnumerable<(MemId, IRepository.Decoder)> ids);
+        // }
 
         public interface IRepository {
             public delegate ValueTask<Result<string>> Encoder(Stream output, object content);
