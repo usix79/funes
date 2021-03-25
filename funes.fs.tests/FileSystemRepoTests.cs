@@ -13,7 +13,7 @@ namespace Funes.Fs.Tests {
             _testOutputHelper = testOutputHelper;
         }
 
-        protected override Mem.IRepository CreateRepo() {
+        protected override IRepository CreateRepo() {
             var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
             _testOutputHelper.WriteLine($"FS Repo path: {path}");
             return new FileSystemRepository(path);

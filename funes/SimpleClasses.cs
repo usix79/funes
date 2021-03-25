@@ -1,34 +1,63 @@
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 namespace Funes {
     
-    public class SimpleRepository : Mem.IRepository {
+    public class SimpleSerializer<T> : ISerializer {
+        public async ValueTask<Result<string>> Encode(Stream output, object content) {
+            try {
+                await JsonSerializer.SerializeAsync(output, content);
+                return new Result<string>("json");
+            }
+            catch (Exception ex) {
+                return Result<string>.Exception(ex);
+            }
+        }
 
-        private readonly ConcurrentDictionary<MemKey, MemStamp> _memories = new();
+        public async ValueTask<Result<object>> Decode(Stream input, EntityId eid, string encoding) {
+            try {
+                if ("json" != encoding) return Result<object>.NotSupportedEncoding(encoding);
 
-        public ValueTask<Result<bool>> Put(MemStamp memStamp, Mem.IRepository.Encoder _) {
+                var content = await JsonSerializer.DeserializeAsync<T>(input);
+                return content != null
+                    ? new Result<object>(content)
+                    : Result<object>.SerdeError($"Failed to deserialize instance of {typeof(T)}");
+            }
+            catch (Exception ex) {
+                return Result<object>.Exception(ex);
+            }
+        }
+    }
 
-            _memories[memStamp.Key] = memStamp;
+    public class SimpleRepository : IRepository {
+
+        private readonly ConcurrentDictionary<EntityStampKey, EntityStamp> _memories = new();
+
+        public ValueTask<Result<bool>> Put(EntityStamp entityStamp, ISerializer _) {
+
+            _memories[entityStamp.Key] = entityStamp;
 
             return ValueTask.FromResult(new Result<bool>(true));
         }
 
-        public ValueTask<Result<MemStamp>> Get(MemKey key, Mem.IRepository.Decoder _) {
+        public ValueTask<Result<EntityStamp>> Get(EntityStampKey key, ISerializer _) {
             var result =
                 _memories.TryGetValue(key, out var mem)
-                    ? new Result<MemStamp>(mem)
-                    : Result<MemStamp>.NotFound;
+                    ? new Result<EntityStamp>(mem)
+                    : Result<EntityStamp>.NotFound;
 
             return ValueTask.FromResult(result);
         }
         
-        public ValueTask<Result<IEnumerable<ReflectionId>>> GetHistory(MemId id, ReflectionId before, int maxCount = 1) {
+        public ValueTask<Result<IEnumerable<ReflectionId>>> GetHistory(EntityId id, ReflectionId before, int maxCount = 1) {
             var result =
                 _memories.Keys
-                    .Where(key => key.Id == id)
+                    .Where(key => key.Eid == id)
                     .OrderBy(key => key.Rid)
                     .SkipWhile(key => string.CompareOrdinal(key.Rid.Id, before.Id) <= 0)
                     .Take(maxCount)

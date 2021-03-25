@@ -5,15 +5,16 @@ using Xunit;
 
 namespace Funes.Tests {
     public abstract class AbstractRepoTests {
-        protected abstract Mem.IRepository CreateRepo();
-        
+        protected abstract IRepository CreateRepo();
+        private ISerializer _simpleSerializer = new SimpleSerializer<Simple>();
+
         [Fact]
         public async void GetNonExistingTest() {
             var repo = CreateRepo();
 
-            var testMemId = new MemId("TestCategory", "TestId");
-            var testMemKey = new MemKey(testMemId, new ReflectionId("TestReflectionId"));
-            var mem = await repo.Get(testMemKey, Serde.Decoder<Simple>);
+            var testMemId = new EntityId("TestCategory", "TestId");
+            var testMemKey = new EntityStampKey(testMemId, new ReflectionId("TestReflectionId"));
+            var mem = await repo.Get(testMemKey, _simpleSerializer);
             Assert.True(mem.Error == Error.NotFound);
         }
 
@@ -24,10 +25,10 @@ namespace Funes.Tests {
             var testReflectionId = ReflectionId.NewId();
             var testMem = TestHelpers.CreateSimpleMem(testReflectionId);
             
-            var putResult = await repo.Put(testMem, Serde.Encoder);
+            var putResult = await repo.Put(testMem, _simpleSerializer);
             Assert.True(putResult.IsOk);
             
-            var getResult = await repo.Get(testMem.Key, Serde.Decoder<Simple>);
+            var getResult = await repo.Get(testMem.Key, _simpleSerializer);
             Assert.True(getResult.IsOk);
             TestHelpers.AssertMemEquals(testMem, getResult.Value);
         }
@@ -36,18 +37,18 @@ namespace Funes.Tests {
         public async void GetLastTest() {
             var repo = CreateRepo();
             
-            var id = new MemId("cat-s", "id-b2");
+            var id = new EntityId("cat-s", "id-b2");
             
             var testReflectionId1 = ReflectionId.NewId();
             var testMem1 = TestHelpers.CreateSimpleMem(testReflectionId1, id);
-            var putResult1 = await repo.Put(testMem1, Serde.Encoder);
+            var putResult1 = await repo.Put(testMem1, _simpleSerializer);
             Assert.True(putResult1.IsOk);
 
             await Task.Delay(50);
             
             var testReflectionId2 = ReflectionId.NewId();
             var testMem2 = TestHelpers.CreateSimpleMem(testReflectionId2, id);
-            var putResult2 = await repo.Put(testMem2, Serde.Encoder);
+            var putResult2 = await repo.Put(testMem2, _simpleSerializer);
             Assert.True(putResult2.IsOk);
             
             var historyResult = await repo.GetHistory(id, ReflectionId.Singularity, 1);
@@ -63,13 +64,13 @@ namespace Funes.Tests {
         public async void GetHistoryTest() {
             var repo = CreateRepo();
             
-            var key = new MemId("cat-s", "id-b2");
-            var history = new List<(MemStamp, ReflectionId)>();
+            var key = new EntityId("cat-s", "id-b2");
+            var history = new List<(EntityStamp, ReflectionId)>();
             for (var i = 0; i < 42; i++) {
                 var rid = ReflectionId.NewId();
                 var mem = TestHelpers.CreateSimpleMem(rid, key);
                 history.Add((mem, rid));
-                var putResult = await repo.Put(mem, Serde.Encoder);
+                var putResult = await repo.Put(mem, _simpleSerializer);
                 Assert.True(putResult.IsOk);
                 await Task.Delay(10);
             }

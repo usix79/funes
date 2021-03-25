@@ -6,22 +6,22 @@ using System.Threading.Tasks;
 
 namespace Funes.Fs {
     
-    public class FileSystemRepository : Mem.IRepository {
+    public class FileSystemRepository : IRepository {
         
         public string Root { get; }
         
         public FileSystemRepository(string root) => Root = root;
 
-        public async ValueTask<Result<bool>> Put(MemStamp memStamp, Mem.IRepository.Encoder encoder) {
+        public async ValueTask<Result<bool>> Put(EntityStamp entityStamp, ISerializer ser) {
             await using MemoryStream stream = new();
-            var encoderResult = await encoder(stream, memStamp.Value);
+            var encoderResult = await ser.Encode(stream, entityStamp.Value);
             if (encoderResult.IsError) return new Result<bool>(encoderResult.Error);
-            return await Put(memStamp.Key, stream.GetBuffer(), encoderResult.Value);
+            return await Put(entityStamp.Key, stream.GetBuffer(), encoderResult.Value);
         }
 
-        public async ValueTask<Result<bool>> Put(MemKey key, ReadOnlyMemory<byte> value, string encoding) {
+        public async ValueTask<Result<bool>> Put(EntityStampKey key, ReadOnlyMemory<byte> value, string encoding) {
             try {
-                Directory.CreateDirectory(GetMemPath(key.Id));
+                Directory.CreateDirectory(GetMemPath(key.Eid));
                 var fileName = GetMemFileName(key, encoding);
                 await using FileStream fs = File.OpenWrite(fileName);
                 await fs.WriteAsync(value);
@@ -32,29 +32,29 @@ namespace Funes.Fs {
             }
         }
 
-        public async ValueTask<Result<MemStamp>> Get(MemKey key, Mem.IRepository.Decoder decoder) {
+        public async ValueTask<Result<EntityStamp>> Get(EntityStampKey key, ISerializer ser) {
             try {
                 var memDirectory = GetMemDirectory(key);
                 if (Directory.Exists(memDirectory)) {
                     foreach (var fileName in Directory.GetFiles(memDirectory, GetMemFileMask(key))) {
                         var (rid, encoding) = ParseFileName(fileName);
-                        var decodeResult = await decoder(File.OpenRead(fileName), encoding);
+                        var decodeResult = await ser.Decode(File.OpenRead(fileName), key.Eid, encoding);
 
                         if (decodeResult.IsOk) 
-                            return new Result<MemStamp>(new MemStamp(key, decodeResult.Value));
+                            return new Result<EntityStamp>(new EntityStamp(key, decodeResult.Value));
                     
                         if (decodeResult.Error != Error.NotSupportedEncoding)
-                            return new Result<MemStamp>(decodeResult.Error);
+                            return new Result<EntityStamp>(decodeResult.Error);
                     }
                 }
-                return Result<MemStamp>.NotFound;
+                return Result<EntityStamp>.NotFound;
             }
             catch (Exception e) {
-                return Result<MemStamp>.Exception(e);
+                return Result<EntityStamp>.Exception(e);
             }
         }
         
-        public ValueTask<Result<IEnumerable<ReflectionId>>> GetHistory(MemId id, ReflectionId before, int maxCount = 1) {
+        public ValueTask<Result<IEnumerable<ReflectionId>>> GetHistory(EntityId id, ReflectionId before, int maxCount = 1) {
             try {
                 var path = GetMemPath(id);
 
@@ -72,12 +72,12 @@ namespace Funes.Fs {
             }
         }
 
-        private string GetMemPath(MemId id) => Path.Combine(Root, id.Category, id.Name);
+        private string GetMemPath(EntityId id) => Path.Combine(Root, id.Category, id.Name);
 
-        private string GetMemDirectory(MemKey key) => 
-            Path.Combine(Root, key.Id.Category, key.Id.Name);
+        private string GetMemDirectory(EntityStampKey key) => 
+            Path.Combine(Root, key.Eid.Category, key.Eid.Name);
 
-        private string GetMemFileMask(MemKey key) =>
+        private string GetMemFileMask(EntityStampKey key) =>
             key.Rid.Id + ".*";
 
         private (ReflectionId, string) ParseFileName(string fullFileName) {
@@ -86,7 +86,7 @@ namespace Funes.Fs {
             return (new ReflectionId(parts[0]), parts.Length > 1 ? parts[1] : "");
         }
         
-        private string GetMemFileName(MemKey key, string encoding) => 
-            Path.Combine(Root, key.Id.Category, key.Id.Name, key.Rid.Id + "." + encoding);
+        private string GetMemFileName(EntityStampKey key, string encoding) => 
+            Path.Combine(Root, key.Eid.Category, key.Eid.Name, key.Rid.Id + "." + encoding);
     }
 }

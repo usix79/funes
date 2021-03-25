@@ -7,43 +7,30 @@ using System.Threading.Tasks;
 
 namespace Funes {
     
-    public delegate Task<Result<(MemKey,ReflectionId)[]>> TrySetConclusions(IEnumerable<MemKey> premises, IEnumerable<MemKey> conclusions, CancellationToken ct);
-    public delegate Task<Result<bool>> RollbackConclusions(IEnumerable<(MemKey,ReflectionId)> trySetResult, CancellationToken ct);
-    public delegate Task<Result<bool>> Upload(IEnumerable<MemStamp> mems, CancellationToken ct);
     public delegate Task<Result<bool>> Behaviour<in TSideEffect>(TSideEffect sideEffect, CancellationToken ct);
 
     public class ReflectionEngine<TState,TMsg,TSideEffect> {
-        
         private readonly int _maxAttempts;
+        private readonly IDataSource _ds;
         private readonly LogicEngine<TState, TMsg, TSideEffect> _logicEngine;
-        private readonly TrySetConclusions _trySetConclusions;
-        private readonly RollbackConclusions _rollbackConclusions;
-        private readonly Upload _upload;
         private readonly Behaviour<TSideEffect> _behaviour;
 
-        public ReflectionEngine(
-                LogicEngine<TState, TMsg, TSideEffect> logicEngine,
-                Behaviour<TSideEffect> behaviour, 
-                TrySetConclusions trySetConclusions, 
-                RollbackConclusions rollbackConclusions,
-                Upload upload,
-                int maxAttempts = 3) {
+        public ReflectionEngine(LogicEngine<TState, TMsg, TSideEffect> logicEngine,
+                                Behaviour<TSideEffect> behaviour, IDataSource ds, int maxAttempts = 3) {
             _logicEngine = logicEngine;
             _behaviour = behaviour;
-            _trySetConclusions = trySetConclusions;
-            _upload = upload;
-            _rollbackConclusions = rollbackConclusions;
+            _ds = ds;
             _maxAttempts = maxAttempts;
         }
         
         private readonly struct LogicItem {
-            public Mem Fact { get; init; }
+            public Entity Fact { get; init; }
             public ReflectionId? ParentId { get; init; }
             public int Attempt { get; init; }
             public Task<Result<LogicEngine<TState,TMsg,TSideEffect>.Output>> Task { get; init; }
         }
 
-        public async Task Run(Mem fact, CancellationToken ct = default) {
+        public async Task Run(Entity fact, CancellationToken ct = default) {
 
             LinkedList<LogicItem> logicItems = new();
 
@@ -59,7 +46,7 @@ namespace Funes {
                 //
             }
             
-            void RunLogic(Mem aFact, ReflectionId? parentId, int attempt) {
+            void RunLogic(Entity aFact, ReflectionId? parentId, int attempt) {
                 if (attempt <= _maxAttempts) {
                     var task = _logicEngine.Run(aFact, ct);
                     var holder = new LogicItem {Fact = aFact, ParentId = parentId, Attempt = attempt, Task = task};
@@ -82,7 +69,7 @@ namespace Funes {
                 }
             }
 
-            async ValueTask ProcessLogicResult(Mem aFact, ReflectionId? parentId, int attempt,
+            async ValueTask ProcessLogicResult(Entity aFact, ReflectionId? parentId, int attempt,
                 Result<LogicEngine<TState, TMsg, TSideEffect>.Output> result) {
 
                 if (result.IsError) {
@@ -108,38 +95,38 @@ namespace Funes {
             }
 
             async ValueTask<Result<Reflection>> TryReflect(
-                Mem aFact, ReflectionId? parentId, int attempt,
+                Entity aFact, ReflectionId? parentId, int attempt,
                 LogicEngine<TState, TMsg, TSideEffect>.Output output) {
                 
                 var reflectTime = DateTime.UtcNow;
                 try {
                     var rid = ReflectionId.NewId();
                     var premisesArr = output.Premises.ToArray();
-                    var conclusionsArr = output.Conclusions.Values.Select(mem => new MemStamp(mem, rid)).ToArray();
+                    var conclusionsArr = output.Conclusions.Values.Select(mem => new EntityStamp(mem, rid)).ToArray();
                     
-                    var sotResult = await _trySetConclusions(premisesArr, conclusionsArr.Select(x => x.Key), ct);
-                    var status = sotResult.IsOk ? ReflectionStatus.Truth : ReflectionStatus.Fallacy;
+                    var commitResult = await _ds.Commit(premisesArr, conclusionsArr.Select(x => x.Key), ct);
+                    var status = commitResult.IsOk ? ReflectionStatus.Truth : ReflectionStatus.Fallacy;
 
-                    var uploadResult = await _upload(conclusionsArr, ct);
+                    var uploadResult = await _ds.Upload(conclusionsArr, ct);
                     if (uploadResult.IsError) {
                         status = ReflectionStatus.Lost;
-                        if (sotResult.IsOk) { // upload error, rollback conclusions
-                            await _rollbackConclusions(sotResult.Value, ct);
+                        if (commitResult.IsOk) { // upload error, rollback conclusions
+                            await _ds.Rollback(commitResult.Value, ct);
                         }
                     }
 
                     var detailsDict = new Dictionary<string,string>();
 
-                    var factMem = new MemStamp(aFact, rid);
+                    var factMem = new EntityStamp(aFact, rid);
                     var reflection = new Reflection(rid, parentId??ReflectionId.None, status, 
-                        fact.Id, premisesArr, conclusionsArr.Select(x => x.Key.Id).ToArray(), detailsDict);
-                    var reflectionMem = new MemStamp(new Mem(Reflection.CreateMemId(rid), reflection), rid);
+                        fact.Id, premisesArr, conclusionsArr.Select(x => x.Key.Eid).ToArray(), detailsDict);
+                    var reflectionMem = new EntityStamp(new Entity(Reflection.CreateMemId(rid), reflection), rid);
 
                     detailsDict[Reflection.DetailsReflectTime] = reflectTime.ToFileTimeUtc().ToString();
                     detailsDict[Reflection.DetailsRepoTime] = DateTime.UtcNow.ToFileTimeUtc().ToString();
                     detailsDict[Reflection.DetailsAttempt] = attempt.ToString();
 
-                    var result = await _upload(new []{factMem, reflectionMem}, ct);
+                    var result = await _ds.Upload(new []{factMem, reflectionMem}, ct);
 
                     return result.IsOk
                         ? new Result<Reflection>(reflection)

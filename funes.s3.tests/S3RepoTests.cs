@@ -13,7 +13,7 @@ namespace Funes.S3.Tests {
             _testOutputHelper = testOutputHelper;
         }
 
-        protected override Mem.IRepository CreateRepo() {
+        protected override IRepository CreateRepo() {
             var bucketName = Environment.GetEnvironmentVariable("FUNES_TEST_BUCKET") ?? "funes-tests";
             var prefix = Guid.NewGuid().ToString();
             

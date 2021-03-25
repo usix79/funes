@@ -10,7 +10,7 @@ using Amazon.S3.Model;
 
 namespace Funes.S3 {
     
-    public class S3Repository : Mem.IRepository {
+    public class S3Repository : IRepository {
         
         public string BucketName { get; }
         
@@ -26,10 +26,10 @@ namespace Funes.S3 {
 
         private const string EncodingKey = "x-amz-meta-encoding";
         
-        public async ValueTask<Result<bool>> Put(MemStamp memStamp, Mem.IRepository.Encoder encoder) {
+        public async ValueTask<Result<bool>> Put(EntityStamp entityStamp, ISerializer ser) {
             try {
                 await using var stream = new MemoryStream();
-                var encodeResult = await encoder(stream, memStamp.Value);
+                var encodeResult = await ser.Encode(stream, entityStamp.Value);
                 if (encodeResult.IsError) return new Result<bool>(encodeResult.Error);
 
                 var encoding = encodeResult.Value;
@@ -37,7 +37,7 @@ namespace Funes.S3 {
 
                 var req = new PutObjectRequest {
                     BucketName = BucketName,
-                    Key = CreateMemS3Key(memStamp.Key),
+                    Key = CreateMemS3Key(entityStamp.Key),
                     ContentType = ResolveContentType(),
                     InputStream = stream,
                     Headers = {[EncodingKey] = encoding}
@@ -60,34 +60,34 @@ namespace Funes.S3 {
                 return Result<bool>.Exception(e);
             }
         }
-        public async ValueTask<Result<MemStamp>> Get(MemKey key, Mem.IRepository.Decoder decoder) {
+        public async ValueTask<Result<EntityStamp>> Get(EntityStampKey key, ISerializer ser) {
             try {
                 var resp = await _client.GetObjectAsync(BucketName, CreateMemS3Key(key));
                 
                 var encoding = resp.Metadata[EncodingKey];
 
-                var decodeResult = await decoder(resp.ResponseStream, encoding);
-                if (decodeResult.IsError) return new Result<MemStamp>(decodeResult.Error);
+                var decodeResult = await ser.Decode(resp.ResponseStream, key.Eid, encoding);
+                if (decodeResult.IsError) return new Result<EntityStamp>(decodeResult.Error);
 
-                return new Result<MemStamp>(new MemStamp(key, decodeResult.Value));
+                return new Result<EntityStamp>(new EntityStamp(key, decodeResult.Value));
             }
             catch (AmazonS3Exception e) when (e.StatusCode == HttpStatusCode.NotFound) {
-                return Result<MemStamp>.NotFound;
+                return Result<EntityStamp>.NotFound;
             }
             catch (AmazonS3Exception e) {
-                return Result<MemStamp>.IoError(e.ToString());
+                return Result<EntityStamp>.IoError(e.ToString());
             }
             catch (Exception e) {
-                return Result<MemStamp>.Exception(e);
+                return Result<EntityStamp>.Exception(e);
             }
         }
         
-        public async ValueTask<Result<IEnumerable<ReflectionId>>> GetHistory(MemId id, ReflectionId before, int maxCount = 1) {
+        public async ValueTask<Result<IEnumerable<ReflectionId>>> GetHistory(EntityId id, ReflectionId before, int maxCount = 1) {
             try {
                 var req = new ListObjectsV2Request {
                     BucketName = BucketName,
                     Prefix = CreateMemS3Id(id),
-                    StartAfter = CreateMemS3Key(new MemKey(id, before)),
+                    StartAfter = CreateMemS3Key(new EntityStampKey(id, before)),
                     MaxKeys = maxCount
                 };
 
@@ -106,10 +106,10 @@ namespace Funes.S3 {
             }
         }
 
-        private string CreateMemS3Key(MemKey key)
-            => $"{Prefix}/{key.Id.Category}/{key.Id.Name}/{key.Rid.Id}";
+        private string CreateMemS3Key(EntityStampKey key)
+            => $"{Prefix}/{key.Eid.Category}/{key.Eid.Name}/{key.Rid.Id}";
         
-        private string CreateMemS3Id(MemId id)
+        private string CreateMemS3Id(EntityId id)
             => $"{Prefix}/{id.Category}/{id.Name}/";
     }
 }
