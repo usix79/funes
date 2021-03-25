@@ -12,15 +12,17 @@ namespace Funes {
         IReadOnlyDictionary<string, string> Details
         ) {
         
-        public static readonly string Category = "funes/reflections";
+        public const string Category = "funes/reflections";
+        public const string ChildrenCategory = "funes/children";
         public static string DetailsStartTime = "StartTime";
         public static string DetailsReflectTime = "ReflectTime";
         public static string DetailsRepoTime = "RepoTime";
         public static string DetailsAttempt = "Attempt";
         // private const int DefaultTtl = 360; // 1 hour
 
-        public static EntityId CreateMemId(ReflectionId rid) => new EntityId(Category, rid.Id);
-        public static EntityStampKey CreateMemKey(ReflectionId rid) => new EntityStampKey(CreateMemId(rid), rid);
+        public static EntityId CreateEntityId(ReflectionId rid) => new (Category, rid.Id);
+        public static EntityId CreateChildrenEntityId(ReflectionId parentId) => new (Category, parentId.Id);
+        public static EntityStampKey CreateStampKey(ReflectionId rid) => new (CreateEntityId(rid), rid);
         
         // public interface ISourceOfTruth {
         //     ValueTask<Result<ReflectionId>> GetActualRid(MemId id);
@@ -116,7 +118,7 @@ namespace Funes {
         }
 
         public static async ValueTask<Result<Reflection>> Load(IRepository repo, ISerializer serializer, ReflectionId rid) {
-            var getResult = await repo.Get(CreateMemKey(rid), serializer);
+            var getResult = await repo.Get(CreateStampKey(rid), serializer);
             return getResult.IsOk
                 ? new Result<Reflection>((Reflection) getResult.Value.Value)
                 : new Result<Reflection>(getResult.Error);

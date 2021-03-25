@@ -9,7 +9,7 @@ using System.Threading.Tasks;
 namespace Funes {
     
     public class SimpleSerializer<T> : ISerializer {
-        public async ValueTask<Result<string>> Encode(Stream output, object content) {
+        public async ValueTask<Result<string>> Encode(Stream output, EntityId eid, object content) {
             try {
                 await JsonSerializer.SerializeAsync(output, content);
                 return new Result<string>("json");

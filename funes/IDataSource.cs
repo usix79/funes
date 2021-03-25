@@ -10,7 +10,7 @@ namespace Funes {
             public ReflectionId OldRid { get; }            
         }
         
-        Task<Result<bool>> Upload(IEnumerable<EntityStamp> mems, CancellationToken ct);
+        Task<Result<bool>> Upload(IEnumerable<EntityStamp> mems, ISerializer serializer, CancellationToken ct, bool skipCache = false);
         Task<Result<CommitResult[]>> Commit(IEnumerable<EntityStampKey> premises, IEnumerable<EntityStampKey> conclusions, CancellationToken ct);
         Task<Result<bool>> Rollback(IEnumerable<CommitResult> commitResults, CancellationToken ct);
     }

@@ -1,26 +1,29 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 
 namespace Funes {
-    
-    public delegate Task<Result<bool>> Behaviour<in TSideEffect>(TSideEffect sideEffect, CancellationToken ct);
-
     public class ReflectionEngine<TState,TMsg,TSideEffect> {
         private readonly int _maxAttempts;
+        private readonly ISerializer _serializer;
+        private readonly ISerializer _systemSerializer = new SystemSerializer();
         private readonly IDataSource _ds;
+        private readonly ILogger _logger;
         private readonly LogicEngine<TState, TMsg, TSideEffect> _logicEngine;
         private readonly Behaviour<TSideEffect> _behaviour;
 
-        public ReflectionEngine(LogicEngine<TState, TMsg, TSideEffect> logicEngine,
-                                Behaviour<TSideEffect> behaviour, IDataSource ds, int maxAttempts = 3) {
-            _logicEngine = logicEngine;
-            _behaviour = behaviour;
-            _ds = ds;
-            _maxAttempts = maxAttempts;
+        public ReflectionEngine(
+                LogicEngine<TState, TMsg, TSideEffect> logicEngine, 
+                Behaviour<TSideEffect> behaviour,
+                ISerializer serializer,
+                IDataSource ds, 
+                ILogger logger, 
+                int maxAttempts = 3) {
+            (_logicEngine, _behaviour, _serializer, _ds, _logger, _maxAttempts) = 
+                (logicEngine, behaviour, serializer,ds, logger, maxAttempts);
         }
         
         private readonly struct LogicItem {
@@ -30,27 +33,34 @@ namespace Funes {
             public Task<Result<LogicEngine<TState,TMsg,TSideEffect>.Output>> Task { get; init; }
         }
 
-        public async Task Run(Entity fact, CancellationToken ct = default) {
+        public async Task<Result<ReflectionId>> Run(Entity fact, CancellationToken ct = default) {
 
-            LinkedList<LogicItem> logicItems = new();
+            var rootRid = ReflectionId.None;
+            LinkedList<LogicItem> logicItems = new ();
 
             try {
                 RunLogic(fact, null, 1);
 
                 while (logicItems.First != null) {
                     await Task.WhenAny(logicItems.Select(holder => holder.Task));
+                    ct.ThrowIfCancellationRequested();
                     await CheckLogicResults();
                 }
+                return new Result<ReflectionId>(rootRid);
             }
             catch (Exception x) {
-                //
+                _logger.LogCritical(x, "{Lib} {Obj} {Op} {Exn}", "Funes", "ReflectionEngine", "Loop", x);
+                return Result<ReflectionId>.Exception(x);
             }
             
             void RunLogic(Entity aFact, ReflectionId? parentId, int attempt) {
                 if (attempt <= _maxAttempts) {
                     var task = _logicEngine.Run(aFact, ct);
-                    var holder = new LogicItem {Fact = aFact, ParentId = parentId, Attempt = attempt, Task = task};
-                    logicItems.AddLast(holder);
+                    var item = new LogicItem {Fact = aFact, ParentId = parentId, Attempt = attempt, Task = task};
+                    logicItems.AddLast(item);
+                }
+                else {
+                    LogError(aFact, "RunLogic", "MaxAttempts");
                 }
             }
 
@@ -58,39 +68,52 @@ namespace Funes {
                 var node = logicItems.First;
                 while (node != null) {
                     if (node.Value.Task.IsCompleted) {
-                        if (node.Value.Task.IsCompletedSuccessfully) {
-                            var holder = node.Value;
-                            await ProcessLogicResult(holder.Fact, holder.ParentId, holder.Attempt, holder.Task.Result);                            
-                        }
-                        
                         logicItems.Remove(node);
+                        if (node.Value.Task.IsCompletedSuccessfully && node.Value.Task.Result.IsOk) {
+                            var item = node.Value;
+                            await ProcessLogicResult(item.Fact, item.ParentId, item.Attempt, item.Task.Result.Value);                            
+                        }
+                        else {
+                            var ex = node.Value.Task.Exception;
+                            if (ex is null) LogError(node.Value.Fact, "CheckLogic", "LogicFailed", node.Value.Task.Result.Error);
+                            else LogError(node.Value.Fact, "CheckLogic", "LogicException", null, ex);
+                            
+                            RunLogic(node.Value.Fact, node.Value.ParentId, node.Value.Attempt + 1);
+                        }
                     }
                     node = node.Next;
                 }
             }
 
             async ValueTask ProcessLogicResult(Entity aFact, ReflectionId? parentId, int attempt,
-                Result<LogicEngine<TState, TMsg, TSideEffect>.Output> result) {
+                LogicEngine<TState, TMsg, TSideEffect>.Output output) {
 
-                if (result.IsError) {
-                    RunLogic(aFact, parentId, attempt++);
+                var reflectionResult = await TryReflect(aFact, parentId, attempt, output);
+
+                if (reflectionResult.IsOk) {
+                    var rid = reflectionResult.Value.Id;
+                    if (parentId is null) rootRid = rid;
+                    try { 
+                        await Task.WhenAll(output.SideEffects.Select(effect => _behaviour(effect, ct)));
+                    }
+                    catch (AggregateException x) {
+                        LogError(rid, "ProcessLogicResult", "SideEffect", null, x);
+                    }
+
+                    foreach (var derivedFact in output.DerivedFacts) {
+                        RunLogic(derivedFact.Value, reflectionResult.Value.Id, 1);
+                    }
                 }
                 else {
-                    var reflectionResult = await TryReflect(aFact, parentId, attempt, result.Value);
-
-                    if (reflectionResult.IsOk) {
-                        // TODO: handle errors
-                        await Task.WhenAll(result.Value.SideEffects.Select(effect => _behaviour(effect, ct)));
-
-                        foreach (var derivedFact in result.Value.DerivedFacts) {
-                            RunLogic(derivedFact.Value, reflectionResult.Value.Id, 1);
-                            // TODO upload chield information
-                        }
+                    switch (reflectionResult.Error) {
+                        case Error.ReflectionError x:
+                            LogError(x.Reflection.Id, "ProcessLogicResult", "TryReflect", x.Error);
+                            break;
+                        default:
+                            LogError(aFact, "ProcessLogicResult", "TryReflect", reflectionResult.Error);
+                            break;
                     }
-                    else {
-                        RunLogic(aFact, parentId, attempt++);
-                        // TODO: upload error as mem
-                    }
+                    RunLogic(aFact, parentId, attempt++);
                 }
             }
 
@@ -103,40 +126,65 @@ namespace Funes {
                     var rid = ReflectionId.NewId();
                     var premisesArr = output.Premises.ToArray();
                     var conclusionsArr = output.Conclusions.Values.Select(mem => new EntityStamp(mem, rid)).ToArray();
-                    
+
                     var commitResult = await _ds.Commit(premisesArr, conclusionsArr.Select(x => x.Key), ct);
                     var status = commitResult.IsOk ? ReflectionStatus.Truth : ReflectionStatus.Fallacy;
 
-                    var uploadResult = await _ds.Upload(conclusionsArr, ct);
-                    if (uploadResult.IsError) {
+                    var uploadConclusionsResult = await _ds.Upload(conclusionsArr, _serializer, ct);
+                    if (uploadConclusionsResult.IsError) {
                         status = ReflectionStatus.Lost;
-                        if (commitResult.IsOk) { // upload error, rollback conclusions
+                        if (commitResult.IsOk) {
                             await _ds.Rollback(commitResult.Value, ct);
                         }
                     }
+                    
+                    var detailsDict = new Dictionary<string, string>();
 
-                    var detailsDict = new Dictionary<string,string>();
-
-                    var factMem = new EntityStamp(aFact, rid);
-                    var reflection = new Reflection(rid, parentId??ReflectionId.None, status, 
+                    var factEntity = new EntityStamp(aFact, rid);
+                    var reflection = new Reflection(rid, parentId ?? ReflectionId.None, status,
                         fact.Id, premisesArr, conclusionsArr.Select(x => x.Key.Eid).ToArray(), detailsDict);
-                    var reflectionMem = new EntityStamp(new Entity(Reflection.CreateMemId(rid), reflection), rid);
 
                     detailsDict[Reflection.DetailsReflectTime] = reflectTime.ToFileTimeUtc().ToString();
                     detailsDict[Reflection.DetailsRepoTime] = DateTime.UtcNow.ToFileTimeUtc().ToString();
                     detailsDict[Reflection.DetailsAttempt] = attempt.ToString();
 
-                    var result = await _ds.Upload(new []{factMem, reflectionMem}, ct);
+                    var sysEntities = new List<EntityStamp>(5); 
+                    sysEntities.Add(new EntityStamp(new Entity(Reflection.CreateEntityId(rid), reflection), rid));
+                    
+                    if (parentId.HasValue) {
+                        var eid = Reflection.CreateChildrenEntityId(parentId.Value);
+                        sysEntities.Add(new EntityStamp(new Entity(eid, null!), rid));
+                    }
+                    
+                    var uploadFactResult = await _ds.Upload(new[] {factEntity}, _serializer, ct, true);
+                    var uploadSysEntitiesResult = await _ds.Upload(sysEntities, _systemSerializer, ct, true);
 
-                    return result.IsOk
-                        ? new Result<Reflection>(reflection)
-                        : Result<Reflection>.ReflectionError(reflection, result.Error);
-
+                    return status == ReflectionStatus.Truth && uploadSysEntitiesResult.IsOk 
+                        ?  new Result<Reflection>(reflection)
+                        : Result<Reflection>.ReflectionError(reflection, 
+                            new Error.AggregateError(uploadConclusionsResult.Error, uploadFactResult.Error,
+                                uploadSysEntitiesResult.Error));
                 }
-                catch (Exception e) {
-                    return Result<Reflection>.Exception(e);
-                }
+                catch (TaskCanceledException) { throw; }
+                catch (Exception e) { return Result<Reflection>.Exception(e); }
             }
         }
+
+        private void LogError(Entity fact, string op, string kind, Error? err = null, Exception? exn = null) {
+            var msg = "{Lib} {Obj}, {Op} {Kind} {Fact} {Err}";
+            if (exn == null && err is Error.ExceptionError xErr) exn = xErr.Exn;
+        
+            if (exn is null) _logger.LogError(msg, "Funes", "ReflectionEngine", op, kind, fact, err);
+            else _logger.LogError(exn,msg, "Funes", "ReflectionEngine",  op, kind, fact, err);
+        }
+
+        private void LogError(ReflectionId rid, string op, string kind, Error? err = null, Exception? exn = null) {
+            var msg = "{Lib} {Obj}, {Op} {Kind} {Rid} {Err}";
+            if (exn == null && err is Error.ExceptionError xErr) exn = xErr.Exn;
+        
+            if (exn is null) _logger.LogError(msg, "Funes", "ReflectionEngine", op, kind, rid, err);
+            else _logger.LogError(exn, msg, "Funes", "ReflectionEngine",  op, kind, rid, err);
+        }
+
     }
 }

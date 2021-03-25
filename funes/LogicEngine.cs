@@ -5,8 +5,6 @@ using System.Threading;
 using System.Threading.Tasks;
 
 namespace Funes {
-    public delegate ValueTask<Result<EntityStamp>> Retrieve(EntityId id, CancellationToken ct);
-
     public class LogicEngine<TState,TMsg,TSideEffect> {
 
         private readonly int _iterationsLimit;
@@ -16,10 +14,7 @@ namespace Funes {
 
         public LogicEngine(ILogic<TState,TMsg,TSideEffect> logic, IDataRetriever dr,
                             ITracer<TState,TMsg,TSideEffect>? tracer = null, int iterationsLimit = 100500) {
-            _dr = dr;
-            _logic = logic;
-            _tracer = tracer;
-            _iterationsLimit = iterationsLimit;
+            (_dr, _logic, _tracer, _iterationsLimit) = (dr, logic, tracer, iterationsLimit);
         }
         
         public class Output {

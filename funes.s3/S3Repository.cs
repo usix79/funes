@@ -29,7 +29,7 @@ namespace Funes.S3 {
         public async ValueTask<Result<bool>> Put(EntityStamp entityStamp, ISerializer ser) {
             try {
                 await using var stream = new MemoryStream();
-                var encodeResult = await ser.Encode(stream, entityStamp.Value);
+                var encodeResult = await ser.Encode(stream, entityStamp.Entity.Id,  entityStamp.Value);
                 if (encodeResult.IsError) return new Result<bool>(encodeResult.Error);
 
                 var encoding = encodeResult.Value;

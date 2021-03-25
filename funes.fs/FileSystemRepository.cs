@@ -14,7 +14,7 @@ namespace Funes.Fs {
 
         public async ValueTask<Result<bool>> Put(EntityStamp entityStamp, ISerializer ser) {
             await using MemoryStream stream = new();
-            var encoderResult = await ser.Encode(stream, entityStamp.Value);
+            var encoderResult = await ser.Encode(stream, entityStamp.Entity.Id, entityStamp.Value);
             if (encoderResult.IsError) return new Result<bool>(encoderResult.Error);
             return await Put(entityStamp.Key, stream.GetBuffer(), encoderResult.Value);
         }
@@ -43,7 +43,7 @@ namespace Funes.Fs {
                         if (decodeResult.IsOk) 
                             return new Result<EntityStamp>(new EntityStamp(key, decodeResult.Value));
                     
-                        if (decodeResult.Error != Error.NotSupportedEncoding)
+                        if (decodeResult.Error is not Error.NotSupportedEncodingError)
                             return new Result<EntityStamp>(decodeResult.Error);
                     }
                 }

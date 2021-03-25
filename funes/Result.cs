@@ -20,20 +20,4 @@ namespace Funes {
         public static Result<T> AggregateError(Error[] errors) => 
             new Result<T>(new Error.AggregateError(errors));
     }
-    
-    public abstract record Error {
-        public record NoError : Error;
-        public record MemNotFoundError : Error;
-        public record ExceptionError(Exception Enn) : Error;
-        public record NotSupportedEncodingError(string Encoding) : Error;
-        public record SerdeError(string Msg) : Error;
-        public record IoError(string Msg) : Error;
-        public record ReflectionError(Reflection Reflection, Error Error) : Error;
-        public record AggregateError(Error[] Errors) : Error;
-
-        public static readonly Error No = new NoError();
-        public static readonly Error NotFound = new MemNotFoundError();
-        public static readonly Error NotSupportedEncoding = new MemNotFoundError();
-    }
- 
 }
