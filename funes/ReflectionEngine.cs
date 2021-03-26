@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -30,12 +31,16 @@ namespace Funes {
             public Entity Fact { get; init; }
             public ReflectionId? ParentId { get; init; }
             public int Attempt { get; init; }
+            
+            public long StartMilliseconds { get; init; }
             public Task<Result<LogicEngine<TState,TMsg,TSideEffect>.Output>> Task { get; init; }
         }
 
         public async Task<Result<ReflectionId>> Run(Entity fact, CancellationToken ct = default) {
-
+            
             var rootRid = ReflectionId.None;
+            var stopWatch = Stopwatch.StartNew();
+            
             LinkedList<LogicItem> logicItems = new ();
 
             try {
@@ -46,17 +51,27 @@ namespace Funes {
                     ct.ThrowIfCancellationRequested();
                     await CheckLogicResults();
                 }
+
                 return new Result<ReflectionId>(rootRid);
             }
             catch (Exception x) {
                 _logger.LogCritical(x, "{Lib} {Obj} {Op} {Exn}", "Funes", "ReflectionEngine", "Loop", x);
                 return Result<ReflectionId>.Exception(x);
             }
+            finally {
+                stopWatch.Stop();
+            }
             
             void RunLogic(Entity aFact, ReflectionId? parentId, int attempt) {
                 if (attempt <= _maxAttempts) {
-                    var task = _logicEngine.Run(aFact, ct);
-                    var item = new LogicItem {Fact = aFact, ParentId = parentId, Attempt = attempt, Task = task};
+                    var task = _logicEngine.Run(aFact, null!, ct);
+                    var item = new LogicItem {
+                        Fact = aFact, 
+                        ParentId = parentId, 
+                        Attempt = attempt, 
+                        StartMilliseconds = stopWatch!.ElapsedMilliseconds, 
+                        Task = task
+                    };
                     logicItems.AddLast(item);
                 }
                 else {
@@ -71,7 +86,8 @@ namespace Funes {
                         logicItems.Remove(node);
                         if (node.Value.Task.IsCompletedSuccessfully && node.Value.Task.Result.IsOk) {
                             var item = node.Value;
-                            await ProcessLogicResult(item.Fact, item.ParentId, item.Attempt, item.Task.Result.Value);                            
+                            await ProcessLogicResult(
+                                item.Fact, item.ParentId, item.Attempt, item.StartMilliseconds, item.Task.Result.Value);                            
                         }
                         else {
                             var ex = node.Value.Task.Exception;
@@ -85,10 +101,10 @@ namespace Funes {
                 }
             }
 
-            async ValueTask ProcessLogicResult(Entity aFact, ReflectionId? parentId, int attempt,
-                LogicEngine<TState, TMsg, TSideEffect>.Output output) {
+            async ValueTask ProcessLogicResult(Entity aFact, ReflectionId? parentId, int attempt, 
+                long startMilliseconds, LogicEngine<TState, TMsg, TSideEffect>.Output output) {
 
-                var reflectionResult = await TryReflect(aFact, parentId, attempt, output);
+                var reflectionResult = await TryReflect(aFact, parentId, attempt, startMilliseconds, output);
 
                 if (reflectionResult.IsOk) {
                     var rid = reflectionResult.Value.Id;
@@ -118,18 +134,27 @@ namespace Funes {
             }
 
             async ValueTask<Result<Reflection>> TryReflect(
-                Entity aFact, ReflectionId? parentId, int attempt,
+                Entity aFact, ReflectionId? parentId, int attempt, long startMilliseconds,
                 LogicEngine<TState, TMsg, TSideEffect>.Output output) {
                 
-                var reflectTime = DateTime.UtcNow;
                 try {
+                    var startCommitMilliseconds = stopWatch?.ElapsedMilliseconds;
+                    var reflectTime = DateTime.UtcNow;
                     var rid = ReflectionId.NewId();
-                    var premisesArr = output.Premises.ToArray();
-                    var conclusionsArr = output.Conclusions.Values.Select(mem => new EntityStamp(mem, rid)).ToArray();
+                    var premisesArr = 
+                        output.Premises.Select(pair => new EntityStampKey(pair.Key, pair.Value.Item2)).ToArray();
+                    
+                    var conclusionsArr = 
+                        output.Conclusions.Values
+                            // skip conclusion if it is equal to premise
+                            .Where(entity => !(output.Premises.TryGetValue(entity.Id, out var pair) 
+                                                && Equals(entity.Value, pair.Item1.Value)))
+                            .Select(mem => new EntityStamp(mem, rid)).ToArray();
 
                     var commitResult = await _ds.Commit(premisesArr, conclusionsArr.Select(x => x.Key), ct);
+                    var endCommitMilliseconds = stopWatch?.ElapsedMilliseconds;
                     var status = commitResult.IsOk ? ReflectionStatus.Truth : ReflectionStatus.Fallacy;
-
+                    
                     var uploadConclusionsResult = await _ds.Upload(conclusionsArr, _serializer, ct);
                     if (uploadConclusionsResult.IsError) {
                         status = ReflectionStatus.Lost;
@@ -142,11 +167,18 @@ namespace Funes {
 
                     var factEntity = new EntityStamp(aFact, rid);
                     var reflection = new Reflection(rid, parentId ?? ReflectionId.None, status,
-                        fact.Id, premisesArr, conclusionsArr.Select(x => x.Key.Eid).ToArray(), detailsDict);
-
+                        fact.Id,
+                        premisesArr,
+                        conclusionsArr.Select(x => x.Key.Eid).ToArray(),
+                        output.Constants,
+                        output.SideEffects.Select(x => x?.ToString()).ToList().AsReadOnly(),
+                        detailsDict);
+                    
                     detailsDict[Reflection.DetailsReflectTime] = reflectTime.ToFileTimeUtc().ToString();
-                    detailsDict[Reflection.DetailsRepoTime] = DateTime.UtcNow.ToFileTimeUtc().ToString();
                     detailsDict[Reflection.DetailsAttempt] = attempt.ToString();
+                    detailsDict[Reflection.DetailsLogicDuration] = (startCommitMilliseconds - startMilliseconds).ToString()!;
+                    detailsDict[Reflection.DetailsCommitDuration] = (endCommitMilliseconds - startCommitMilliseconds).ToString()!;
+                    detailsDict[Reflection.DetailsUploadDuration] = (stopWatch!.ElapsedMilliseconds - endCommitMilliseconds).ToString()!;
 
                     var sysEntities = new List<EntityStamp>(5); 
                     sysEntities.Add(new EntityStamp(new Entity(Reflection.CreateEntityId(rid), reflection), rid));
