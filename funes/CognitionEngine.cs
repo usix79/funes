@@ -122,7 +122,7 @@ namespace Funes {
                 }
                 else {
                     switch (reflectionResult.Error) {
-                        case Error.ReflectionError x:
+                        case Error.CognitionError x:
                             LogError(x.Cognition.Id, "ProcessLogicResult", "TryReflect", x.Error);
                             break;
                         default:
@@ -156,27 +156,34 @@ namespace Funes {
                     var commitResult = await _dataEngine.Commit(premisesArr, conclusionsArr.Select(x => x.Key), ct);
                     var endCommitMilliseconds = stopWatch?.ElapsedMilliseconds;
                     var status = commitResult.IsOk ? CognitionStatus.Truth : CognitionStatus.Fallacy;
-                    
+
+                    var detailsDict = new Dictionary<string, string>();
+                    if (status == CognitionStatus.Fallacy) {
+                        cid = cid.AsFallacy();
+                        conclusionsArr = conclusionsArr.Select(stamp => new EntityStamp(stamp.Entity, cid)).ToArray();
+
+                        if (commitResult.Error is Error.CommitError err) {
+                            detailsDict[Cognition.DetailsCommitErrors] =
+                                string.Join(' ', err.FallaciousPremises.Select(x => x.ToString()));
+                        } 
+                    }
                     var uploadConclusionsResult = await _dataEngine.Upload(conclusionsArr, _serializer, ct, commitResult.IsError);
                     if (uploadConclusionsResult.IsError) {
                         status = CognitionStatus.Lost;
-                        if (commitResult.IsOk) {
-                            await _dataEngine.Rollback(commitResult.Value, ct);
-                        }
+                        cid = cid.AsLost();
                     }
-
-                    var detailsDict = new Dictionary<string, string>();
-
+                    
                     var factEntity = new EntityStamp(aFact, cid);
                     var reflection = new Cognition(cid, parentId ?? CognitionId.None, status,
                         fact.Id,
-                        output.Inputs.ToDictionary(pair => new EntityStampKey(pair.Key, pair.Value.Item2), pair => pair.Value.Item3),
+                        output.Inputs.ToDictionary(
+                            pair => new EntityStampKey(pair.Key, pair.Value.Item2), pair => pair.Value.Item3),
                         conclusionsArr.Select(x => x.Key.Eid).ToArray(),
                         output.Constants,
                         output.SideEffects.Select(x => x?.ToString()).ToList(),
                         detailsDict);
                     
-                    detailsDict[Cognition.DetailsReflectTime] = reflectTime.ToFileTimeUtc().ToString();
+                    detailsDict[Cognition.DetailsCognitionTime] = reflectTime.ToFileTimeUtc().ToString();
                     detailsDict[Cognition.DetailsAttempt] = attempt.ToString();
                     detailsDict[Cognition.DetailsLogicDuration] = (startCommitMilliseconds - startMilliseconds).ToString()!;
                     detailsDict[Cognition.DetailsCommitDuration] = (endCommitMilliseconds - startCommitMilliseconds).ToString()!;

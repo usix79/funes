@@ -11,7 +11,5 @@ namespace Funes {
         }
  
         Task<Result<CommitDetail[]>> Commit(IEnumerable<EntityStampKey> premises, IEnumerable<EntityStampKey> conclusions, CancellationToken ct);
-        Task<Result<bool>> Rollback(IEnumerable<CommitDetail> commitDetails, CancellationToken ct);
-        
     }
 }

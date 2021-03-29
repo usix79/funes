@@ -69,20 +69,14 @@ namespace Funes.Impl {
             throw new System.NotImplementedException();
         }
 
+        public Task<Result<bool>> Commit(IEnumerable<EntityStampKey> premises, IEnumerable<EntityStampKey> conclusions, CancellationToken ct) {
+            throw new NotImplementedException();
+        }
+
         public ValueTask<Result<CognitionId>> GetActualCid(EntityId id, CancellationToken ct) {
             throw new System.NotImplementedException();
         }
 
-        public Task<Result<IDataEngine.CommitDetail[]>> Commit(
-            IEnumerable<EntityStampKey> premises, 
-            IEnumerable<EntityStampKey> conclusions, 
-            CancellationToken ct) {
-            throw new System.NotImplementedException();
-        }
-
-        public Task<Result<bool>> Rollback(IEnumerable<IDataEngine.CommitDetail> commitResults, CancellationToken ct) {
-            throw new System.NotImplementedException();
-        }
 
     }
 }

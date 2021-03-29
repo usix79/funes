@@ -17,7 +17,10 @@ namespace Funes {
             new (3000, 1, 1, 0, 0, 0, TimeSpan.Zero);
 
         public CognitionId(string id) => Id = id;
-        
+
+        public CognitionId AsFallacy() => new CognitionId(this.Id + "-fallacy");
+        public CognitionId AsLost() => new CognitionId(this.Id + "-lost");
+
         public static long MillisecondsBeforeFryReawakening(DateTimeOffset dt) => 
             Convert.ToInt64((FryReawakening - dt).TotalMilliseconds);
 
@@ -44,6 +47,7 @@ namespace Funes {
         }
         
         public static CognitionId NewId() => ComposeId(DateTimeOffset.UtcNow, Rand.Value);
+
         public bool Equals(CognitionId other) => Id == other.Id;
         public override bool Equals(object? obj) => obj is CognitionId other && Equals(other);
         public override int GetHashCode() => Id.GetHashCode();

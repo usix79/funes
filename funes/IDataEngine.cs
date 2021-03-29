@@ -3,7 +3,9 @@ using System.Threading;
 using System.Threading.Tasks;
 
 namespace Funes {
-    public interface IDataEngine : IDataSource, ISourceOfTruth {
-        Task<Result<bool>> Upload(IEnumerable<EntityStamp> mems, ISerializer serializer, CancellationToken ct, bool skipCache = false);
+    public interface IDataEngine : IDataSource {
+        Task<Result<bool>> Upload(IEnumerable<EntityStamp> stamps, ISerializer serializer, CancellationToken ct, bool skipCache = false);
+        
+        Task<Result<bool>> Commit(IEnumerable<EntityStampKey> premises, IEnumerable<EntityStampKey> conclusions, CancellationToken ct);
     }
 }

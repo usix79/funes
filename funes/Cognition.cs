@@ -21,12 +21,12 @@ namespace Funes {
         
         public const string Category = "funes/reflections";
         public const string ChildrenCategory = "funes/children";
-        public static string DetailsStartTime = "StartTime";
-        public static string DetailsReflectTime = "ReflectTime";
+        public static string DetailsCognitionTime = "CognitionTime";
         public static string DetailsAttempt = "Attempt";
         public static string DetailsLogicDuration = "LogicDuration";
         public static string DetailsCommitDuration = "CommitDuration";
         public static string DetailsUploadDuration = "UploadDuration";
+        public static string DetailsCommitErrors = "CommitErrors";
 
         public static EntityId CreateEntityId(CognitionId cid) => new (Category, cid.Id);
         public static EntityId CreateChildrenEntityId(CognitionId parentId) => new (Category, parentId.Id);
