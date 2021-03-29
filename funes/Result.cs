@@ -17,8 +17,8 @@ namespace Funes {
         public static Result<T> IoError(string msg) => new (new Error.IoError(msg));
         public static Result<T> ReflectionError(Cognition cognition, Error error) => 
             new (new Error.CognitionError(cognition, error));
-        public static Result<T> CommitError(Error.CommitError.FallaciousPremise[] fallaciousPremises) =>
-            new Result<T>(new Error.CommitError(fallaciousPremises));
+        public static Result<T> TransactionError(Error.TransactionError.Conflict[] conflicts) =>
+            new (new Error.TransactionError(conflicts));
         public static Result<T> AggregateError(Error[] errors) => 
             new (new Error.AggregateError(errors));
     }

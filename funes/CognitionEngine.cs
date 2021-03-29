@@ -155,16 +155,18 @@ namespace Funes {
 
                     var commitResult = await _dataEngine.Commit(premisesArr, conclusionsArr.Select(x => x.Key), ct);
                     var endCommitMilliseconds = stopWatch?.ElapsedMilliseconds;
-                    var status = commitResult.IsOk ? CognitionStatus.Truth : CognitionStatus.Fallacy;
+                    var status = commitResult.IsOk 
+                        ? CognitionStatus.Truth 
+                        : commitResult.Error is Error.TransactionError ? CognitionStatus.Fallacy : CognitionStatus.Lost;
 
                     var detailsDict = new Dictionary<string, string>();
-                    if (status == CognitionStatus.Fallacy) {
-                        cid = cid.AsFallacy();
+                    if (status != CognitionStatus.Truth) {
+                        cid = status == CognitionStatus.Fallacy ? cid.AsFallacy() : cid.AsLost();
                         conclusionsArr = conclusionsArr.Select(stamp => new EntityStamp(stamp.Entity, cid)).ToArray();
 
-                        if (commitResult.Error is Error.CommitError err) {
+                        if (commitResult.Error is Error.TransactionError err) {
                             detailsDict[Cognition.DetailsCommitErrors] =
-                                string.Join(' ', err.FallaciousPremises.Select(x => x.ToString()));
+                                string.Join(' ', err.Conflicts.Select(x => x.ToString()));
                         } 
                     }
                     var uploadConclusionsResult = await _dataEngine.Upload(conclusionsArr, _serializer, ct, commitResult.IsError);

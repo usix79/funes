@@ -11,11 +11,11 @@ namespace Funes {
         public record IoError(string Msg) : Error;
         public record CognitionError(Cognition Cognition, Error Error) : Error;
 
-        public record CommitError(CommitError.FallaciousPremise[] FallaciousPremises) : Error {
-            public readonly struct FallaciousPremise {
-                public EntityId Eid { get; }
-                public CognitionId PremiseCid { get; }
-                public CognitionId ActualCid { get; }
+        public record TransactionError(TransactionError.Conflict[] Conflicts) : Error {
+            public readonly struct Conflict {
+                public EntityId Eid { get; init; }
+                public CognitionId PremiseCid { get; init; }
+                public CognitionId ActualCid { get; init; }
 
                 public override string ToString() => $"|{nameof(Eid)}: {Eid}, {nameof(PremiseCid)}: {PremiseCid}, {nameof(ActualCid)}: {ActualCid}|";
             }

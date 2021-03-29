@@ -18,8 +18,11 @@ namespace Funes {
 
         public CognitionId(string id) => Id = id;
 
-        public CognitionId AsFallacy() => new CognitionId(this.Id + "-fallacy");
-        public CognitionId AsLost() => new CognitionId(this.Id + "-lost");
+        public CognitionId AsFallacy() => new (Id + "-fallacy");
+        public CognitionId AsLost() => new (Id + "-lost");
+
+        public bool IsTruth() => !Id.EndsWith("-fallacy") && !Id.EndsWith("-lost");
+        public bool IsNull() => Id is null;
 
         public static long MillisecondsBeforeFryReawakening(DateTimeOffset dt) => 
             Convert.ToInt64((FryReawakening - dt).TotalMilliseconds);
@@ -47,6 +50,9 @@ namespace Funes {
         }
         
         public static CognitionId NewId() => ComposeId(DateTimeOffset.UtcNow, Rand.Value);
+
+        public static bool IsPisec(CognitionId premiseId, CognitionId actualId) => 
+            premiseId.CompareTo(actualId) < 0;
 
         public bool Equals(CognitionId other) => Id == other.Id;
         public override bool Equals(object? obj) => obj is CognitionId other && Equals(other);

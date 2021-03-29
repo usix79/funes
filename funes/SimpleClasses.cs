@@ -94,7 +94,7 @@ namespace Funes {
     //     }
     // }
     
-    // public class SimpleSourceOfTruth : Cognition.ISourceOfTruth {
+    // public class SimpleSourceOfTruth : Cognition.ITransactionEngine {
     //
     //     private readonly ConcurrentDictionary<MemId, CognitionId> _latest = new();
     //     private readonly SemaphoreSlim _lock = new SemaphoreSlim(1, 1); 

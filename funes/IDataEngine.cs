@@ -4,8 +4,8 @@ using System.Threading.Tasks;
 
 namespace Funes {
     public interface IDataEngine : IDataSource {
-        Task<Result<bool>> Upload(IEnumerable<EntityStamp> stamps, ISerializer serializer, CancellationToken ct, bool skipCache = false);
-        
-        Task<Result<bool>> Commit(IEnumerable<EntityStampKey> premises, IEnumerable<EntityStampKey> conclusions, CancellationToken ct);
+        ValueTask<Result<bool>> Upload(IEnumerable<EntityStamp> stamps, ISerializer ser, CancellationToken ct, bool skipCache = false);
+        ValueTask<Result<bool>> Commit(IEnumerable<EntityStampKey> premises, IEnumerable<EntityStampKey> conclusions, CancellationToken ct);
+        Task Flush();
     }
 }

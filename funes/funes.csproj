@@ -8,7 +8,6 @@
 
     <ItemGroup>
       <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="5.0.0" />
-      <PackageReference Include="System.Runtime.Caching" Version="5.0.0" />
     </ItemGroup>
     
 </Project>

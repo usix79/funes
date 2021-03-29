@@ -10,6 +10,6 @@ namespace Funes {
         public override int GetHashCode() => HashCode.Combine(Eid, Cid);
         public static bool operator ==(EntityStampKey left, EntityStampKey right) => left.Equals(right);
         public static bool operator !=(EntityStampKey left, EntityStampKey right) => !left.Equals(right);
-        public override string ToString() => $"MemKey {nameof(Eid)}: {Eid}, {nameof(Cid)}: {Cid}";
+        public override string ToString() => $"{nameof(EntityStampKey)} {nameof(Eid)}: {Eid}, {nameof(Cid)}: {Cid}";
     }
 }
