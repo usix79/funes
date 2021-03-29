@@ -82,7 +82,7 @@ namespace Funes.S3 {
             }
         }
         
-        public async ValueTask<Result<IEnumerable<ReflectionId>>> GetHistory(EntityId id, ReflectionId before, int maxCount = 1) {
+        public async ValueTask<Result<IEnumerable<CognitionId>>> GetHistory(EntityId id, CognitionId before, int maxCount = 1) {
             try {
                 var req = new ListObjectsV2Request {
                     BucketName = BucketName,
@@ -94,20 +94,20 @@ namespace Funes.S3 {
                 var resp = await _client.ListObjectsV2Async(req);
 
                 return
-                    new Result<IEnumerable<ReflectionId>>(
+                    new Result<IEnumerable<CognitionId>>(
                         resp!.S3Objects
-                            .Select(s3Obj => new ReflectionId (s3Obj.Key.Substring(req.Prefix.Length))));
+                            .Select(s3Obj => new CognitionId (s3Obj.Key.Substring(req.Prefix.Length))));
             }
             catch (AmazonS3Exception e) {
-                return Result<IEnumerable<ReflectionId>>.IoError(e.ToString());
+                return Result<IEnumerable<CognitionId>>.IoError(e.ToString());
             }
             catch (Exception e) {
-                return Result<IEnumerable<ReflectionId>>.Exception(e);
+                return Result<IEnumerable<CognitionId>>.Exception(e);
             }
         }
 
         private string CreateMemS3Key(EntityStampKey key)
-            => $"{Prefix}/{key.Eid.Category}/{key.Eid.Name}/{key.Rid.Id}";
+            => $"{Prefix}/{key.Eid.Category}/{key.Eid.Name}/{key.Cid.Id}";
         
         private string CreateMemS3Id(EntityId id)
             => $"{Prefix}/{id.Category}/{id.Name}/";

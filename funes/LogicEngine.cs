@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
+using System.IO.Compression;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,20 +13,22 @@ namespace Funes {
         private readonly int _iterationsLimit;
         private readonly ILogger _logger;
         private readonly ITracer<TState,TMsg,TSideEffect> _tracer;
-        private readonly IDataRetriever _dr;
+        private readonly ISerializer _serializer;
+        private readonly IDataSource _ds;
         private readonly ILogic<TState,TMsg,TSideEffect> _logic;
 
         public LogicEngine(ILogic<TState,TMsg,TSideEffect> logic, 
-                            IDataRetriever dr,
+                            ISerializer serializer,
+                            IDataSource dr,
                             ILogger logger, 
                             ITracer<TState,TMsg,TSideEffect> tracer, 
                             int iterationsLimit = 100500) {
-            (_dr, _logic, _logger, _tracer, _iterationsLimit) = 
-                (dr, logic, logger, tracer, iterationsLimit);
+            (_ds, _logic, _serializer, _logger, _tracer, _iterationsLimit) = 
+                (dr, logic, serializer, logger, tracer, iterationsLimit);
         }
         
         public class Output {
-            public Dictionary<EntityId, (Entity,ReflectionId)> Premises { get; } = new ();
+            public Dictionary<EntityId, (Entity,CognitionId)> Premises { get; } = new ();
             public Dictionary<EntityId, Entity> Conclusions { get; } = new ();
             public Dictionary<EntityId, Entity> DerivedFacts { get; } = new ();
             public List<TSideEffect> SideEffects { get; } = new ();
@@ -36,13 +39,13 @@ namespace Funes {
         
         // TODO: consider using of arbitrary constants for making logic reproducible even it needs RNG or new GUIDS
         //       receive the constants from end()
-        //       store the constants in the reflection
-        //       pass the constants to the begin() if reflection has been already happened
+        //       store the constants in the cognition
+        //       pass the constants to the begin() if cognition has been already happened
         public async Task<Result<Output>> Run(Entity fact, NameValueCollection constants, CancellationToken ct = default) {
             var entities = new Dictionary<EntityId, EntityEntry>{[fact.Id] = EntityEntry.Ok(fact)};
             var pendingMessages = new Queue<TMsg>();
             var pendingCommands = new LinkedList<Cmd<TMsg, TSideEffect>>();
-            var retrievingTasks = new Dictionary<EntityId, ValueTask<Result<EntityStamp>>>();
+            var retrievingTasks = new Dictionary<EntityId, ValueTask<Result<EntityEntry>>>();
             var output = new Output();
             var iteration = 0;
 
@@ -129,7 +132,7 @@ namespace Funes {
                 if (!entities!.TryGetValue(aCmd.EntityId, out var entry)) return false;
 
                 // move to premises if needed
-                if (entry.IsOk && aCmd.AsPremise) output.Premises[entry.Entity.Id] = (entry.Entity, entry.Rid);
+                if (entry.IsOk && aCmd.AsPremise) output.Premises[entry.Entity.Id] = (entry.Entity, entry.Cid);
 
                 try {
                     pendingMessages!.Enqueue(aCmd.Action(entry));
@@ -148,7 +151,7 @@ namespace Funes {
                 // move to premises if needed
                 if (aCmd.AsPremise) {
                     foreach (var entry in entries) {
-                        if (entry.IsOk) output.Premises[entry.Entity.Id] = (entry.Entity, entry.Rid);
+                        if (entry.IsOk) output.Premises[entry.Entity.Id] = (entry.Entity, entry.Cid);
                     }
                 }
 
@@ -161,22 +164,20 @@ namespace Funes {
                 return true;
             }
 
-            void StartRetrievingTask(EntityId memId) {
-                if (!retrievingTasks.ContainsKey(memId)) retrievingTasks[memId] = _dr.Retrieve(memId, ct);
+            void StartRetrievingTask(EntityId entityId) {
+                if (!retrievingTasks.ContainsKey(entityId)) 
+                    retrievingTasks[entityId] = _ds.Retrieve(entityId, _serializer, ct);
             }
 
             void ProcessRetrievingTasks() {
                 if (retrievingTasks.Values.Any(x => x.IsCompleted)) {
-                    foreach (var memId in retrievingTasks.Keys.ToArray()) {
-                        var task = retrievingTasks[memId];
+                    foreach (var eid in retrievingTasks.Keys.ToArray()) {
+                        var task = retrievingTasks[eid];
                         if (task.IsCompleted) {
-                            retrievingTasks.Remove(memId);
-                            try {
-                                RegisterEntity(memId, task.Result);
-                            }
-                            catch (Exception x) {
-                                RegisterEntity(memId, Result<EntityStamp>.Exception(x));
-                            }
+                            retrievingTasks.Remove(eid);
+                            var result = task.IsCompletedSuccessfully
+                                ? task.Result : Result<EntityEntry>.Exception(task.AsTask().Exception!);
+                            RegisterEntity(eid, result);
                         }
                     }
                 }
@@ -197,13 +198,9 @@ namespace Funes {
                 }
             }
                 
-            void RegisterEntity(EntityId eid, Result<EntityStamp> result) {
+            void RegisterEntity(EntityId eid, Result<EntityEntry> result) {
                 if (!entities!.ContainsKey(eid)) {
-                    entities[eid] = result.IsOk
-                        ? EntityEntry.Ok(result.Value.Entity, result.Value.Rid)
-                        : result.Error == Error.NotFound
-                            ? EntityEntry.NotExist
-                            : EntityEntry.NotAvailable;
+                    entities[eid] = result.IsOk ? result.Value : EntityEntry.NotAvailable;
                 }
             }
         }

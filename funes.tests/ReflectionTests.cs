@@ -19,13 +19,13 @@ namespace Funes.Tests
             var funesBirthDate = new DateTimeOffset(2021, 3, 10, 17, 15, 0, TimeSpan.Zero);
             var rand = new Random(42);
             
-            Assert.Equal(31556995200000L, ReflectionId.MillisecondsBeforeFryReawakening(freezeDate));
-            Assert.Equal(0L, ReflectionId.MillisecondsBeforeFryReawakening(reawakenDate));
-            Assert.Equal(30888283500000L, ReflectionId.MillisecondsBeforeFryReawakening(funesBirthDate));
+            Assert.Equal(31556995200000L, CognitionId.MillisecondsBeforeFryReawakening(freezeDate));
+            Assert.Equal(0L, CognitionId.MillisecondsBeforeFryReawakening(reawakenDate));
+            Assert.Equal(30888283500000L, CognitionId.MillisecondsBeforeFryReawakening(funesBirthDate));
             
-            Assert.Equal("31556995200000-qddneg", ReflectionId.ComposeId(freezeDate, rand).Id);
-            Assert.Equal("00000000000000-smetfg", ReflectionId.ComposeId(reawakenDate, rand).Id);
-            Assert.Equal("30888283500000-mijgma", ReflectionId.ComposeId(funesBirthDate, rand).Id);
+            Assert.Equal("31556995200000-qddneg", CognitionId.ComposeId(freezeDate, rand).Id);
+            Assert.Equal("00000000000000-smetfg", CognitionId.ComposeId(reawakenDate, rand).Id);
+            Assert.Equal("30888283500000-mijgma", CognitionId.ComposeId(funesBirthDate, rand).Id);
         }
 
         // [Fact]
@@ -37,12 +37,12 @@ namespace Funes.Tests
         //     var facts = new[] {fact};
         //
         //     var input1Key = new MemKey("kb/entity1", "id1");
-        //     var input1Rid = ReflectionId.NewId();
+        //     var input1Cid = CognitionId.NewId();
         //     var input1 = TestHelpers.CreateRandomMem(input1Key);
         //     var input2Key = new MemKey("kb/entity2", "id2");
-        //     var input2Rid = ReflectionId.NewId();
+        //     var input2Cid = CognitionId.NewId();
         //     var input2 = TestHelpers.CreateRandomMem(input2Key);
-        //     var inputs = new[] {(input1, input1Rid), (input2, input2Rid)};
+        //     var inputs = new[] {(input1, input1Cid), (input2, input2Cid)};
         //
         //     var output1Key = new MemKey("kb/entity1", "id1");
         //     var output1 = TestHelpers.CreateRandomMem(output1Key);
@@ -52,9 +52,9 @@ namespace Funes.Tests
         //     var output3 = TestHelpers.CreateRandomMem(output3Key);
         //     var outputs = new[] {output1, output2, output3};
         //
-        //     var rid = await Reflection.Reflect( repo, facts, inputs, outputs);
+        //     var cid = await Cognition.Reflect( repo, facts, inputs, outputs);
         //
-        //     var reflection = repo.GetMem(Reflection.ReflectionKey, rid);
+        //     var cognition = repo.GetMem(Cognition.ReflectionKey, cid);
         //     
         //     
         // }

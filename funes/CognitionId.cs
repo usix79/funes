@@ -3,20 +3,20 @@ using System.Diagnostics;
 using System.Threading;
 
 namespace Funes {
-    public readonly struct ReflectionId : IEquatable<ReflectionId>, IComparable<ReflectionId>, IComparable {
+    public readonly struct CognitionId : IEquatable<CognitionId>, IComparable<CognitionId>, IComparable {
         public int CompareTo(object? obj) {
             if (ReferenceEquals(null, obj)) return 1;
-            return obj is ReflectionId other ? CompareTo(other) : throw new ArgumentException($"Object must be of type {nameof(ReflectionId)}");
+            return obj is CognitionId other ? CompareTo(other) : throw new ArgumentException($"Object must be of type {nameof(CognitionId)}");
         }
         
         public string Id { get; }
 
-        public static readonly ReflectionId Singularity = new ("");
-        public static readonly ReflectionId None = new ("");
+        public static readonly CognitionId Singularity = new ("");
+        public static readonly CognitionId None = new ("");
         private static readonly DateTimeOffset FryReawakening = 
             new (3000, 1, 1, 0, 0, 0, TimeSpan.Zero);
 
-        public ReflectionId(string id) => Id = id;
+        public CognitionId(string id) => Id = id;
         
         public static long MillisecondsBeforeFryReawakening(DateTimeOffset dt) => 
             Convert.ToInt64((FryReawakening - dt).TotalMilliseconds);
@@ -26,7 +26,7 @@ namespace Funes {
 
         private static readonly ThreadLocal<Random> Rand = new (() => new Random(DateTime.Now.Millisecond));
         
-        public static ReflectionId ComposeId(DateTimeOffset dt, Random? rand) {
+        public static CognitionId ComposeId(DateTimeOffset dt, Random? rand) {
             Debug.Assert(rand != null, nameof(rand) + " != null");
 
             var id = string.Create(DigitsLength + 1 + TailLenght, MillisecondsBeforeFryReawakening(dt), 
@@ -40,16 +40,16 @@ namespace Funes {
                     }
                 });
             
-            return new ReflectionId(id);
+            return new CognitionId(id);
         }
         
-        public static ReflectionId NewId() => ComposeId(DateTimeOffset.UtcNow, Rand.Value);
-        public bool Equals(ReflectionId other) => Id == other.Id;
-        public override bool Equals(object? obj) => obj is ReflectionId other && Equals(other);
+        public static CognitionId NewId() => ComposeId(DateTimeOffset.UtcNow, Rand.Value);
+        public bool Equals(CognitionId other) => Id == other.Id;
+        public override bool Equals(object? obj) => obj is CognitionId other && Equals(other);
         public override int GetHashCode() => Id.GetHashCode();
-        public static bool operator ==(ReflectionId left, ReflectionId right) => left.Equals(right);
-        public static bool operator !=(ReflectionId left, ReflectionId right) => !left.Equals(right);
-        public int CompareTo(ReflectionId other) => string.Compare(Id, other.Id, StringComparison.Ordinal);
+        public static bool operator ==(CognitionId left, CognitionId right) => left.Equals(right);
+        public static bool operator !=(CognitionId left, CognitionId right) => !left.Equals(right);
+        public int CompareTo(CognitionId other) => string.Compare(Id, other.Id, StringComparison.Ordinal);
         public override string ToString() => $"RID:{Id}";
     }
 }

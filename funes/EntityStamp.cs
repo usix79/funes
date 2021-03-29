@@ -1,10 +1,10 @@
 namespace Funes {
     public readonly struct EntityStamp {
         public Entity Entity { get; }
-        public ReflectionId Rid { get; }
-        public EntityStampKey Key => new (Entity.Id, Rid);
+        public CognitionId Cid { get; }
+        public EntityStampKey Key => new (Entity.Id, Cid);
         public object Value => Entity.Value;
-        public EntityStamp(Entity entity, ReflectionId rid) => (Entity, Rid) = (entity, rid);
-        public EntityStamp(EntityStampKey key, object value) => (Entity, Rid) = (new Entity(key.Eid, value), key.Rid);
+        public EntityStamp(Entity entity, CognitionId cid) => (Entity, Cid) = (entity, cid);
+        public EntityStamp(EntityStampKey key, object value) => (Entity, Cid) = (new Entity(key.Eid, value), key.Cid);
     }
 }

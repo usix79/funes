@@ -54,16 +54,16 @@ namespace Funes {
             return ValueTask.FromResult(result);
         }
         
-        public ValueTask<Result<IEnumerable<ReflectionId>>> GetHistory(EntityId id, ReflectionId before, int maxCount = 1) {
+        public ValueTask<Result<IEnumerable<CognitionId>>> GetHistory(EntityId id, CognitionId before, int maxCount = 1) {
             var result =
                 _memories.Keys
                     .Where(key => key.Eid == id)
-                    .OrderBy(key => key.Rid)
-                    .SkipWhile(key => string.CompareOrdinal(key.Rid.Id, before.Id) <= 0)
+                    .OrderBy(key => key.Cid)
+                    .SkipWhile(key => string.CompareOrdinal(key.Cid.Id, before.Id) <= 0)
                     .Take(maxCount)
-                    .Select(key => key.Rid);
+                    .Select(key => key.Cid);
 
-            return ValueTask.FromResult(new Result<IEnumerable<ReflectionId>>(result));
+            return ValueTask.FromResult(new Result<IEnumerable<CognitionId>>(result));
         }
     }
 
@@ -94,27 +94,27 @@ namespace Funes {
     //     }
     // }
     
-    // public class SimpleSourceOfTruth : Reflection.ISourceOfTruth {
+    // public class SimpleSourceOfTruth : Cognition.ISourceOfTruth {
     //
-    //     private readonly ConcurrentDictionary<MemId, ReflectionId> _latest = new();
+    //     private readonly ConcurrentDictionary<MemId, CognitionId> _latest = new();
     //     private readonly SemaphoreSlim _lock = new SemaphoreSlim(1, 1); 
     //     
-    //     public ValueTask<Result<ReflectionId>> GetActualRid(MemId id) {
+    //     public ValueTask<Result<CognitionId>> GetActualCid(MemId id) {
     //         var result =
-    //             _latest.TryGetValue(id, out var rid)
-    //                 ? new Result<ReflectionId>(rid)
-    //                 : Result<ReflectionId>.NotFound;
-    //         return ValueTask.FromResult<Result<ReflectionId>>(result);
+    //             _latest.TryGetValue(id, out var cid)
+    //                 ? new Result<CognitionId>(cid)
+    //                 : Result<CognitionId>.NotFound;
+    //         return ValueTask.FromResult<Result<CognitionId>>(result);
     //     }
     //
-    //     public ValueTask<Result<ReflectionId>[]> GetActualRids(IEnumerable<MemId> ids) {
+    //     public ValueTask<Result<CognitionId>[]> GetActualCids(IEnumerable<MemId> ids) {
     //         var idsArray = ids as MemId[] ?? ids.ToArray();
-    //         var results = new Result<ReflectionId>[idsArray.Length];
+    //         var results = new Result<CognitionId>[idsArray.Length];
     //         for (var i = 0; i < idsArray.Length; i++) {
     //             results[i] =
-    //                 _latest.TryGetValue(idsArray[i], out var rid)
-    //                     ? new Result<ReflectionId>(rid)
-    //                     : Result<ReflectionId>.NotFound;
+    //                 _latest.TryGetValue(idsArray[i], out var cid)
+    //                     ? new Result<CognitionId>(cid)
+    //                     : Result<CognitionId>.NotFound;
     //         }
     //         
     //         return ValueTask.FromResult(results);
@@ -125,18 +125,18 @@ namespace Funes {
     //         try {
     //             var premisesKeys = premises as MemKey[] ?? premises.ToArray();
     //             var premisesIds = premisesKeys.Select(key => key.Id).ToArray();
-    //             var actualConclusions = await GetActualRids(premisesIds);
+    //             var actualConclusions = await GetActualCids(premisesIds);
     //
     //             for (var i = 0; i < premisesKeys.Length; i++){
     //                 var actual = actualConclusions[i];
-    //                 if (actual.IsOk && actual.Value != premisesKeys[i].Rid 
+    //                 if (actual.IsOk && actual.Value != premisesKeys[i].Cid 
     //                     || actual.IsError && actual.Error != Error.NotFound) {
     //                     return new Result<bool>(false);
     //                 }
     //             }
     //             
     //             foreach (var conclusion in conclusions) {
-    //                 _latest[conclusion.Id] = conclusion.Rid;
+    //                 _latest[conclusion.Id] = conclusion.Cid;
     //             }
     //
     //             return new Result<bool>(true);

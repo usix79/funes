@@ -15,13 +15,13 @@ namespace Funes.Tests {
                 }
             });
         
-        public static EntityStamp CreateSimpleMem(ReflectionId rid, EntityId? key = null) {
+        public static EntityStamp CreateSimpleMem(CognitionId cid, EntityId? key = null) {
             
             var nonNullKey = key ?? new EntityId("cat-" + RandomString(10), "id-" + RandomString(10));
             
             var content = new Simple(Rand.Next(1024), RandomString(1024));
             
-            return new EntityStamp (new Entity(nonNullKey, content), rid);
+            return new EntityStamp (new Entity(nonNullKey, content), cid);
         }
         
         public static async Task LoadRandomMemories(IRepository repo) {
@@ -29,7 +29,7 @@ namespace Funes.Tests {
                 var cat = "cat-" + RandomString(1);
                 for (var j = 0; j < 6; j++) {
                     var id = "id-" + RandomString(5);
-                    await repo.Put(CreateSimpleMem(ReflectionId.NewId(),new EntityId(cat, id)), _simpleSerializer);
+                    await repo.Put(CreateSimpleMem(CognitionId.NewId(),new EntityId(cat, id)), _simpleSerializer);
                 }
             }
         }

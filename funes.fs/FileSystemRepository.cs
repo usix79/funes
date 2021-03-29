@@ -37,7 +37,7 @@ namespace Funes.Fs {
                 var memDirectory = GetMemDirectory(key);
                 if (Directory.Exists(memDirectory)) {
                     foreach (var fileName in Directory.GetFiles(memDirectory, GetMemFileMask(key))) {
-                        var (rid, encoding) = ParseFileName(fileName);
+                        var (cid, encoding) = ParseFileName(fileName);
                         var decodeResult = await ser.Decode(File.OpenRead(fileName), key.Eid, encoding);
 
                         if (decodeResult.IsOk) 
@@ -54,21 +54,21 @@ namespace Funes.Fs {
             }
         }
         
-        public ValueTask<Result<IEnumerable<ReflectionId>>> GetHistory(EntityId id, ReflectionId before, int maxCount = 1) {
+        public ValueTask<Result<IEnumerable<CognitionId>>> GetHistory(EntityId id, CognitionId before, int maxCount = 1) {
             try {
                 var path = GetMemPath(id);
 
-                var rids =
+                var cids =
                     Directory.GetFiles(path)
                         .Select(name => ParseFileName(Path.GetFileName(name)).Item1)
                         .OrderBy(x => x)
-                        .SkipWhile(rid => before.CompareTo(rid) >= 0)
+                        .SkipWhile(cid => before.CompareTo(cid) >= 0)
                         .Take(maxCount);
 
-                return ValueTask.FromResult(new Result<IEnumerable<ReflectionId>>(rids));
+                return ValueTask.FromResult(new Result<IEnumerable<CognitionId>>(cids));
             }
             catch (Exception e) {
-                return ValueTask.FromResult(Result<IEnumerable<ReflectionId>>.Exception(e));
+                return ValueTask.FromResult(Result<IEnumerable<CognitionId>>.Exception(e));
             }
         }
 
@@ -78,15 +78,15 @@ namespace Funes.Fs {
             Path.Combine(Root, key.Eid.Category, key.Eid.Name);
 
         private string GetMemFileMask(EntityStampKey key) =>
-            key.Rid.Id + ".*";
+            key.Cid.Id + ".*";
 
-        private (ReflectionId, string) ParseFileName(string fullFileName) {
+        private (CognitionId, string) ParseFileName(string fullFileName) {
             var fileName = Path.GetFileName(fullFileName);
             var parts = fileName.Split('.');
-            return (new ReflectionId(parts[0]), parts.Length > 1 ? parts[1] : "");
+            return (new CognitionId(parts[0]), parts.Length > 1 ? parts[1] : "");
         }
         
         private string GetMemFileName(EntityStampKey key, string encoding) => 
-            Path.Combine(Root, key.Eid.Category, key.Eid.Name, key.Rid.Id + "." + encoding);
+            Path.Combine(Root, key.Eid.Category, key.Eid.Name, key.Cid.Id + "." + encoding);
     }
 }

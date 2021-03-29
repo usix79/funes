@@ -8,10 +8,10 @@ using System.Text.Json;
 using System.Threading.Tasks;
 
 namespace Funes {
-    public record Reflection(
-        ReflectionId Id, 
-        ReflectionId ParentId, 
-        ReflectionStatus Status,
+    public record Cognition(
+        CognitionId Id, 
+        CognitionId ParentId, 
+        CognitionStatus Status,
         EntityId Fact, 
         EntityStampKey[] Premises, 
         EntityId[] Conclusions,
@@ -29,15 +29,9 @@ namespace Funes {
         public static string DetailsCommitDuration = "CommitDuration";
         public static string DetailsUploadDuration = "UploadDuration";
 
-        public static EntityId CreateEntityId(ReflectionId rid) => new (Category, rid.Id);
-        public static EntityId CreateChildrenEntityId(ReflectionId parentId) => new (Category, parentId.Id);
-        public static EntityStampKey CreateStampKey(ReflectionId rid) => new (CreateEntityId(rid), rid);
-        
-        // public interface ISourceOfTruth {
-        //     ValueTask<Result<ReflectionId>> GetActualRid(MemId id);
-        //     ValueTask<Result<ReflectionId>[]> GetActualRids(IEnumerable<MemId> ids);
-        //     ValueTask<Result<bool>> TrySetConclusions(IEnumerable<MemKey> premises, IEnumerable<MemKey> conclusions);
-        // }
+        public static EntityId CreateEntityId(CognitionId cid) => new (Category, cid.Id);
+        public static EntityId CreateChildrenEntityId(CognitionId parentId) => new (Category, parentId.Id);
+        public static EntityStampKey CreateStampKey(CognitionId cid) => new (CreateEntityId(cid), cid);
         
         public static async ValueTask<Result<string>> Encoder(Stream output, object content) {
             try {
@@ -52,7 +46,7 @@ namespace Funes {
         public static async ValueTask<Result<object>> Decoder(Stream input, string encoding) {
             if ("json" != encoding) return Result<object>.NotSupportedEncoding(encoding);
             try {
-                var reflectionOrNull = await JsonSerializer.DeserializeAsync<Reflection>(input);
+                var reflectionOrNull = await JsonSerializer.DeserializeAsync<Cognition>(input);
                 return reflectionOrNull != null
                     ? new Result<object>(reflectionOrNull)
                     : Result<object>.SerdeError("null");
@@ -62,21 +56,21 @@ namespace Funes {
             }
         }
 
-        public static async ValueTask<Result<Reflection>> Load(IRepository repo, ISerializer serializer, ReflectionId rid) {
-            var getResult = await repo.Get(CreateStampKey(rid), serializer);
+        public static async ValueTask<Result<Cognition>> Load(IRepository repo, ISerializer serializer, CognitionId cid) {
+            var getResult = await repo.Get(CreateStampKey(cid), serializer);
             return getResult.IsOk
-                ? new Result<Reflection>((Reflection) getResult.Value.Value)
-                : new Result<Reflection>(getResult.Error);
+                ? new Result<Cognition>((Cognition) getResult.Value.Value)
+                : new Result<Cognition>(getResult.Error);
         }
 
         public struct Fallacy {
             public EntityStampKey PremiseKey { get;}
-            public ReflectionId ActualRid { get;}
-            public Fallacy(EntityStampKey premise, ReflectionId actualRid) => (PremiseKey, ActualRid) = (premise, actualRid);
+            public CognitionId ActualCid { get;}
+            public Fallacy(EntityStampKey premise, CognitionId actualCid) => (PremiseKey, ActualCid) = (premise, actualCid);
         }
         
-        public static async ValueTask<Result<Fallacy[]>> Check (IRepository repo, ISerializer serializer, ReflectionId rid) {
-            var loadResult = await Load(repo, serializer, rid);
+        public static async ValueTask<Result<Fallacy[]>> Check (IRepository repo, ISerializer serializer, CognitionId cid) {
+            var loadResult = await Load(repo, serializer, cid);
             if (loadResult.IsError) return new Result<Fallacy[]>(loadResult.Error);
 
             var reflection = loadResult.Value;
@@ -92,7 +86,7 @@ namespace Funes {
             var fallacies =
                 reflection.Premises
                     .Zip(historyItems, (premiseKey, historyResult) => (premiseKey, historyResult.Value.FirstOrDefault()))
-                    .Where(x => x.Item1.Rid.CompareTo(x.Item2) > 0)
+                    .Where(x => x.Item1.Cid.CompareTo(x.Item2) > 0)
                     .Select(x => new Fallacy(x.Item1, x.Item2));
             
             return new (fallacies.ToArray());
@@ -100,11 +94,11 @@ namespace Funes {
 
         public struct Fork {
             public EntityId EntityId { get;}
-            public ReflectionId[] Heads { get;}
-            public Fork(EntityId entityId, ReflectionId[] heads) => (EntityId, Heads) = (entityId, heads);
+            public CognitionId[] Heads { get;}
+            public Fork(EntityId entityId, CognitionId[] heads) => (EntityId, Heads) = (entityId, heads);
         }
 
-        public static ValueTask<Result<Fork[]>> FindForks(IRepository repo, ReflectionId since) {
+        public static ValueTask<Result<Fork[]>> FindForks(IRepository repo, CognitionId since) {
             throw new NotImplementedException();
         }
     }

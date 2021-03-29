@@ -8,7 +8,7 @@ namespace Funes {
         public record NotSupportedEncodingError(string Encoding) : Error;
         public record SerdeError(string Msg) : Error;
         public record IoError(string Msg) : Error;
-        public record ReflectionError(Reflection Reflection, Error Error) : Error;
+        public record ReflectionError(Cognition Cognition, Error Error) : Error;
         public record AggregateError(params Error[] Errors) : Error;
 
         public static readonly Error No = new NoError();
