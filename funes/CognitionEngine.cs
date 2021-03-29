@@ -33,7 +33,7 @@ namespace Funes {
             public int Attempt { get; init; }
             
             public long StartMilliseconds { get; init; }
-            public Task<Result<LogicEngine<TState,TMsg,TSideEffect>.Output>> Task { get; init; }
+            public Task<Result<LogicEngine<TState,TMsg,TSideEffect>.LogicResult>> Task { get; init; }
         }
 
         public async Task<Result<CognitionId>> Run(Entity fact, CancellationToken ct = default) {
@@ -102,7 +102,7 @@ namespace Funes {
             }
 
             async ValueTask ProcessLogicResult(Entity aFact, CognitionId? parentId, int attempt, 
-                long startMilliseconds, LogicEngine<TState, TMsg, TSideEffect>.Output output) {
+                long startMilliseconds, LogicEngine<TState, TMsg, TSideEffect>.LogicResult output) {
 
                 var reflectionResult = await TryReflect(aFact, parentId, attempt, startMilliseconds, output);
 
@@ -135,19 +135,21 @@ namespace Funes {
 
             async ValueTask<Result<Cognition>> TryReflect(
                 Entity aFact, CognitionId? parentId, int attempt, long startMilliseconds,
-                LogicEngine<TState, TMsg, TSideEffect>.Output output) {
+                LogicEngine<TState, TMsg, TSideEffect>.LogicResult output) {
                 
                 try {
                     var startCommitMilliseconds = stopWatch?.ElapsedMilliseconds;
                     var reflectTime = DateTime.UtcNow;
                     var cid = CognitionId.NewId();
                     var premisesArr = 
-                        output.Premises.Select(pair => new EntityStampKey(pair.Key, pair.Value.Item2)).ToArray();
+                        output.Inputs
+                            .Where(pair => pair.Value.Item3)
+                            .Select(pair => new EntityStampKey(pair.Key, pair.Value.Item2)).ToArray();
                     
                     var conclusionsArr = 
-                        output.Conclusions.Values
+                        output.Outputs.Values
                             // skip conclusion if it is equal to premise
-                            .Where(entity => !(output.Premises.TryGetValue(entity.Id, out var pair) 
+                            .Where(entity => !(output.Inputs.TryGetValue(entity.Id, out var pair) 
                                                 && Equals(entity.Value, pair.Item1.Value)))
                             .Select(mem => new EntityStamp(mem, cid)).ToArray();
 
@@ -162,16 +164,16 @@ namespace Funes {
                             await _dataEngine.Rollback(commitResult.Value, ct);
                         }
                     }
-                    
+
                     var detailsDict = new Dictionary<string, string>();
 
                     var factEntity = new EntityStamp(aFact, cid);
                     var reflection = new Cognition(cid, parentId ?? CognitionId.None, status,
                         fact.Id,
-                        premisesArr,
+                        output.Inputs.ToDictionary(pair => new EntityStampKey(pair.Key, pair.Value.Item2), pair => pair.Value.Item3),
                         conclusionsArr.Select(x => x.Key.Eid).ToArray(),
                         output.Constants,
-                        output.SideEffects.Select(x => x?.ToString()).ToList().AsReadOnly(),
+                        output.SideEffects.Select(x => x?.ToString()).ToList(),
                         detailsDict);
                     
                     detailsDict[Cognition.DetailsReflectTime] = reflectTime.ToFileTimeUtc().ToString();

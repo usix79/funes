@@ -27,26 +27,20 @@ namespace Funes {
                 (dr, logic, serializer, logger, tracer, iterationsLimit);
         }
         
-        public class Output {
-            public Dictionary<EntityId, (Entity,CognitionId)> Premises { get; } = new ();
-            public Dictionary<EntityId, Entity> Conclusions { get; } = new ();
+        public class LogicResult {
+            public Dictionary<EntityId, (Entity,CognitionId,bool)> Inputs { get; } = new ();
+            public Dictionary<EntityId, Entity> Outputs { get; } = new ();
             public Dictionary<EntityId, Entity> DerivedFacts { get; } = new ();
             public List<TSideEffect> SideEffects { get; } = new ();
-
             public NameValueCollection Constants { get; } = new ();
         }
-        
-        
-        // TODO: consider using of arbitrary constants for making logic reproducible even it needs RNG or new GUIDS
-        //       receive the constants from end()
-        //       store the constants in the cognition
-        //       pass the constants to the begin() if cognition has been already happened
-        public async Task<Result<Output>> Run(Entity fact, NameValueCollection constants, CancellationToken ct = default) {
+
+        public async Task<Result<LogicResult>> Run(Entity fact, NameValueCollection constants, CancellationToken ct = default) {
             var entities = new Dictionary<EntityId, EntityEntry>{[fact.Id] = EntityEntry.Ok(fact)};
             var pendingMessages = new Queue<TMsg>();
             var pendingCommands = new LinkedList<Cmd<TMsg, TSideEffect>>();
             var retrievingTasks = new Dictionary<EntityId, ValueTask<Result<EntityEntry>>>();
-            var output = new Output();
+            var output = new LogicResult();
             var iteration = 0;
 
             try {
@@ -76,10 +70,10 @@ namespace Funes {
                 cmd = _logic.End(state);
                 await _tracer.EndResult(cmd);
                 ProcessCommand(cmd);
-                return new Result<Output>(output);
+                return new Result<LogicResult>(output);
             }
             catch (Exception e) {
-                return Result<Output>.Exception(e);
+                return Result<LogicResult>.Exception(e);
             }
             
             void ProcessCommand(Cmd<TMsg, TSideEffect> aCmd) {
@@ -96,7 +90,7 @@ namespace Funes {
                         foreach (var item in x.Items) ProcessCommand(item);
                         break;
                     case Cmd<TMsg, TSideEffect>.ConclusionCmd x:
-                        output.Conclusions[x.Entity.Id] = x.Entity;
+                        output.Outputs[x.Entity.Id] = x.Entity;
                         entities[x.Entity.Id] = EntityEntry.Ok(x.Entity);
                         break;
                     case Cmd<TMsg, TSideEffect>.DerivedFactCmd x:
@@ -131,8 +125,7 @@ namespace Funes {
             bool TryCompleteRetrieve(Cmd<TMsg, TSideEffect>.RetrieveCmd aCmd) {
                 if (!entities!.TryGetValue(aCmd.EntityId, out var entry)) return false;
 
-                // move to premises if needed
-                if (entry.IsOk && aCmd.AsPremise) output.Premises[entry.Entity.Id] = (entry.Entity, entry.Cid);
+                AddInput(entry, aCmd.AsPremise);
 
                 try {
                     pendingMessages!.Enqueue(aCmd.Action(entry));
@@ -147,13 +140,8 @@ namespace Funes {
                 if (aCmd.EntityIds.Any(x => !entities!.ContainsKey(x))) return false;
 
                 var entries = aCmd.EntityIds.Select(memId => entities![memId]).ToArray();
-
-                // move to premises if needed
-                if (aCmd.AsPremise) {
-                    foreach (var entry in entries) {
-                        if (entry.IsOk) output.Premises[entry.Entity.Id] = (entry.Entity, entry.Cid);
-                    }
-                }
+                
+                foreach (var entry in entries) AddInput(entry, aCmd.AsPremise);
 
                 try {
                     pendingMessages!.Enqueue(aCmd.Action(entries));
@@ -162,6 +150,17 @@ namespace Funes {
                     _logger.LogError(x, "Failed retrieve many action for {EntityIds}", aCmd.EntityIds);
                 }
                 return true;
+            }
+
+            void AddInput(EntityEntry entry, bool asPremise) {
+                if (entry.IsOk) {
+                    if (output!.Inputs.TryGetValue(entry.Entity.Id, out var tuple)) {
+                        output.Inputs[entry.Entity.Id] = (tuple.Item1, tuple.Item2,  tuple.Item3 || asPremise);
+                    }
+                    else {
+                        output.Inputs[entry.Entity.Id] = (entry.Entity, entry.Cid, asPremise);
+                    }
+                }
             }
 
             void StartRetrievingTask(EntityId entityId) {

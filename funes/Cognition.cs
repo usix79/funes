@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.IO;
 using System.Linq;
@@ -13,11 +12,11 @@ namespace Funes {
         CognitionId ParentId, 
         CognitionStatus Status,
         EntityId Fact, 
-        EntityStampKey[] Premises, 
-        EntityId[] Conclusions,
+        Dictionary<EntityStampKey, bool> Inputs, 
+        EntityId[] Outputs,
         NameValueCollection Constants,
-        ReadOnlyCollection<string?> SideEffects,
-        IReadOnlyDictionary<string, string> Details
+        List<string?> SideEffects,
+        Dictionary<string, string> Details
         ) {
         
         public const string Category = "funes/reflections";
@@ -75,7 +74,7 @@ namespace Funes {
 
             var reflection = loadResult.Value;
             
-            var historyTasks = reflection.Premises
+            var historyTasks = reflection.Inputs.Keys
                 .Select(premiseKey => repo.GetHistory(premiseKey.Eid, reflection.Id, 1).AsTask());
             
             var historyItems = await Task.WhenAll(historyTasks);
@@ -84,7 +83,7 @@ namespace Funes {
             if (errors.Length > 0) return Result<Fallacy[]>.AggregateError(errors);
             
             var fallacies =
-                reflection.Premises
+                reflection.Inputs.Keys
                     .Zip(historyItems, (premiseKey, historyResult) => (premiseKey, historyResult.Value.FirstOrDefault()))
                     .Where(x => x.Item1.Cid.CompareTo(x.Item2) > 0)
                     .Select(x => new Fallacy(x.Item1, x.Item2));
