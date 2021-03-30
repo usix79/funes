@@ -44,8 +44,8 @@ namespace Funes {
             var iteration = 0;
 
             try {
-                var (state, cmd) = _logic.Begin(fact, constants);
-                await _tracer.BeginResult(fact, state, cmd);
+                var (model, cmd) = _logic.Begin(fact, constants);
+                await _tracer.BeginResult(fact, model, cmd);
                 ProcessCommand(cmd);
 
                 while (pendingMessages.Count > 0 || pendingCommands.First != null) {
@@ -55,8 +55,8 @@ namespace Funes {
                     // TODO: consider continue work after exception in update()
                     while (pendingMessages.TryDequeue(out var msg)) {
                         if (iteration++ > _iterationsLimit) ThrowIterationsLimitException();
-                        (state, cmd) = _logic.Update(state, msg);
-                        await _tracer.UpdateResult(state, cmd);
+                        (model, cmd) = _logic.Update(model, msg);
+                        await _tracer.UpdateResult(model, cmd);
                         ProcessCommand(cmd);
                     }
 
@@ -67,7 +67,7 @@ namespace Funes {
                     }
                 }
 
-                cmd = _logic.End(state);
+                cmd = _logic.End(model);
                 await _tracer.EndResult(cmd);
                 ProcessCommand(cmd);
                 return new Result<LogicResult>(output);
