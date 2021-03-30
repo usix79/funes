@@ -1,4 +1,5 @@
 using System;
+using System.Data.Common;
 
 namespace Funes {
     public readonly struct EntityId : IEquatable<EntityId> {
@@ -15,7 +16,7 @@ namespace Funes {
         public string Name {
             get {
                 var idx = Id.LastIndexOf('/');
-                return idx != -1 ? Id.Substring(idx) : Id;
+                return idx != -1 ? Id.Substring(idx+1) : Id;
             }
         }
         
@@ -23,6 +24,8 @@ namespace Funes {
         
         public EntityId(string id) => Id = id;
         public EntityId(string cat, string name) => Id = cat + "/" + name;
+
+        public EntityStampKey CreateStampKey(CognitionId cid) => new (this, cid);
 
         public bool Equals(EntityId other) => Id == other.Id;
         public override bool Equals(object? obj) => obj is EntityId other && Equals(other);

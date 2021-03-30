@@ -60,6 +60,7 @@ namespace Funes {
             }
             finally {
                 stopWatch.Stop();
+                await _dataEngine.Flush();
             }
             
             void RunLogic(Entity aFact, CognitionId? parentId, int attempt) {
@@ -205,8 +206,8 @@ namespace Funes {
                     return status == CognitionStatus.Truth && uploadSysEntitiesResult.IsOk 
                         ?  new Result<Cognition>(reflection)
                         : Result<Cognition>.ReflectionError(reflection, 
-                            new Error.AggregateError(uploadConclusionsResult.Error, uploadFactResult.Error,
-                                uploadSysEntitiesResult.Error));
+                            new Error.AggregateError(new []{uploadConclusionsResult.Error, uploadFactResult.Error,
+                                uploadSysEntitiesResult.Error}));
                 }
                 catch (TaskCanceledException) { throw; }
                 catch (Exception e) { return Result<Cognition>.Exception(e); }

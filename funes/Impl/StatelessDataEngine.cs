@@ -4,73 +4,107 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 
 namespace Funes.Impl {
-    
     public class StatelessDataEngine: IDataEngine {
-
+        private readonly ILogger _logger;
         private readonly IRepository _repo;
         private readonly ICache _cache;
-        private readonly ITransactionEngine _transaction;
-        private ConcurrentBag<Task> _pendingTasks = new ();
+        private readonly ITransactionEngine _tre;
+        private ConcurrentQueue<Task> _tasksQueue = new ();
 
-        public StatelessDataEngine(IRepository repo, ICache cache, ITransactionEngine transaction) {
-            (_repo, _cache, _transaction) = (repo, cache, transaction);
-        }
+        public StatelessDataEngine(IRepository repo, ICache cache, ITransactionEngine tre, ILogger logger) =>
+            (_logger, _repo, _cache, _tre) = (logger, repo, cache, tre);
 
         public async ValueTask<Result<EntityEntry>> Retrieve(EntityId eid, ISerializer ser, CancellationToken ct) {
-            
             var cacheResult = await _cache.Get(eid, ser, ct);
 
             if (cacheResult.IsOk) return cacheResult;
+
+            var ss = new StreamSerializer();
+        
+            // cache miss, look in the repo
+            if (_logger.IsEnabled(LogLevel.Debug)) _logger.LogDebug($"Retrieve {eid}, cache miss");
             
-            // miss cache, look in the repo
-            var repoResult = await LoadActualStamp(eid, CognitionId.Singularity, ser, ct);
+            var repoResult = await LoadActualStamp(eid, CognitionId.Singularity, ss, ct);
 
             if (repoResult.IsError && repoResult.Error != Error.NotFound)
                 return new Result<EntityEntry>(repoResult.Error);
 
-            var entry = repoResult.IsOk ? repoResult.Value.ToEntry() : EntityEntry.NotExist;
-                
+            var entry = repoResult.IsOk 
+                ? repoResult.Value.ToEntry() 
+                : EntityEntry.NotExist;
+            
             // try set cache item
-            var trySetResult = await _cache.Update(new[] {entry}, ser, ct);
+            var trySetResult = await _cache.UpdateIfOlder(new[] {entry}, ss, ct);
 
-            if (trySetResult.IsOk && !trySetResult.Value)
-                // what? cache already has gotten a value, look in cache again 
+            if (trySetResult.IsOk && !trySetResult.Value) {
+                // what? cache already has gotten a value, look in cache again
+                if (_logger.IsEnabled(LogLevel.Debug)) 
+                    _logger.LogDebug($"Retrieve {eid}, unsuccessfull cache update");
+                
                 return await _cache.Get(eid, ser, ct);
+            }
 
-            // TODO: log trySet Error
+            if (trySetResult.IsError)
+                _logger.LogError($"Retrieve {eid}, cache update error {trySetResult.Error}");
 
-            return new Result<EntityEntry>(entry);
+            var realDecodeResult = await ss.DecodeForReal(eid, ser);
+            if (repoResult.IsError) return new Result<EntityEntry>(repoResult.Error);
+
+            return new Result<EntityEntry>(entry.MapValue(realDecodeResult.Value));
         }
         
         public async ValueTask<Result<bool>> Upload(
             IEnumerable<EntityStamp> stamps, ISerializer ser, CancellationToken ct, bool skipCache = false) {
-            var stampsArr = stamps as EntityStamp[] ?? stamps.ToArray();
-                
-            if (stampsArr.Length == 0) return new Result<bool>(false);
-           
-            var result = skipCache
-                ? new Result<bool>(true)
-                : await _cache.Update(stampsArr.Select(x => x.ToEntry()), ser, ct);
+
+            if (skipCache) {
+                _tasksQueue.Enqueue(SaveStamps(stamps, ser, ct));
+            }
+            else {
+                var stampsList = new List<EntityStamp>();
+                List<Error>? errors = null; 
+                var ss = new StreamSerializer();
             
-            _pendingTasks.Add(SaveStamps(stampsArr, ser, ct));
-            
-            return result;
+                foreach (var stamp in stamps) {
+                    var encodeResult = await ss.EncodeForReal(stamp.Entity.Id, stamp.Entity.Value, ser);
+                    if (encodeResult.IsOk) {
+                        stampsList.Add(stamp);
+                    }
+                    else{
+                        errors ??= new ();
+                        errors.Add(encodeResult.Error);
+                    }
+                }
+
+                if (stampsList.Count > 0) {
+                    var cacheResult = await _cache.UpdateIfOlder(stampsList.Select(x => x.ToEntry()), ss, ct);
+                    if (cacheResult.IsError) {
+                        errors ??= new ();
+                        errors.Add(cacheResult.Error);
+                    }
+                    _tasksQueue.Enqueue(SaveStamps(stampsList, ss, ct));
+                }
+
+                if (errors?.Count > 0) return Result<bool>.AggregateError(errors); 
+            }
+            return new Result<bool>(true);
         }
         
-        public async ValueTask<Result<bool>> Commit(
-            IEnumerable<EntityStampKey> premises, IEnumerable<EntityStampKey> conclusions, CancellationToken ct) {
+        public async ValueTask<Result<bool>> Commit(IEnumerable<EntityStampKey> premises, 
+                IEnumerable<EntityStampKey> conclusions, CancellationToken ct) {
             var premisesArr = premises as EntityStampKey[] ?? premises.ToArray();
             if (premisesArr.Length == 0) return new Result<bool>(false);
 
-            var commitResult = await _transaction.Commit(premisesArr, conclusions, ct);
+            var commitResult = await _tre.Commit(premisesArr, conclusions, ct);
 
             if (commitResult.Error is Error.TransactionError err) {
-                var piSecArr = err.Conflicts
-                    .Where(x => CognitionId.IsPisec(x.PremiseCid, x.ActualCid)).ToArray();
+                var piSecArr = err.Conflicts.Where(IsPiSec).ToArray();
                 if (piSecArr.Length > 0) {
-                    _pendingTasks.Add(CheckCollisions(piSecArr, null!, ct));
+                    var conflictsTxt = string.Join(',', piSecArr.Select(x => x.ToString()));
+                    _logger.LogWarning($"Possible piSec in {nameof(StatelessDataEngine)}, {conflictsTxt}");
+                    _tasksQueue.Enqueue(CheckCollisions(piSecArr, ct));
                 }
             }
 
@@ -78,9 +112,22 @@ namespace Funes.Impl {
         }
         
         public Task Flush() {
-            var tasks = _pendingTasks;
-            _pendingTasks = new ConcurrentBag<Task>();
+            if (_tasksQueue.IsEmpty) return Task.CompletedTask;
+
+            var tasks = new List<Task>(_tasksQueue.Count);
+            while(_tasksQueue.TryDequeue(out var task)) tasks.Add(task);
+
             return Task.WhenAll(tasks);
+        }
+
+        private bool IsPiSec(Error.TransactionError.Conflict conflict) { 
+            if (conflict.PremiseCid.IsOlderThan(conflict.ActualCid)) return true;
+            
+            // if actualCid is OlderThan 3.14sec
+            if (conflict.PremiseCid.IsOlderThan(
+                CognitionId.ComposeId(DateTimeOffset.UtcNow.AddMilliseconds(-3140), ""))) return true;
+            
+            return false;
         }
 
         private async Task<Result<EntityStamp>> LoadActualStamp(
@@ -88,12 +135,12 @@ namespace Funes.Impl {
             while (true) {
                 ct.ThrowIfCancellationRequested();
                 
-                var historyResult = await _repo.GetHistory(eid, before, 42);
+                var historyResult = await _repo.History(eid, before, 42);
                 if (historyResult.IsError) return new Result<EntityStamp>(historyResult.Error);
 
                 var cid = historyResult.Value.FirstOrDefault(x => x.IsTruth());
                 if (!cid.IsNull()) {
-                    return await _repo.Get(new EntityStampKey(eid, cid), ser);
+                    return await _repo.Load(new EntityStampKey(eid, cid), ser, ct);
                 }
 
                 before = historyResult.Value.LastOrDefault();
@@ -102,42 +149,44 @@ namespace Funes.Impl {
         }
 
         private Task SaveStamps(IEnumerable<EntityStamp> stamps, ISerializer ser, CancellationToken ct) =>
-            Task.WhenAll(stamps.Select(x => _repo.Put(x, ser).AsTask()));
+            Task.WhenAll(stamps.Select(x => _repo.Save(x, ser, ct).AsTask()));
 
-        private Task CheckCollisions(IEnumerable<Error.TransactionError.Conflict> conflicts, ISerializer ser, CancellationToken ct) =>
-            Task.WhenAll(conflicts.Select(x => CheckCollision(x, ser, ct)));
+        private Task CheckCollisions(IEnumerable<Error.TransactionError.Conflict> conflicts, CancellationToken ct) =>
+            Task.WhenAll(conflicts.Select(x => CheckConflict(x, ct)));
         
-        private async Task CheckCollision(Error.TransactionError.Conflict conflict, ISerializer ser, CancellationToken ct) {
+        private async Task CheckConflict(Error.TransactionError.Conflict conflict, CancellationToken ct) {
             ct.ThrowIfCancellationRequested();
-            var cacheGetResult = await _cache.Get(conflict.Eid, ser, ct);
+            var ss = new StreamSerializer();
+            var cacheGetResult = await _cache.Get(conflict.Eid, ss, ct);
 
             if (cacheGetResult.IsOk && cacheGetResult.Value.IsOk && cacheGetResult.Value.Cid == conflict.ActualCid) {
                 // cache == actualCid, all ok
                 return;
             }
 
-            var repoResult = await LoadActualStamp(conflict.Eid, CognitionId.Singularity, ser, ct);
+            _logger.LogError($"PiSec confirmed in {nameof(StatelessDataEngine)}, {conflict}, stamp in cache {cacheGetResult.Value.Cid}");
+            var repoResult = await LoadActualStamp(conflict.Eid, CognitionId.Singularity, ss, ct);
 
             if (repoResult.IsError) {
-                // log error
+                _logger.LogError($"{nameof(StatelessDataEngine)} Unable to resolve piSec, LoadActualStamp error {repoResult.Error}");
                 return;
             }
 
-            var commitResult = await _transaction.Commit(
-                new[] {new EntityStampKey(conflict.Eid, conflict.ActualCid)}, 
-                new[] {new EntityStampKey(conflict.Eid, repoResult.Value.Cid)}, 
+            var commitResult = await _tre.Commit(
+                new[] {conflict.Eid.CreateStampKey(conflict.ActualCid)}, 
+                new[] {conflict.Eid.CreateStampKey(repoResult.Value.Cid)}, 
                 ct);
 
             if (commitResult.IsOk) {
                 if (commitResult.Value) {
-                    var cacheSetResult = await _cache.Set(new[] {repoResult.Value.ToEntry()}, ser, ct);
+                    var cacheSetResult = await _cache.Set(repoResult.Value.ToEntry(), ss, ct);
                     if (cacheSetResult.IsError) {
-                        // log error
+                        _logger.LogError($"{nameof(StatelessDataEngine)} Unable to resolve piSec, Cache Set error {cacheSetResult.Error}");
                     }
                 }
             }
             else {
-                // log error
+                _logger.LogError($"{nameof(StatelessDataEngine)} Unable to resolve piSec, Commit error {commitResult.Error}");
             }
         }
     }

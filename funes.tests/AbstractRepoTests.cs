@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Funes.Impl;
 using Xunit;
 
 namespace Funes.Tests {
@@ -14,7 +15,7 @@ namespace Funes.Tests {
 
             var testMemId = new EntityId("TestCategory", "TestId");
             var testMemKey = new EntityStampKey(testMemId, new CognitionId("TestReflectionId"));
-            var mem = await repo.Get(testMemKey, _simpleSerializer);
+            var mem = await repo.Load(testMemKey, _simpleSerializer, default);
             Assert.True(mem.Error == Error.NotFound);
         }
 
@@ -23,14 +24,14 @@ namespace Funes.Tests {
             var repo = CreateRepo();
 
             var testReflectionId = CognitionId.NewId();
-            var testMem = TestHelpers.CreateSimpleMem(testReflectionId);
+            var testMem = TestHelpers.CreateSimpleEntity(testReflectionId);
             
-            var putResult = await repo.Put(testMem, _simpleSerializer);
+            var putResult = await repo.Save(testMem, _simpleSerializer, default);
             Assert.True(putResult.IsOk);
             
-            var getResult = await repo.Get(testMem.Key, _simpleSerializer);
+            var getResult = await repo.Load(testMem.Key, _simpleSerializer, default);
             Assert.True(getResult.IsOk);
-            TestHelpers.AssertMemEquals(testMem, getResult.Value);
+            TestHelpers.AssertEntitiesEqual(testMem, getResult.Value);
         }
 
         [Fact]
@@ -40,18 +41,18 @@ namespace Funes.Tests {
             var id = new EntityId("cat-s", "id-b2");
             
             var testReflectionId1 = CognitionId.NewId();
-            var testMem1 = TestHelpers.CreateSimpleMem(testReflectionId1, id);
-            var putResult1 = await repo.Put(testMem1, _simpleSerializer);
+            var testMem1 = TestHelpers.CreateSimpleEntity(testReflectionId1, id);
+            var putResult1 = await repo.Save(testMem1, _simpleSerializer, default);
             Assert.True(putResult1.IsOk);
 
             await Task.Delay(50);
             
             var testReflectionId2 = CognitionId.NewId();
-            var testMem2 = TestHelpers.CreateSimpleMem(testReflectionId2, id);
-            var putResult2 = await repo.Put(testMem2, _simpleSerializer);
+            var testMem2 = TestHelpers.CreateSimpleEntity(testReflectionId2, id);
+            var putResult2 = await repo.Save(testMem2, _simpleSerializer, default);
             Assert.True(putResult2.IsOk);
             
-            var historyResult = await repo.GetHistory(id, CognitionId.Singularity, 1);
+            var historyResult = await repo.History(id, CognitionId.Singularity, 1);
             Assert.True(historyResult.IsOk);
             var cids = historyResult.Value.ToArray();
             Assert.Single(cids);
@@ -68,14 +69,14 @@ namespace Funes.Tests {
             var history = new List<(EntityStamp, CognitionId)>();
             for (var i = 0; i < 42; i++) {
                 var cid = CognitionId.NewId();
-                var mem = TestHelpers.CreateSimpleMem(cid, key);
+                var mem = TestHelpers.CreateSimpleEntity(cid, key);
                 history.Add((mem, cid));
-                var putResult = await repo.Put(mem, _simpleSerializer);
+                var putResult = await repo.Save(mem, _simpleSerializer, default);
                 Assert.True(putResult.IsOk);
                 await Task.Delay(10);
             }
             
-            var historyResult = await repo.GetHistory(key, history[7].Item2, 3);
+            var historyResult = await repo.History(key, history[7].Item2, 3);
             Assert.True(historyResult.IsOk);
             var cids = historyResult.Value.ToArray();
             Assert.Equal(3, cids.Length);
@@ -83,19 +84,19 @@ namespace Funes.Tests {
             Assert.Equal(history[5].Item2, cids[1]);
             Assert.Equal(history[4].Item2, cids[2]);
             
-            historyResult = await repo.GetHistory(key, history[0].Item2, 3);
+            historyResult = await repo.History(key, history[0].Item2, 3);
             Assert.True(historyResult.IsOk);
             cids = historyResult.Value.ToArray();
             Assert.Empty(cids);
 
-            historyResult = await repo.GetHistory(key, CognitionId.Singularity, 2);
+            historyResult = await repo.History(key, CognitionId.Singularity, 2);
             Assert.True(historyResult.IsOk);
             cids = historyResult.Value.ToArray();
             Assert.Equal(2, cids.Length);
             Assert.Equal(history[41].Item2, cids[0]);
             Assert.Equal(history[40].Item2, cids[1]);
 
-            historyResult = await repo.GetHistory(key, history[2].Item2, 5);
+            historyResult = await repo.History(key, history[2].Item2, 5);
             Assert.True(historyResult.IsOk);
             cids = historyResult.Value.ToArray();
             Assert.Equal(2, cids.Length);

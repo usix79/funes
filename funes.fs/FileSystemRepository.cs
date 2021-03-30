@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Funes.Fs {
@@ -12,31 +13,32 @@ namespace Funes.Fs {
         
         public FileSystemRepository(string root) => Root = root;
 
-        public async ValueTask<Result<bool>> Put(EntityStamp entityStamp, ISerializer ser) {
+        public async ValueTask<Result<bool>> Save(EntityStamp entityStamp, ISerializer ser, CancellationToken ct) {
             await using MemoryStream stream = new();
             var encoderResult = await ser.Encode(stream, entityStamp.Entity.Id, entityStamp.Value);
             if (encoderResult.IsError) return new Result<bool>(encoderResult.Error);
-            return await Put(entityStamp.Key, stream.GetBuffer(), encoderResult.Value);
+            return await Write(entityStamp.Key, stream.GetBuffer(), encoderResult.Value, ct);
         }
 
-        public async ValueTask<Result<bool>> Put(EntityStampKey key, ReadOnlyMemory<byte> value, string encoding) {
+        private async ValueTask<Result<bool>> Write(EntityStampKey key, 
+                        ReadOnlyMemory<byte> value, string encoding, CancellationToken ct) {
             try {
                 Directory.CreateDirectory(GetMemPath(key.Eid));
                 var fileName = GetMemFileName(key, encoding);
                 await using FileStream fs = File.OpenWrite(fileName);
-                await fs.WriteAsync(value);
+                await fs.WriteAsync(value, ct);
                 return new Result<bool>(true);
             }
-            catch (Exception e) {
-                return Result<bool>.Exception(e);
-            }
+            catch (TaskCanceledException) { throw; }
+            catch (Exception e) { return Result<bool>.Exception(e); }
         }
 
-        public async ValueTask<Result<EntityStamp>> Get(EntityStampKey key, ISerializer ser) {
+        public async ValueTask<Result<EntityStamp>> Load(EntityStampKey key, ISerializer ser, CancellationToken ct) {
             try {
                 var memDirectory = GetMemDirectory(key);
                 if (Directory.Exists(memDirectory)) {
                     foreach (var fileName in Directory.GetFiles(memDirectory, GetMemFileMask(key))) {
+                        ct.ThrowIfCancellationRequested();
                         var (cid, encoding) = ParseFileName(fileName);
                         var decodeResult = await ser.Decode(File.OpenRead(fileName), key.Eid, encoding);
 
@@ -49,12 +51,12 @@ namespace Funes.Fs {
                 }
                 return Result<EntityStamp>.NotFound;
             }
-            catch (Exception e) {
-                return Result<EntityStamp>.Exception(e);
-            }
+            catch (TaskCanceledException) { throw; }
+            catch (Exception x) { return Result<EntityStamp>.Exception(x); }
         }
         
-        public ValueTask<Result<IEnumerable<CognitionId>>> GetHistory(EntityId id, CognitionId before, int maxCount = 1) {
+        public ValueTask<Result<IEnumerable<CognitionId>>> History(EntityId id, 
+                    CognitionId before, int maxCount = 1, CancellationToken ct = default) {
             try {
                 var path = GetMemPath(id);
 
@@ -67,15 +69,15 @@ namespace Funes.Fs {
 
                 return ValueTask.FromResult(new Result<IEnumerable<CognitionId>>(cids));
             }
+            catch (TaskCanceledException) { throw; }
             catch (Exception e) {
                 return ValueTask.FromResult(Result<IEnumerable<CognitionId>>.Exception(e));
             }
         }
 
-        private string GetMemPath(EntityId id) => Path.Combine(Root, id.Category, id.Name);
+        private string GetMemPath(EntityId id) => Path.Combine(Root, id.Id);
 
-        private string GetMemDirectory(EntityStampKey key) => 
-            Path.Combine(Root, key.Eid.Category, key.Eid.Name);
+        private string GetMemDirectory(EntityStampKey key) => Path.Combine(Root, key.Eid.Id);
 
         private string GetMemFileMask(EntityStampKey key) =>
             key.Cid.Id + ".*";
@@ -87,6 +89,6 @@ namespace Funes.Fs {
         }
         
         private string GetMemFileName(EntityStampKey key, string encoding) => 
-            Path.Combine(Root, key.Eid.Category, key.Eid.Name, key.Cid.Id + "." + encoding);
+            Path.Combine(Root, key.Eid.Id, key.Cid.Id + "." + encoding);
     }
 }

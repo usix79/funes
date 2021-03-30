@@ -4,6 +4,7 @@ using System.Collections.Specialized;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Threading;
 using System.Threading.Tasks;
 using Amazon.S3;
 using Amazon.S3.Model;
@@ -26,7 +27,7 @@ namespace Funes.S3 {
 
         private const string EncodingKey = "x-amz-meta-encoding";
         
-        public async ValueTask<Result<bool>> Put(EntityStamp entityStamp, ISerializer ser) {
+        public async ValueTask<Result<bool>> Save(EntityStamp entityStamp, ISerializer ser, CancellationToken ct) {
             try {
                 await using var stream = new MemoryStream();
                 var encodeResult = await ser.Encode(stream, entityStamp.Entity.Id,  entityStamp.Value);
@@ -43,7 +44,7 @@ namespace Funes.S3 {
                     Headers = {[EncodingKey] = encoding}
                 };
                 
-                var resp = await _client.PutObjectAsync(req);
+                var resp = await _client.PutObjectAsync(req, ct);
 
                 return new Result<bool>(true);
 
@@ -53,36 +54,29 @@ namespace Funes.S3 {
                         _ => "application/octet-stream"
                     };
             }
-            catch (AmazonS3Exception e) {
-                return Result<bool>.IoError(e.ToString());
-            }
-            catch (Exception e) {
-                return Result<bool>.Exception(e);
-            }
+            catch (TaskCanceledException) { throw; }
+            catch (AmazonS3Exception e) { return Result<bool>.IoError(e.ToString()); }
+            catch (Exception e) { return Result<bool>.Exception(e); }
         }
-        public async ValueTask<Result<EntityStamp>> Get(EntityStampKey key, ISerializer ser) {
+        public async ValueTask<Result<EntityStamp>> Load(EntityStampKey key, ISerializer ser, CancellationToken ct) {
             try {
-                var resp = await _client.GetObjectAsync(BucketName, CreateMemS3Key(key));
+                var resp = await _client.GetObjectAsync(BucketName, CreateMemS3Key(key), ct);
                 
                 var encoding = resp.Metadata[EncodingKey];
 
                 var decodeResult = await ser.Decode(resp.ResponseStream, key.Eid, encoding);
-                if (decodeResult.IsError) return new Result<EntityStamp>(decodeResult.Error);
-
-                return new Result<EntityStamp>(new EntityStamp(key, decodeResult.Value));
+                return decodeResult.IsOk
+                    ? new Result<EntityStamp>(new EntityStamp(key, decodeResult.Value))
+                    : new Result<EntityStamp>(decodeResult.Error);
             }
-            catch (AmazonS3Exception e) when (e.StatusCode == HttpStatusCode.NotFound) {
-                return Result<EntityStamp>.NotFound;
-            }
-            catch (AmazonS3Exception e) {
-                return Result<EntityStamp>.IoError(e.ToString());
-            }
-            catch (Exception e) {
-                return Result<EntityStamp>.Exception(e);
-            }
+            catch (TaskCanceledException) { throw; }
+            catch (AmazonS3Exception e) when (e.StatusCode == HttpStatusCode.NotFound) { return Result<EntityStamp>.NotFound; }
+            catch (AmazonS3Exception e) { return Result<EntityStamp>.IoError(e.ToString()); }
+            catch (Exception e) { return Result<EntityStamp>.Exception(e); }
         }
         
-        public async ValueTask<Result<IEnumerable<CognitionId>>> GetHistory(EntityId id, CognitionId before, int maxCount = 1) {
+        public async ValueTask<Result<IEnumerable<CognitionId>>> History(EntityId id, 
+                        CognitionId before, int maxCount = 1, CancellationToken ct = default) {
             try {
                 var req = new ListObjectsV2Request {
                     BucketName = BucketName,
@@ -91,25 +85,19 @@ namespace Funes.S3 {
                     MaxKeys = maxCount
                 };
 
-                var resp = await _client.ListObjectsV2Async(req);
+                var resp = await _client.ListObjectsV2Async(req, ct);
 
                 return
                     new Result<IEnumerable<CognitionId>>(
                         resp!.S3Objects
                             .Select(s3Obj => new CognitionId (s3Obj.Key.Substring(req.Prefix.Length))));
             }
-            catch (AmazonS3Exception e) {
-                return Result<IEnumerable<CognitionId>>.IoError(e.ToString());
-            }
-            catch (Exception e) {
-                return Result<IEnumerable<CognitionId>>.Exception(e);
-            }
+            catch (TaskCanceledException) { throw; }
+            catch (AmazonS3Exception e) { return Result<IEnumerable<CognitionId>>.IoError(e.ToString()); }
+            catch (Exception e) { return Result<IEnumerable<CognitionId>>.Exception(e); }
         }
 
-        private string CreateMemS3Key(EntityStampKey key)
-            => $"{Prefix}/{key.Eid.Category}/{key.Eid.Name}/{key.Cid.Id}";
-        
-        private string CreateMemS3Id(EntityId id)
-            => $"{Prefix}/{id.Category}/{id.Name}/";
+        private string CreateMemS3Key(EntityStampKey key) => $"{Prefix}/{key.Eid.Id}/{key.Cid.Id}";
+        private string CreateMemS3Id(EntityId id) => $"{Prefix}/{id.Id}/";
     }
 }

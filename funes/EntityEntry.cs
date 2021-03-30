@@ -10,8 +10,11 @@ namespace Funes {
         public bool IsNotExist => _status == Status.IsNotExist;
         public bool IsOk => _status == Status.IsOk;
         public object Value => Entity.Value;
+        public EntityId Eid => Entity.Id; 
         public EntityStampKey Key => new EntityStampKey(Entity.Id, Cid);
         public EntityStamp ToStamp() => new EntityStamp(Entity, Cid);
+
+        public EntityEntry MapValue(object value) => new EntityEntry(new Entity(Entity.Id, value), Cid);
 
         private EntityEntry(Entity entity, CognitionId cid) => (Entity, Cid, _status) = (entity, cid, Status.IsOk);
         public static EntityEntry Ok(Entity entity) => new (entity, CognitionId.None);

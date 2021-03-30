@@ -1,12 +1,13 @@
 using System;
 using System.Threading.Tasks;
+using Funes.Impl;
 using Xunit;
 
 namespace Funes.Tests {
     public static class TestHelpers {
         
         private static readonly Random Rand = new Random(DateTime.Now.Millisecond);
-        private static ISerializer _simpleSerializer = new SimpleSerializer<Simple>();
+        private static readonly ISerializer _simpleSerializer = new SimpleSerializer<Simple>();
 
         private static string RandomString(int length) =>
             string.Create(length, length, (span, n) => {
@@ -15,7 +16,7 @@ namespace Funes.Tests {
                 }
             });
         
-        public static EntityStamp CreateSimpleMem(CognitionId cid, EntityId? key = null) {
+        public static EntityStamp CreateSimpleEntity(CognitionId cid, EntityId? key = null) {
             
             var nonNullKey = key ?? new EntityId("cat-" + RandomString(10), "id-" + RandomString(10));
             
@@ -29,12 +30,12 @@ namespace Funes.Tests {
                 var cat = "cat-" + RandomString(1);
                 for (var j = 0; j < 6; j++) {
                     var id = "id-" + RandomString(5);
-                    await repo.Put(CreateSimpleMem(CognitionId.NewId(),new EntityId(cat, id)), _simpleSerializer);
+                    await repo.Save(CreateSimpleEntity(CognitionId.NewId(),new EntityId(cat, id)), _simpleSerializer, default);
                 }
             }
         }
         
-        public static void AssertMemEquals(EntityStamp expected, EntityStamp actual) {
+        public static void AssertEntitiesEqual(EntityStamp expected, EntityStamp actual) {
             Assert.Equal(expected.Key, actual.Key);
             Assert.Equal(expected.Value, actual.Value);
         }

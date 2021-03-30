@@ -48,11 +48,25 @@ namespace Funes {
             
             return new CognitionId(id);
         }
-        
+
+        public static CognitionId ComposeId(DateTimeOffset dt, string tail) {
+            var id = string.Create(DigitsLength + 1 + tail.Length, MillisecondsBeforeFryReawakening(dt), 
+                (span, num) => {
+                    for (var i = 0; i < DigitsLength; i++, num /= 10) {
+                        span[DigitsLength - i - 1] = (char)('0' + num % 10);
+                    }
+                    span[DigitsLength] = '-';
+                    for (var i = 0; i < tail.Length; i++) {
+                        span[DigitsLength + i + 1] = tail[i];
+                    }
+                });
+            
+            return new CognitionId(id);
+        }
+
         public static CognitionId NewId() => ComposeId(DateTimeOffset.UtcNow, Rand.Value);
 
-        public static bool IsPisec(CognitionId premiseId, CognitionId actualId) => 
-            premiseId.CompareTo(actualId) < 0;
+        public bool IsOlderThan(CognitionId other) => CompareTo(other) < 0;
 
         public bool Equals(CognitionId other) => Id == other.Id;
         public override bool Equals(object? obj) => obj is CognitionId other && Equals(other);

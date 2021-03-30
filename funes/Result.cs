@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Funes {
     
@@ -19,7 +20,7 @@ namespace Funes {
             new (new Error.CognitionError(cognition, error));
         public static Result<T> TransactionError(Error.TransactionError.Conflict[] conflicts) =>
             new (new Error.TransactionError(conflicts));
-        public static Result<T> AggregateError(Error[] errors) => 
+        public static Result<T> AggregateError(IEnumerable<Error> errors) => 
             new (new Error.AggregateError(errors));
     }
 }

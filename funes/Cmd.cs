@@ -20,7 +20,6 @@ namespace Funes {
         public record BatchOutputCmd(IEnumerable<OutputCmd> Items) : OutputCmd;
 
         public static readonly Cmd<TMsg,TSideEffect> None = new NoneCmd();
-
         public static Cmd<TMsg, TSideEffect> Error(string msg, params object[] args) => new LogCmd(LogLevel.Error, msg, args);
         public static Cmd<TMsg, TSideEffect> Warning(string msg, params object[] args) => new LogCmd(LogLevel.Warning, msg, args);
         public static Cmd<TMsg, TSideEffect> Information(string msg, params object[] args) => new LogCmd(LogLevel.Information, msg, args);

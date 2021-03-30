@@ -5,9 +5,8 @@ using System.Threading.Tasks;
 namespace Funes {
     public interface ICache {
 
-        Task<Result<EntityEntry>> Get(EntityId eid, ISerializer serializer, CancellationToken ct);
-        Task<Result<bool>> Update(IEnumerable<EntityEntry> entries, ISerializer serializer, CancellationToken ct);
-        Task<Result<bool>> Set(IEnumerable<EntityEntry> entries, ISerializer serializer, CancellationToken ct);
-
+        Task<Result<EntityEntry>> Get(EntityId eid, ISerializer ser, CancellationToken ct);
+        Task<Result<bool>> Set(EntityEntry entry, ISerializer ser, CancellationToken ct);
+        Task<Result<bool>> UpdateIfOlder(IEnumerable<EntityEntry> entries, ISerializer ser, CancellationToken ct);
     }
 }

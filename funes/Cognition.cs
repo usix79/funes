@@ -56,7 +56,7 @@ namespace Funes {
         }
 
         public static async ValueTask<Result<Cognition>> Load(IRepository repo, ISerializer serializer, CognitionId cid) {
-            var getResult = await repo.Get(CreateStampKey(cid), serializer);
+            var getResult = await repo.Load(CreateStampKey(cid), serializer, default);
             return getResult.IsOk
                 ? new Result<Cognition>((Cognition) getResult.Value.Value)
                 : new Result<Cognition>(getResult.Error);
@@ -75,7 +75,7 @@ namespace Funes {
             var reflection = loadResult.Value;
             
             var historyTasks = reflection.Inputs.Keys
-                .Select(premiseKey => repo.GetHistory(premiseKey.Eid, reflection.Id, 1).AsTask());
+                .Select(premiseKey => repo.History(premiseKey.Eid, reflection.Id, 1).AsTask());
             
             var historyItems = await Task.WhenAll(historyTasks);
 
