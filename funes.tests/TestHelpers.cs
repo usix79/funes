@@ -7,7 +7,7 @@ namespace Funes.Tests {
     public static class TestHelpers {
         
         private static readonly Random Rand = new Random(DateTime.Now.Millisecond);
-        private static readonly ISerializer _simpleSerializer = new SimpleSerializer<Simple>();
+        private static readonly ISerializer SimpleSerializer = new SimpleSerializer<Simple>();
 
         private static string RandomString(int length) =>
             string.Create(length, length, (span, n) => {
@@ -16,24 +16,14 @@ namespace Funes.Tests {
                 }
             });
         
-        public static EntityStamp CreateSimpleEntity(CognitionId cid, EntityId? key = null) {
-            
-            var nonNullKey = key ?? new EntityId("cat-" + RandomString(10), "id-" + RandomString(10));
-            
-            var content = new Simple(Rand.Next(1024), RandomString(1024));
-            
-            return new EntityStamp (new Entity(nonNullKey, content), cid);
-        }
-        
-        public static async Task LoadRandomMemories(IRepository repo) {
-            for (var i = 0; i < 2; i++) {
-                var cat = "cat-" + RandomString(1);
-                for (var j = 0; j < 6; j++) {
-                    var id = "id-" + RandomString(5);
-                    await repo.Save(CreateSimpleEntity(CognitionId.NewId(),new EntityId(cat, id)), _simpleSerializer, default);
-                }
-            }
-        }
+        public static EntityId CreateRandomEid(string? cat = null) =>
+            new (cat ?? "cat-" + RandomString(10), "id-" + RandomString(10));
+
+        public static Simple CreateRandomValue() =>
+            new (Rand.Next(1024), RandomString(1024));    
+
+        public static EntityStamp CreateSimpleEntityStamp(CognitionId cid, EntityId? eid = null) =>
+            new EntityStamp (new Entity(eid??CreateRandomEid(), CreateRandomValue()), cid);
         
         public static void AssertEntitiesEqual(EntityStamp expected, EntityStamp actual) {
             Assert.Equal(expected.Key, actual.Key);

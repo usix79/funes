@@ -8,20 +8,20 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 
 namespace Funes {
-    public class LogicEngine<TState,TMsg,TSideEffect> {
+    public class LogicEngine<TModel,TMsg,TSideEffect> {
 
         private readonly int _iterationsLimit;
         private readonly ILogger _logger;
-        private readonly ITracer<TState,TMsg,TSideEffect> _tracer;
+        private readonly ITracer<TModel,TMsg,TSideEffect> _tracer;
         private readonly ISerializer _serializer;
         private readonly IDataSource _ds;
-        private readonly ILogic<TState,TMsg,TSideEffect> _logic;
+        private readonly ILogic<TModel,TMsg,TSideEffect> _logic;
 
-        public LogicEngine(ILogic<TState,TMsg,TSideEffect> logic, 
+        public LogicEngine(ILogic<TModel,TMsg,TSideEffect> logic, 
                             ISerializer serializer,
                             IDataSource dr,
                             ILogger logger, 
-                            ITracer<TState,TMsg,TSideEffect> tracer, 
+                            ITracer<TModel,TMsg,TSideEffect> tracer, 
                             int iterationsLimit = 100500) {
             (_ds, _logic, _serializer, _logger, _tracer, _iterationsLimit) = 
                 (dr, logic, serializer, logger, tracer, iterationsLimit);
@@ -199,7 +199,7 @@ namespace Funes {
                 
             void RegisterEntity(EntityId eid, Result<EntityEntry> result) {
                 if (!entities!.ContainsKey(eid)) {
-                    entities[eid] = result.IsOk ? result.Value : EntityEntry.NotAvailable;
+                    entities[eid] = result.IsOk ? result.Value : EntityEntry.NotAvailable(eid);
                 }
             }
         }

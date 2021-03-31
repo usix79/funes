@@ -7,17 +7,17 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 
 namespace Funes {
-    public class CognitionEngine<TState,TMsg,TSideEffect> {
+    public class CognitionEngine<TModel,TMsg,TSideEffect> {
         private readonly int _maxAttempts;
         private readonly ILogger _logger;
         private readonly ISerializer _serializer;
         private readonly ISerializer _systemSerializer = new SystemSerializer();
         private readonly IDataEngine _dataEngine;
-        private readonly LogicEngine<TState, TMsg, TSideEffect> _logicEngine;
+        private readonly LogicEngine<TModel, TMsg, TSideEffect> _logicEngine;
         private readonly Behavior<TSideEffect> _behavior;
 
         public CognitionEngine(
-                LogicEngine<TState, TMsg, TSideEffect> logicEngine, 
+                LogicEngine<TModel, TMsg, TSideEffect> logicEngine, 
                 Behavior<TSideEffect> behavior,
                 ISerializer serializer,
                 IDataEngine de, 
@@ -33,7 +33,7 @@ namespace Funes {
             public int Attempt { get; init; }
             
             public long StartMilliseconds { get; init; }
-            public Task<Result<LogicEngine<TState,TMsg,TSideEffect>.LogicResult>> Task { get; init; }
+            public Task<Result<LogicEngine<TModel,TMsg,TSideEffect>.LogicResult>> Task { get; init; }
         }
 
         public async Task<Result<CognitionId>> Run(Entity fact, CancellationToken ct = default) {
@@ -103,21 +103,21 @@ namespace Funes {
             }
 
             async ValueTask ProcessLogicResult(Entity aFact, CognitionId? parentId, int attempt, 
-                long startMilliseconds, LogicEngine<TState, TMsg, TSideEffect>.LogicResult output) {
+                long startMilliseconds, LogicEngine<TModel, TMsg, TSideEffect>.LogicResult result) {
 
-                var reflectionResult = await TryReflect(aFact, parentId, attempt, startMilliseconds, output);
+                var reflectionResult = await TryReflect(aFact, parentId, attempt, startMilliseconds, result);
 
                 if (reflectionResult.IsOk) {
                     var cid = reflectionResult.Value.Id;
                     if (parentId is null) rootCid = cid;
                     try { 
-                        await Task.WhenAll(output.SideEffects.Select(effect => _behavior(effect, ct)));
+                        await Task.WhenAll(result.SideEffects.Select(effect => _behavior(effect, ct)));
                     }
                     catch (AggregateException x) {
                         LogError(cid, "ProcessLogicResult", "SideEffect", null, x);
                     }
 
-                    foreach (var derivedFact in output.DerivedFacts) {
+                    foreach (var derivedFact in result.DerivedFacts) {
                         RunLogic(derivedFact.Value, reflectionResult.Value.Id, 1);
                     }
                 }
@@ -136,7 +136,7 @@ namespace Funes {
 
             async ValueTask<Result<Cognition>> TryReflect(
                 Entity aFact, CognitionId? parentId, int attempt, long startMilliseconds,
-                LogicEngine<TState, TMsg, TSideEffect>.LogicResult output) {
+                LogicEngine<TModel, TMsg, TSideEffect>.LogicResult output) {
                 
                 try {
                     var startCommitMilliseconds = stopWatch?.ElapsedMilliseconds;

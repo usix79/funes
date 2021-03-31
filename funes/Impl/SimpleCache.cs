@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net.Http.Headers;
 using System.Threading;
 using System.Threading.Tasks;
@@ -13,7 +14,7 @@ namespace Funes.Impl {
 
             if (!_data.TryGetValue(eid, out var triple)) return Result<EntityEntry>.NotFound;
 
-            if (triple.Item2 == null) return new Result<EntityEntry>(EntityEntry.NotExist);
+            if (triple.Item2 == null) return new Result<EntityEntry>(EntityEntry.NotExist(eid));
             
             triple.Item2.Position = 0;
             var serResult = await ser.Decode(triple.Item2, eid, triple.Item3);
@@ -39,19 +40,23 @@ namespace Funes.Impl {
         }
 
         public async Task<Result<bool>> UpdateIfOlder(IEnumerable<EntityEntry> entries, ISerializer ser, CancellationToken ct) {
-
-            bool result = true;
+            var entityEntries = entries as EntityEntry[] ?? entries.ToArray();
             
-            foreach (var entry in entries) {
+            foreach (var entry in entityEntries) {
                 ct.ThrowIfCancellationRequested();
                 
                 (MemoryStream? stream, string encoding) = (null, "");
                 if (_data.TryGetValue(entry.Eid, out var triple)) {
                     if (!entry.Cid.IsOlderThan(triple.Item1)){
-                        result = false;
-                        continue;
+                        return new Result<bool>(false);
                     }
                 }
+            }
+
+            foreach (var entry in entityEntries) {
+                ct.ThrowIfCancellationRequested();
+                
+                (MemoryStream? stream, string encoding) = (null, "");
 
                 if (entry.IsOk) {
                     stream = new MemoryStream();
@@ -62,7 +67,8 @@ namespace Funes.Impl {
 
                 _data[entry.Eid] = (entry.Cid, stream, encoding);
             }
-            return new Result<bool>(result);
+ 
+            return new Result<bool>(true);
         }
     }
 }

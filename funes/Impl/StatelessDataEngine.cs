@@ -12,7 +12,7 @@ namespace Funes.Impl {
         private readonly IRepository _repo;
         private readonly ICache _cache;
         private readonly ITransactionEngine _tre;
-        private ConcurrentQueue<Task> _tasksQueue = new ();
+        private readonly ConcurrentQueue<Task> _tasksQueue = new ();
 
         public StatelessDataEngine(IRepository repo, ICache cache, ITransactionEngine tre, ILogger logger) =>
             (_logger, _repo, _cache, _tre) = (logger, repo, cache, tre);
@@ -34,7 +34,7 @@ namespace Funes.Impl {
 
             var entry = repoResult.IsOk 
                 ? repoResult.Value.ToEntry() 
-                : EntityEntry.NotExist;
+                : EntityEntry.NotExist(eid);
             
             // try set cache item
             var trySetResult = await _cache.UpdateIfOlder(new[] {entry}, ss, ct);
@@ -50,17 +50,22 @@ namespace Funes.Impl {
             if (trySetResult.IsError)
                 _logger.LogError($"Retrieve {eid}, cache update error {trySetResult.Error}");
 
-            var realDecodeResult = await ss.DecodeForReal(eid, ser);
-            if (repoResult.IsError) return new Result<EntityEntry>(repoResult.Error);
+            if (entry.IsOk) {
+                var realDecodeResult = await ss.DecodeForReal(eid, ser);
+                if (realDecodeResult.IsError) return new Result<EntityEntry>(realDecodeResult.Error);
+                entry = entry.MapValue(realDecodeResult.Value);
+            }
 
-            return new Result<EntityEntry>(entry.MapValue(realDecodeResult.Value));
+            return new Result<EntityEntry>(entry);
         }
         
         public async ValueTask<Result<bool>> Upload(
             IEnumerable<EntityStamp> stamps, ISerializer ser, CancellationToken ct, bool skipCache = false) {
 
+            var result = true;
             if (skipCache) {
                 _tasksQueue.Enqueue(SaveStamps(stamps, ser, ct));
+                result = false;
             }
             else {
                 var stampsList = new List<EntityStamp>();
@@ -84,12 +89,13 @@ namespace Funes.Impl {
                         errors ??= new ();
                         errors.Add(cacheResult.Error);
                     }
+                    result = cacheResult.Value;
                     _tasksQueue.Enqueue(SaveStamps(stampsList, ss, ct));
                 }
 
                 if (errors?.Count > 0) return Result<bool>.AggregateError(errors); 
             }
-            return new Result<bool>(true);
+            return new Result<bool>(result);
         }
         
         public async ValueTask<Result<bool>> Commit(IEnumerable<EntityStampKey> premises, 
@@ -135,7 +141,7 @@ namespace Funes.Impl {
             while (true) {
                 ct.ThrowIfCancellationRequested();
                 
-                var historyResult = await _repo.History(eid, before, 42);
+                var historyResult = await _repo.History(eid, before, 42, ct);
                 if (historyResult.IsError) return new Result<EntityStamp>(historyResult.Error);
 
                 var cid = historyResult.Value.FirstOrDefault(x => x.IsTruth());

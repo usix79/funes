@@ -7,7 +7,7 @@ using Xunit;
 namespace Funes.Tests {
     public abstract class AbstractRepoTests {
         protected abstract IRepository CreateRepo();
-        private ISerializer _simpleSerializer = new SimpleSerializer<Simple>();
+        private readonly ISerializer _simpleSerializer = new SimpleSerializer<Simple>();
 
         [Fact]
         public async void GetNonExistingTest() {
@@ -24,7 +24,7 @@ namespace Funes.Tests {
             var repo = CreateRepo();
 
             var testReflectionId = CognitionId.NewId();
-            var testMem = TestHelpers.CreateSimpleEntity(testReflectionId);
+            var testMem = TestHelpers.CreateSimpleEntityStamp(testReflectionId);
             
             var putResult = await repo.Save(testMem, _simpleSerializer, default);
             Assert.True(putResult.IsOk);
@@ -41,14 +41,14 @@ namespace Funes.Tests {
             var id = new EntityId("cat-s", "id-b2");
             
             var testReflectionId1 = CognitionId.NewId();
-            var testMem1 = TestHelpers.CreateSimpleEntity(testReflectionId1, id);
+            var testMem1 = TestHelpers.CreateSimpleEntityStamp(testReflectionId1, id);
             var putResult1 = await repo.Save(testMem1, _simpleSerializer, default);
             Assert.True(putResult1.IsOk);
 
             await Task.Delay(50);
             
             var testReflectionId2 = CognitionId.NewId();
-            var testMem2 = TestHelpers.CreateSimpleEntity(testReflectionId2, id);
+            var testMem2 = TestHelpers.CreateSimpleEntityStamp(testReflectionId2, id);
             var putResult2 = await repo.Save(testMem2, _simpleSerializer, default);
             Assert.True(putResult2.IsOk);
             
@@ -69,7 +69,7 @@ namespace Funes.Tests {
             var history = new List<(EntityStamp, CognitionId)>();
             for (var i = 0; i < 42; i++) {
                 var cid = CognitionId.NewId();
-                var mem = TestHelpers.CreateSimpleEntity(cid, key);
+                var mem = TestHelpers.CreateSimpleEntityStamp(cid, key);
                 history.Add((mem, cid));
                 var putResult = await repo.Save(mem, _simpleSerializer, default);
                 Assert.True(putResult.IsOk);

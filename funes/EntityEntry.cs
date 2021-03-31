@@ -1,25 +1,39 @@
+using System;
+
 namespace Funes {
-    public struct EntityEntry {
-        private enum Status { IsNotAvailable = 0, IsNotExist, IsOk }
+    public readonly struct EntityEntry : IEquatable<EntityEntry> {
+        public enum EntryStatus { IsNotAvailable = 0, IsNotExist, IsOk }
         
-        private Status _status;
-        public Entity Entity { get; }
+        public EntryStatus Status { get; init; }
         
+        public EntityId Eid { get; init; }
+        public object Value { get; }
         public CognitionId Cid { get; }
-        public bool IsNotAvailable => _status == Status.IsNotAvailable;
-        public bool IsNotExist => _status == Status.IsNotExist;
-        public bool IsOk => _status == Status.IsOk;
-        public object Value => Entity.Value;
-        public EntityId Eid => Entity.Id; 
-        public EntityStampKey Key => new EntityStampKey(Entity.Id, Cid);
-        public EntityStamp ToStamp() => new EntityStamp(Entity, Cid);
+        
+        public bool IsNotAvailable => Status == EntryStatus.IsNotAvailable;
+        public bool IsNotExist => Status == EntryStatus.IsNotExist;
+        public bool IsOk => Status == EntryStatus.IsOk;
 
-        public EntityEntry MapValue(object value) => new EntityEntry(new Entity(Entity.Id, value), Cid);
+        public Entity Entity=> new (Eid, Value);
+        public EntityStampKey Key => new (Eid, Cid);
+        public EntityStamp ToStamp() => new (Entity, Cid);
+        
+        public EntityEntry MapValue(object value) => new (new Entity(Eid, value), Cid);
 
-        private EntityEntry(Entity entity, CognitionId cid) => (Entity, Cid, _status) = (entity, cid, Status.IsOk);
+        private EntityEntry(Entity entity, CognitionId cid) => 
+            (Eid, Value, Cid, Status) = (entity.Id, entity.Value, cid, EntryStatus.IsOk);
         public static EntityEntry Ok(Entity entity) => new (entity, CognitionId.None);
         public static EntityEntry Ok(Entity entity, CognitionId cid) => new (entity, cid);
-        public static readonly EntityEntry NotAvailable = new EntityEntry {_status = Status.IsNotAvailable};
-        public static readonly EntityEntry NotExist = new EntityEntry {_status = Status.IsNotExist};
+        public static EntityEntry NotAvailable(EntityId eid) => 
+            new EntityEntry {Eid = eid, Status = EntryStatus.IsNotAvailable};
+        public static EntityEntry NotExist(EntityId eid) => 
+            new  EntityEntry {Eid = eid, Status = EntryStatus.IsNotExist};
+        
+        public bool Equals(EntityEntry other) 
+            => Status == other.Status && Equals(Value, other.Value) && Cid.Equals(other.Cid);
+        public override bool Equals(object? obj) => obj is EntityEntry other && Equals(other);
+        public override int GetHashCode() => HashCode.Combine((int) Status, Value, Cid);
+        public static bool operator ==(EntityEntry left, EntityEntry right) => left.Equals(right);
+        public static bool operator !=(EntityEntry left, EntityEntry right) => !left.Equals(right);
     }
 }
