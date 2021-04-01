@@ -13,5 +13,7 @@ namespace Funes {
         public override int GetHashCode() => HashCode.Combine(Id, Value);
         public static bool operator ==(Entity left, Entity right) => left.Equals(right);
         public static bool operator !=(Entity left, Entity right) => !left.Equals(right);
+
+        public override string ToString() => $"{Id}::{Value}";
     }
 }

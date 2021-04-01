@@ -56,7 +56,7 @@ namespace Funes {
                     while (pendingMessages.TryDequeue(out var msg)) {
                         if (iteration++ > _iterationsLimit) ThrowIterationsLimitException();
                         (model, cmd) = _logic.Update(model, msg);
-                        await _tracer.UpdateResult(model, cmd);
+                        await _tracer.UpdateResult(msg, model, cmd);
                         ProcessCommand(cmd);
                     }
 
