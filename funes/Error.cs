@@ -16,8 +16,7 @@ namespace Funes {
                 public EntityId Eid { get; init; }
                 public CognitionId PremiseCid { get; init; }
                 public CognitionId ActualCid { get; init; }
-
-                public override string ToString() => $"|{nameof(Eid)}: {Eid}, {nameof(PremiseCid)}: {PremiseCid}, {nameof(ActualCid)}: {ActualCid}|";
+                public override string ToString() => $"|{Eid}, Premise {PremiseCid}, Actual {ActualCid}|";
             }
         }
         public record AggregateError(IEnumerable<Error> Errors) : Error;

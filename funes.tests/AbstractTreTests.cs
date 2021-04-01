@@ -10,10 +10,16 @@ namespace Funes.Tests {
     public abstract class AbstractTreTests {
         protected abstract ITransactionEngine CreateEngine();
 
-        private async Task<bool> Commit(ITransactionEngine tre, IEnumerable<EntityStampKey> premises, IEnumerable<EntityStampKey> conclusions) {
+        private async Task AssertCommit(ITransactionEngine tre, bool expectedSuccess, 
+            IEnumerable<EntityStampKey> premises, IEnumerable<EntityStampKey> conclusions) {
             var commitResult = await tre.Commit(premises, conclusions, default);
-            Assert.True(commitResult.IsOk, commitResult.Error.ToString());
-            return commitResult.Value;
+            if (expectedSuccess) {
+                Assert.True(commitResult.IsOk, commitResult.Error.ToString());
+                Assert.True(commitResult.Value);
+            }
+            else {
+                Assert.True(commitResult.Error is Error.TransactionError);
+            }
         }
         
         private IEnumerable<EntityStampKey> Keys(params (EntityId,string)[] keys) => 
@@ -23,24 +29,24 @@ namespace Funes.Tests {
         public async void EmptyTest() {
             var tre = CreateEngine();
 
-            Assert.True(await Commit(tre, Keys(), Keys()));
+            await AssertCommit(tre, true, Keys(), Keys());
 
             var eid = CreateRandomEid(); 
             // if a transaction engine doesn't know about premise, it should treat is as truth 
-            Assert.True(await Commit(tre, Keys((eid, "100500")), Keys((eid, "100501"))));
+            await AssertCommit(tre, true, Keys((eid, "100500")), Keys((eid, "100501")));
         }
 
         [Fact]
         public async void SingleEntityTest() {
             var tre = CreateEngine();
             var eid = CreateRandomEid();
-            Assert.True(await Commit(tre, Keys(), Keys((eid, "100500"))));
-            Assert.False(await Commit(tre, Keys((eid, "100499")), Keys((eid, "100499"))));
-            Assert.True(await Commit(tre, Keys((eid, "100500")), Keys((eid, "100500"))));
-            Assert.True(await Commit(tre, Keys((eid, "100500")), Keys((eid, "100499"))));
-            Assert.True(await Commit(tre, Keys((eid, "100499")), Keys()));
-            Assert.True(await Commit(tre, Keys((eid, "100499")), Keys((eid, "100501"))));
-            Assert.False(await Commit(tre, Keys((eid, "100500")), Keys((eid, "100499"))));
+            await AssertCommit(tre, true, Keys(), Keys((eid, "100500")));
+            await AssertCommit(tre, false, Keys((eid, "100499")), Keys((eid, "100499")));
+            await AssertCommit(tre, true, Keys((eid, "100500")), Keys((eid, "100500")));
+            await AssertCommit(tre, true, Keys((eid, "100500")), Keys((eid, "100499")));
+            await AssertCommit(tre, true, Keys((eid, "100499")), Keys());
+            await AssertCommit(tre, true, Keys((eid, "100499")), Keys((eid, "100501")));
+            await AssertCommit(tre, false, Keys((eid, "100500")), Keys((eid, "100499")));
         }
 
         [Fact]
@@ -48,13 +54,13 @@ namespace Funes.Tests {
             var tre = CreateEngine();
             var eid1 = CreateRandomEid();
             var eid2 = CreateRandomEid();
-            Assert.True(await Commit(tre, Keys(), Keys((eid1, "100500"), (eid2, "100500"))));
-            Assert.True(await Commit(tre, Keys((eid1, "100500"), (eid2, "100500")), Keys((eid1, "100499"))));
-            Assert.True(await Commit(tre, Keys((eid1, "100499"), (eid2, "100500")), Keys()));
-            Assert.False(await Commit(tre, Keys((eid1, "100500"), (eid2, "100500")), Keys((eid1, "100501"), (eid2, "100501"))));
-            Assert.False(await Commit(tre, Keys((eid1, "100499"), (eid2, "100499")), Keys((eid1, "100501"), (eid2, "100501"))));
-            Assert.True(await Commit(tre, Keys((eid1, "100499"), (eid2, "100500")), Keys((eid1, "100501"), (eid2, "100501"))));
-            Assert.True(await Commit(tre, Keys((eid1, "100501"), (eid2, "100501")), Keys()));
+            await AssertCommit(tre, true, Keys(), Keys((eid1, "100500"), (eid2, "100500")));
+            await AssertCommit(tre, true, Keys((eid1, "100500"), (eid2, "100500")), Keys((eid1, "100499")));
+            await AssertCommit(tre, true, Keys((eid1, "100499"), (eid2, "100500")), Keys());
+            await AssertCommit(tre, false, Keys((eid1, "100500"), (eid2, "100500")), Keys((eid1, "100501"), (eid2, "100501")));
+            await AssertCommit(tre, false, Keys((eid1, "100499"), (eid2, "100499")), Keys((eid1, "100501"), (eid2, "100501")));
+            await AssertCommit(tre, true, Keys((eid1, "100499"), (eid2, "100500")), Keys((eid1, "100501"), (eid2, "100501")));
+            await AssertCommit(tre, true, Keys((eid1, "100501"), (eid2, "100501")), Keys());
         }
     }
 }

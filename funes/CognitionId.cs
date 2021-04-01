@@ -74,6 +74,6 @@ namespace Funes {
         public static bool operator ==(CognitionId left, CognitionId right) => left.Equals(right);
         public static bool operator !=(CognitionId left, CognitionId right) => !left.Equals(right);
         public int CompareTo(CognitionId other) => string.Compare(Id, other.Id, StringComparison.Ordinal);
-        public override string ToString() => $"RID:{Id}";
+        public override string ToString() => $"CID:{Id}";
     }
 }

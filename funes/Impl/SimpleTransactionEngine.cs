@@ -11,10 +11,20 @@ namespace Funes.Impl {
             ct.ThrowIfCancellationRequested();
 
             lock (_actualCids) {
+                List<Error.TransactionError.Conflict>? conflicts = null;
                 foreach (var premise in premises) {
                     if (_actualCids.TryGetValue(premise.Eid, out var actualCid)) {
-                        if (actualCid != premise.Cid) return Task.FromResult(new Result<bool>(false));
+                        if (actualCid != premise.Cid) {
+                            conflicts ??= new List<Error.TransactionError.Conflict>();
+                            conflicts.Add(new Error.TransactionError.Conflict {
+                                Eid = premise.Eid, PremiseCid = premise.Cid, ActualCid = actualCid
+                            });
+                        }
                     }
+                }
+
+                if (conflicts is not null) {
+                    return Task.FromResult(Result<bool>.TransactionError(conflicts.ToArray()));
                 }
 
                 foreach (var conclusion in conclusions) {

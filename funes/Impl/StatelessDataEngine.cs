@@ -100,10 +100,8 @@ namespace Funes.Impl {
         
         public async ValueTask<Result<bool>> Commit(IEnumerable<EntityStampKey> premises, 
                 IEnumerable<EntityStampKey> conclusions, CancellationToken ct) {
-            var premisesArr = premises as EntityStampKey[] ?? premises.ToArray();
-            if (premisesArr.Length == 0) return new Result<bool>(false);
 
-            var commitResult = await _tre.Commit(premisesArr, conclusions, ct);
+            var commitResult = await _tre.Commit(premises, conclusions, ct);
 
             if (commitResult.Error is Error.TransactionError err) {
                 var piSecArr = err.Conflicts.Where(IsPiSec).ToArray();
@@ -172,7 +170,6 @@ namespace Funes.Impl {
 
             _logger.LogError($"PiSec confirmed in {nameof(StatelessDataEngine)}, {conflict}, stamp in cache {cacheGetResult.Value.Cid}");
             var repoResult = await LoadActualStamp(conflict.Eid, CognitionId.Singularity, ss, ct);
-
             if (repoResult.IsError) {
                 _logger.LogError($"{nameof(StatelessDataEngine)} Unable to resolve piSec, LoadActualStamp error {repoResult.Error}");
                 return;
@@ -188,6 +185,9 @@ namespace Funes.Impl {
                     var cacheSetResult = await _cache.Set(repoResult.Value.ToEntry(), ss, ct);
                     if (cacheSetResult.IsError) {
                         _logger.LogError($"{nameof(StatelessDataEngine)} Unable to resolve piSec, Cache Set error {cacheSetResult.Error}");
+                    }
+                    else {
+                        _logger.LogWarning($"PiSec resolved in {nameof(StatelessDataEngine)}, {conflict}, with {repoResult.Value.Cid}");
                     }
                 }
             }
