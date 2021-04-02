@@ -125,10 +125,10 @@ namespace Funes.Impl {
         }
 
         private bool IsPiSec(Error.TransactionError.Conflict conflict) { 
-            if (conflict.PremiseCid.IsOlderThan(conflict.ActualCid)) return true;
+            if (conflict.ActualCid.IsOlderThan(conflict.PremiseCid)) return true;
             
             // if actualCid is OlderThan 3.14sec
-            if (conflict.PremiseCid.IsOlderThan(
+            if (conflict.ActualCid.IsOlderThan(
                 CognitionId.ComposeId(DateTimeOffset.UtcNow.AddMilliseconds(-3140), ""))) return true;
             
             return false;

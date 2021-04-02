@@ -66,7 +66,7 @@ namespace Funes {
 
         public static CognitionId NewId() => ComposeId(DateTimeOffset.UtcNow, Rand.Value);
 
-        public bool IsOlderThan(CognitionId other) => CompareTo(other) < 0;
+        public bool IsOlderThan(CognitionId other) => CompareTo(other) > 0;
 
         public bool Equals(CognitionId other) => Id == other.Id;
         public override bool Equals(object? obj) => obj is CognitionId other && Equals(other);

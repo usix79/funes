@@ -1,7 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.Specialized;
-using System.IO.Compression;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -89,7 +87,7 @@ namespace Funes {
                     case Cmd<TMsg, TSideEffect>.BatchOutputCmd x:
                         foreach (var item in x.Items) ProcessCommand(item);
                         break;
-                    case Cmd<TMsg, TSideEffect>.ConclusionCmd x:
+                    case Cmd<TMsg, TSideEffect>.UploadCmd x:
                         output.Outputs[x.Entity.Id] = x.Entity;
                         entities[x.Entity.Id] = EntityEntry.Ok(x.Entity);
                         break;
@@ -139,7 +137,7 @@ namespace Funes {
             bool TryCompleteRetrieveMany(Cmd<TMsg, TSideEffect>.RetrieveManyCmd aCmd) {
                 if (aCmd.EntityIds.Any(x => !entities!.ContainsKey(x))) return false;
 
-                var entries = aCmd.EntityIds.Select(memId => entities![memId]).ToArray();
+                var entries = aCmd.EntityIds.Select(eid => entities![eid]).ToArray();
                 
                 foreach (var entry in entries) AddInput(entry, aCmd.AsPremise);
 

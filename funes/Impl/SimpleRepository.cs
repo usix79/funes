@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
@@ -9,15 +10,16 @@ namespace Funes.Impl {
     
     public class SimpleRepository : IRepository {
 
-        private readonly ConcurrentDictionary<EntityStampKey, (string, MemoryStream)> _data = new();
+        private readonly ConcurrentDictionary<EntityStampKey, (string, ArraySegment<byte>)> _data = new();
 
         public async ValueTask<Result<bool>> Save(EntityStamp stamp, ISerializer ser, CancellationToken ct) {
             ct.ThrowIfCancellationRequested();
             var stream = new MemoryStream();
             var serResult = await ser.Encode(stream, stamp.Eid, stamp.Value);
             if (serResult.IsError) return new Result<bool>(serResult.Error);
-            
-            _data[stamp.Key] = (serResult.Value, stream);
+
+            if (!stream.TryGetBuffer(out var buffer)) buffer = stream.ToArray();
+            _data[stamp.Key] = (serResult.Value, buffer);
 
             return new Result<bool>(true);
         }
@@ -27,8 +29,8 @@ namespace Funes.Impl {
 
             if (!_data.TryGetValue(key, out var pair)) return Result<EntityStamp>.NotFound;
 
-            pair.Item2.Position = 0;
-            var serResult = await ser.Decode(pair.Item2, key.Eid, pair.Item1);
+            var stream = new MemoryStream(pair.Item2.Array!, pair.Item2.Offset, pair.Item2.Count);
+            var serResult = await ser.Decode(stream, key.Eid, pair.Item1);
             if (serResult.IsError) return new Result<EntityStamp>(serResult.Error);
 
             return new Result<EntityStamp>(new EntityStamp(key, serResult.Value));

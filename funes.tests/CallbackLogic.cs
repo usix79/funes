@@ -5,22 +5,25 @@ using System.Collections.Specialized;
 
 namespace Funes.Tests {
     
-    public class CallbackLogic : ILogic<string, string, string> {
-        private readonly Func<Entity, (string, Cmd<string, string>)> _onBegin;
-        private readonly Func<string, string, (string, Cmd<string, string>)> _onUpdate;
-        private readonly Func<string, Cmd<string, string>.OutputCmd> _onEnd;
+    public class CallbackLogic<TModel, TMsg, TSideEffect> : ILogic<TModel, TMsg, TSideEffect> {
+        private readonly Func<Entity, (TModel, Cmd<TMsg, TSideEffect>)> _onBegin;
+        private readonly Func<TModel, TMsg, (TModel, Cmd<TMsg, TSideEffect>)> _onUpdate;
+        private readonly Func<TModel, Cmd<TMsg, TSideEffect>.OutputCmd> _onEnd;
 
         public CallbackLogic(
-            Func<Entity, (string, Cmd<string, string>)> onBegin,
-            Func<string, string, (string, Cmd<string, string>)> onUpdate,
-            Func<string, Cmd<string, string>.OutputCmd> onEnd) =>
-            (_onBegin, _onUpdate, _onEnd) = (onBegin, onUpdate, onEnd);
+                Func<Entity, (TModel, Cmd<TMsg, TSideEffect>)> onBegin, 
+                Func<TModel, TMsg, (TModel, Cmd<TMsg, TSideEffect>)> onUpdate, 
+                Func<TModel, Cmd<TMsg, TSideEffect>.OutputCmd> onEnd) {
+            _onBegin = onBegin;
+            _onUpdate = onUpdate;
+            _onEnd = onEnd;
+        }
 
-        public (string, Cmd<string, string>) Begin(Entity fact, IConstants constants) => _onBegin(fact);
+        public (TModel, Cmd<TMsg, TSideEffect>) Begin(Entity fact, IConstants constants) => _onBegin(fact);
 
 
-        public (string, Cmd<string, string>) Update(string model, string msg) => _onUpdate(model, msg);
+        public (TModel, Cmd<TMsg, TSideEffect>) Update(TModel model, TMsg msg) => _onUpdate(model, msg);
 
-        public Cmd<string, string>.OutputCmd End(string model) => _onEnd(model);
+        public Cmd<TMsg, TSideEffect>.OutputCmd End(TModel model) => _onEnd(model);
     }
 }

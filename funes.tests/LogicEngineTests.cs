@@ -93,7 +93,7 @@ namespace Funes.Tests {
             }
             public (string, Cmd<string, string>) Update(string model, string msg) {
                 var entity = new Entity(Eid,  new Simple(0, msg));
-                return ("", new Cmd<string,string>.ConclusionCmd(entity));
+                return ("", new Cmd<string,string>.UploadCmd(entity));
             }
             public Cmd<string, string>.OutputCmd End(string model) => Cmd<string, string>.None;
         }

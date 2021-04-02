@@ -130,7 +130,7 @@ namespace Funes {
                             LogError(aFact, "ProcessLogicResult", "TryReflect", cognitionResult.Error);
                             break;
                     }
-                    RunLogic(aFact, parentId, attempt++);
+                    RunLogic(aFact, parentId, attempt+1);
                 }
             }
 
@@ -147,14 +147,14 @@ namespace Funes {
                             .Where(pair => pair.Value.Item3)
                             .Select(pair => new EntityStampKey(pair.Key, pair.Value.Item2)).ToArray();
                     
-                    var conclusionsArr = 
+                    var outputsArr = 
                         output.Outputs.Values
                             // skip conclusion if it is equal to premise
                             .Where(entity => !(output.Inputs.TryGetValue(entity.Id, out var pair) 
                                                 && Equals(entity.Value, pair.Item1.Value)))
                             .Select(mem => new EntityStamp(mem, cid)).ToArray();
 
-                    var commitResult = await _dataEngine.Commit(premisesArr, conclusionsArr.Select(x => x.Key), ct);
+                    var commitResult = await _dataEngine.Commit(premisesArr, outputsArr.Select(x => x.Key), ct);
                     var endCommitMilliseconds = stopWatch?.ElapsedMilliseconds;
                     var status = commitResult.IsOk 
                         ? CognitionStatus.Truth 
@@ -163,15 +163,15 @@ namespace Funes {
                     var detailsDict = new Dictionary<string, string>();
                     if (status != CognitionStatus.Truth) {
                         cid = status == CognitionStatus.Fallacy ? cid.AsFallacy() : cid.AsLost();
-                        conclusionsArr = conclusionsArr.Select(stamp => new EntityStamp(stamp.Entity, cid)).ToArray();
+                        outputsArr = outputsArr.Select(stamp => new EntityStamp(stamp.Entity, cid)).ToArray();
 
                         if (commitResult.Error is Error.TransactionError err) {
                             detailsDict[Cognition.DetailsCommitErrors] =
                                 string.Join(' ', err.Conflicts.Select(x => x.ToString()));
                         } 
                     }
-                    var uploadConclusionsResult = await _dataEngine.Upload(conclusionsArr, _serializer, ct, commitResult.IsError);
-                    if (uploadConclusionsResult.IsError) {
+                    var uploadOutputsResult = await _dataEngine.Upload(outputsArr, _serializer, ct, commitResult.IsError);
+                    if (uploadOutputsResult.IsError) {
                         status = CognitionStatus.Lost;
                         cid = cid.AsLost();
                     }
@@ -182,7 +182,7 @@ namespace Funes {
                         output.Inputs.ToList()
                             .Select(pair => new KeyValuePair<EntityStampKey,bool>(new EntityStampKey(pair.Key, pair.Value.Item2), pair.Value.Item3))
                             .ToList(),
-                        conclusionsArr.Select(x => x.Key.Eid).ToArray(),
+                        outputsArr.Select(x => x.Key.Eid).ToArray(),
                         output.Constants,
                         output.SideEffects.Select(x => x?.ToString() ?? "???").ToList(),
                         detailsDict);
@@ -207,7 +207,7 @@ namespace Funes {
                     return status == CognitionStatus.Truth && uploadSysEntitiesResult.IsOk 
                         ?  new Result<Cognition>(cognition)
                         : Result<Cognition>.CongnitionError(cognition, 
-                            new Error.AggregateError(new []{uploadConclusionsResult.Error, uploadFactResult.Error,
+                            new Error.AggregateError(new []{uploadOutputsResult.Error, uploadFactResult.Error,
                                 uploadSysEntitiesResult.Error}));
                 }
                 catch (TaskCanceledException) { throw; }
