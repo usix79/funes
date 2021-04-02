@@ -105,10 +105,10 @@ namespace Funes {
             async ValueTask ProcessLogicResult(Entity aFact, CognitionId? parentId, int attempt, 
                 long startMilliseconds, LogicEngine<TModel, TMsg, TSideEffect>.LogicResult result) {
 
-                var reflectionResult = await TryReflect(aFact, parentId, attempt, startMilliseconds, result);
+                var cognitionResult = await TryCognize(aFact, parentId, attempt, startMilliseconds, result);
 
-                if (reflectionResult.IsOk) {
-                    var cid = reflectionResult.Value.Id;
+                if (cognitionResult.IsOk) {
+                    var cid = cognitionResult.Value.Id;
                     if (parentId is null) rootCid = cid;
                     try { 
                         await Task.WhenAll(result.SideEffects.Select(effect => _behavior(effect, ct)));
@@ -118,23 +118,23 @@ namespace Funes {
                     }
 
                     foreach (var derivedFact in result.DerivedFacts) {
-                        RunLogic(derivedFact.Value, reflectionResult.Value.Id, 1);
+                        RunLogic(derivedFact.Value, cognitionResult.Value.Id, 1);
                     }
                 }
                 else {
-                    switch (reflectionResult.Error) {
+                    switch (cognitionResult.Error) {
                         case Error.CognitionError x:
                             LogError(x.Cognition.Id, "ProcessLogicResult", "TryReflect", x.Error);
                             break;
                         default:
-                            LogError(aFact, "ProcessLogicResult", "TryReflect", reflectionResult.Error);
+                            LogError(aFact, "ProcessLogicResult", "TryReflect", cognitionResult.Error);
                             break;
                     }
                     RunLogic(aFact, parentId, attempt++);
                 }
             }
 
-            async ValueTask<Result<Cognition>> TryReflect(
+            async ValueTask<Result<Cognition>> TryCognize(
                 Entity aFact, CognitionId? parentId, int attempt, long startMilliseconds,
                 LogicEngine<TModel, TMsg, TSideEffect>.LogicResult output) {
                 
@@ -177,13 +177,14 @@ namespace Funes {
                     }
                     
                     var factEntity = new EntityStamp(aFact, cid);
-                    var reflection = new Cognition(cid, parentId ?? CognitionId.None, status,
+                    var cognition = new Cognition(cid, parentId ?? CognitionId.None, status,
                         fact.Id,
-                        output.Inputs.ToDictionary(
-                            pair => new EntityStampKey(pair.Key, pair.Value.Item2), pair => pair.Value.Item3),
+                        output.Inputs.ToList()
+                            .Select(pair => new KeyValuePair<EntityStampKey,bool>(new EntityStampKey(pair.Key, pair.Value.Item2), pair.Value.Item3))
+                            .ToList(),
                         conclusionsArr.Select(x => x.Key.Eid).ToArray(),
                         output.Constants,
-                        output.SideEffects.Select(x => x?.ToString()).ToList(),
+                        output.SideEffects.Select(x => x?.ToString() ?? "???").ToList(),
                         detailsDict);
                     
                     detailsDict[Cognition.DetailsCognitionTime] = reflectTime.ToFileTimeUtc().ToString();
@@ -193,7 +194,7 @@ namespace Funes {
                     detailsDict[Cognition.DetailsUploadDuration] = (stopWatch!.ElapsedMilliseconds - endCommitMilliseconds).ToString()!;
 
                     var sysEntities = new List<EntityStamp>(5); 
-                    sysEntities.Add(new EntityStamp(new Entity(Cognition.CreateEntityId(cid), reflection), cid));
+                    sysEntities.Add(new EntityStamp(new Entity(Cognition.CreateEntityId(cid), cognition), cid));
                     
                     if (parentId.HasValue) {
                         var eid = Cognition.CreateChildrenEntityId(parentId.Value);
@@ -204,8 +205,8 @@ namespace Funes {
                     var uploadSysEntitiesResult = await _dataEngine.Upload(sysEntities, _systemSerializer, ct, true);
 
                     return status == CognitionStatus.Truth && uploadSysEntitiesResult.IsOk 
-                        ?  new Result<Cognition>(reflection)
-                        : Result<Cognition>.ReflectionError(reflection, 
+                        ?  new Result<Cognition>(cognition)
+                        : Result<Cognition>.CongnitionError(cognition, 
                             new Error.AggregateError(new []{uploadConclusionsResult.Error, uploadFactResult.Error,
                                 uploadSysEntitiesResult.Error}));
                 }

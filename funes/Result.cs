@@ -16,7 +16,7 @@ namespace Funes {
         public static Result<T> NotSupportedEncoding(string encoding) => new (new Error.NotSupportedEncodingError(encoding));
         public static Result<T> SerdeError(string msg) => new (new Error.SerdeError(msg));
         public static Result<T> IoError(string msg) => new (new Error.IoError(msg));
-        public static Result<T> ReflectionError(Cognition cognition, Error error) => 
+        public static Result<T> CongnitionError(Cognition cognition, Error error) => 
             new (new Error.CognitionError(cognition, error));
         public static Result<T> TransactionError(Error.TransactionError.Conflict[] conflicts) =>
             new (new Error.TransactionError(conflicts));

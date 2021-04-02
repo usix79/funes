@@ -32,10 +32,10 @@ namespace Funes {
             public Dictionary<EntityId, Entity> Outputs { get; } = new ();
             public Dictionary<EntityId, Entity> DerivedFacts { get; } = new ();
             public List<TSideEffect> SideEffects { get; } = new ();
-            public NameValueCollection Constants { get; } = new ();
+            public List<KeyValuePair<string, string>> Constants { get; } = new ();
         }
 
-        public async Task<Result<LogicResult>> Run(Entity fact, NameValueCollection constants, CancellationToken ct = default) {
+        public async Task<Result<LogicResult>> Run(Entity fact, IConstants constants, CancellationToken ct = default) {
             var entities = new Dictionary<EntityId, EntityEntry>{[fact.Id] = EntityEntry.Ok(fact)};
             var pendingMessages = new Queue<TMsg>();
             var pendingCommands = new LinkedList<Cmd<TMsg, TSideEffect>>();
@@ -101,7 +101,7 @@ namespace Funes {
                         output.SideEffects.Add(x.SideEffect);
                         break;
                     case Cmd<TMsg, TSideEffect>.ConstantCmd x:
-                        output.Constants.Add(x.Name, x.Value);
+                        output.Constants.Add(new KeyValuePair<string, string>(x.Name, x.Value));
                         break;
                     case Cmd<TMsg, TSideEffect>.RetrieveCmd x:
                         if (!TryCompleteRetrieve(x)) {

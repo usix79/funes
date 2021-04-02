@@ -9,7 +9,7 @@ namespace Funes {
             return obj is CognitionId other ? CompareTo(other) : throw new ArgumentException($"Object must be of type {nameof(CognitionId)}");
         }
         
-        public string Id { get; }
+        public string Id { get; init; }
 
         public static readonly CognitionId Singularity = new ("");
         public static readonly CognitionId None = new ("");

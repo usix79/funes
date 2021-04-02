@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.Linq;
@@ -29,7 +30,7 @@ namespace Funes.Tests {
         }
     
         public class BasicLogic : ILogic<string, string, string> {
-            public (string, Cmd<string, string>) Begin(Entity fact, NameValueCollection? constants) =>
+            public (string, Cmd<string, string>) Begin(Entity fact, IConstants constants) =>
                 (fact.Value.ToString(), new Cmd<string,string>.MsgCmd("Say Hello"))!;
 
             public (string, Cmd<string, string>) Update(string model, string msg) =>
@@ -53,7 +54,7 @@ namespace Funes.Tests {
         }
         
         public class AdvanceLogic : ILogic<string, string, string> {
-            public (string, Cmd<string, string>) Begin(Entity fact, NameValueCollection? constants) {
+            public (string, Cmd<string, string>) Begin(Entity fact, IConstants constants) {
                 var n = (int) fact.Value;
                 var commands = new List<Cmd<string,string>>();
                 if (n % 2 == 0) commands.Add(new Cmd<string,string>.MsgCmd("Flip"));
@@ -86,9 +87,9 @@ namespace Funes.Tests {
         
         public class RetrieveLogic : ILogic<string, string, string> {
             public static EntityId Eid => new EntityId("/tests/entity1");
-            public (string, Cmd<string, string>) Begin(Entity fact, NameValueCollection? constants) {
+            public (string, Cmd<string, string>) Begin(Entity fact, IConstants constants) {
                 return ("", new Cmd<string, string>.RetrieveCmd(Eid, 
-                    entry => (string)fact.Value + ((Simple)entry.Value).Name));
+                    entry => (string)fact.Value + ((Simple)entry.Value).Value));
             }
             public (string, Cmd<string, string>) Update(string model, string msg) {
                 var entity = new Entity(Eid,  new Simple(0, msg));
@@ -111,7 +112,7 @@ namespace Funes.Tests {
             var result = await logicEngine.Run(fact, null!, default);
             Assert.True(result.IsOk);
             var output = (Simple)result.Value.Outputs.First().Value.Value;
-            Assert.Equal("Answer:42", output.Name);
+            Assert.Equal("Answer:42", output.Value);
         }
         
     }

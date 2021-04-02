@@ -1,9 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.Specialized;
-using System.IO;
 using System.Linq;
-using System.Text.Json;
 using System.Threading.Tasks;
 
 namespace Funes {
@@ -12,14 +9,14 @@ namespace Funes {
         CognitionId ParentId, 
         CognitionStatus Status,
         EntityId Fact, 
-        Dictionary<EntityStampKey, bool> Inputs, 
+        List<KeyValuePair<EntityStampKey, bool>> Inputs, 
         EntityId[] Outputs,
-        NameValueCollection Constants,
-        List<string?> SideEffects,
+        List<KeyValuePair<string,string>> Constants,
+        List<string> SideEffects,
         Dictionary<string, string> Details
         ) {
         
-        public const string Category = "funes/reflections";
+        public const string Category = "funes/congnitions";
         public const string ChildrenCategory = "funes/children";
         public static string DetailsCognitionTime = "CognitionTime";
         public static string DetailsAttempt = "Attempt";
@@ -32,29 +29,6 @@ namespace Funes {
         public static EntityId CreateChildrenEntityId(CognitionId parentId) => new (Category, parentId.Id);
         public static EntityStampKey CreateStampKey(CognitionId cid) => new (CreateEntityId(cid), cid);
         
-        public static async ValueTask<Result<string>> Encoder(Stream output, object content) {
-            try {
-                await JsonSerializer.SerializeAsync(output, content);
-                return new Result<string>("json");
-            }
-            catch (Exception e) {
-                return Result<string>.SerdeError(e.Message);
-            }
-        }
-
-        public static async ValueTask<Result<object>> Decoder(Stream input, string encoding) {
-            if ("json" != encoding) return Result<object>.NotSupportedEncoding(encoding);
-            try {
-                var reflectionOrNull = await JsonSerializer.DeserializeAsync<Cognition>(input);
-                return reflectionOrNull != null
-                    ? new Result<object>(reflectionOrNull)
-                    : Result<object>.SerdeError("null");
-            }
-            catch (Exception e) {
-                return Result<object>.SerdeError(e.Message);
-            }
-        }
-
         public static async ValueTask<Result<Cognition>> Load(IRepository repo, ISerializer serializer, CognitionId cid) {
             var getResult = await repo.Load(CreateStampKey(cid), serializer, default);
             return getResult.IsOk
@@ -74,7 +48,7 @@ namespace Funes {
 
             var reflection = loadResult.Value;
             
-            var historyTasks = reflection.Inputs.Keys
+            var historyTasks = reflection.Inputs.Select(pair => pair.Key)
                 .Select(premiseKey => repo.History(premiseKey.Eid, reflection.Id, 1).AsTask());
             
             var historyItems = await Task.WhenAll(historyTasks);
@@ -83,7 +57,7 @@ namespace Funes {
             if (errors.Length > 0) return Result<Fallacy[]>.AggregateError(errors);
             
             var fallacies =
-                reflection.Inputs.Keys
+                reflection.Inputs.Select(pair => pair.Key)
                     .Zip(historyItems, (premiseKey, historyResult) => (premiseKey, historyResult.Value.FirstOrDefault()))
                     .Where(x => x.Item1.Cid.CompareTo(x.Item2) > 0)
                     .Select(x => new Fallacy(x.Item1, x.Item2));

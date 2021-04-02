@@ -4,20 +4,16 @@ using System.Data.Common;
 namespace Funes {
     public readonly struct EntityId : IEquatable<EntityId> {
         
-        public string Id { get; }
+        public string Id { get; init; }
 
-        public string Category {
-            get {
-                var idx = Id.LastIndexOf('/');
-                return idx != -1 ? Id.Substring(0, idx) : "";
-            }
+        public string GetCategory() {
+            var idx = Id.LastIndexOf('/');
+            return idx != -1 ? Id.Substring(0, idx) : "";
         }
 
-        public string Name {
-            get {
-                var idx = Id.LastIndexOf('/');
-                return idx != -1 ? Id.Substring(idx+1) : Id;
-            }
+        public string GetName() {
+            var idx = Id.LastIndexOf('/');
+            return idx != -1 ? Id.Substring(idx+1) : Id;
         }
         
         public static EntityId None = new EntityId("");
@@ -29,7 +25,7 @@ namespace Funes {
 
         public bool Equals(EntityId other) => Id == other.Id;
         public override bool Equals(object? obj) => obj is EntityId other && Equals(other);
-        public override int GetHashCode() => HashCode.Combine(Category, Name);
+        public override int GetHashCode() => Id.GetHashCode();
         public static bool operator ==(EntityId left, EntityId right) => left.Equals(right);
         public static bool operator !=(EntityId left, EntityId right) => !left.Equals(right);
         public override string ToString() => $"EntityId: {Id}";

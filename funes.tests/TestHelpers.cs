@@ -19,6 +19,10 @@ namespace Funes.Tests {
         public static EntityId CreateRandomEid(string? cat = null) =>
             new (cat ?? "cat-" + RandomString(10), "id-" + RandomString(10));
 
+        public static CognitionId CreateRandomCid(string? cat = null) => CognitionId.NewId();
+
+        public static EntityStampKey CreateRandomStampKey() => CreateRandomEid().CreateStampKey(CreateRandomCid());
+
         public static Simple CreateRandomValue() =>
             new (Rand.Next(1024), RandomString(1024));    
 
@@ -29,5 +33,8 @@ namespace Funes.Tests {
             Assert.Equal(expected.Key, actual.Key);
             Assert.Equal(expected.Value, actual.Value);
         }
+
+        public static Entity CreateSimpleFact(int id, string value) =>
+            new Entity(new EntityId("/tests/facts"), new Simple(id, value));
     }
 }

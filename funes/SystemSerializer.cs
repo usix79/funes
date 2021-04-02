@@ -1,4 +1,6 @@
+using System;
 using System.IO;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 namespace Funes {
@@ -6,20 +8,44 @@ namespace Funes {
 
         public async ValueTask<Result<string>> Encode(Stream output, EntityId eid, object content) {
             return
-                eid.Category switch {
-                    Cognition.Category => await Cognition.Encoder(output, content),
+                eid.GetCategory() switch {
+                    Cognition.Category => await JsonEncode(output, content),
                     Cognition.ChildrenCategory => new Result<string>(""),
-                    _ => Result<string>.SerdeError($"Not supported category: {eid.Category}")
+                    _ => Result<string>.SerdeError($"Not supported category: {eid.GetCategory()}")
                 };
         }
 
         public async ValueTask<Result<object>> Decode(Stream input, EntityId eid, string encoding) {
             return
-                eid.Category switch {
-                    Cognition.Category => await Cognition.Decoder(input, encoding),
+                eid.GetCategory() switch {
+                    Cognition.Category => await JsonDecode<Cognition>(input, encoding),
                     Cognition.ChildrenCategory => new Result<object>(null!),
-                    _ => Result<object>.SerdeError($"Not supported category: {eid.Category}")
+                    _ => Result<object>.SerdeError($"Not supported category: {eid.GetCategory()}")
                 };
         }
+        
+        public static async ValueTask<Result<string>> JsonEncode(Stream output, object cognition) {
+            try {
+                await JsonSerializer.SerializeAsync(output, cognition);
+                return new Result<string>("json");
+            }
+            catch (Exception e) {
+                return Result<string>.SerdeError(e.Message);
+            }
+        }
+
+        public static async ValueTask<Result<object>> JsonDecode<T>(Stream input, string encoding) {
+            if ("json" != encoding) return Result<object>.NotSupportedEncoding(encoding);
+            try {
+                var reflectionOrNull = await JsonSerializer.DeserializeAsync<T>(input);
+                return reflectionOrNull != null
+                    ? new Result<object>(reflectionOrNull)
+                    : Result<object>.SerdeError("null");
+            }
+            catch (Exception e) {
+                return Result<object>.SerdeError(e.Message);
+            }
+        }
+        
     }
 }
