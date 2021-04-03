@@ -82,7 +82,7 @@ namespace Funes.Tests {
             var result = await logicEngine.Run(fact, null!, default);
             Assert.True(result.IsOk);
             Assert.Equal("Publish: FlipFlop", result.Value.SideEffects.First());
-            Assert.Equal("42", result.Value.DerivedFacts.First().Value.Value.ToString());
+            Assert.Equal("42", result.Value.DerivedFacts.First().Value.ToString());
         }
         
         public class RetrieveLogic : ILogic<string, string, string> {
