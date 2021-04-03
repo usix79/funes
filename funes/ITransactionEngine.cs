@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 
 namespace Funes {
     public interface ITransactionEngine {
-        Task<Result<bool>> Commit(IEnumerable<EntityStampKey> premises, IEnumerable<EntityStampKey> conclusions, CancellationToken ct);
+        Task<Result<Void>> TryCommit(IEnumerable<EntityStampKey> inputs, 
+                    IEnumerable<EntityStampKey> outputs, CancellationToken ct);
     }
 }

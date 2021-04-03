@@ -64,7 +64,7 @@ namespace Funes.S3 {
                 
                 var encoding = resp.Metadata[EncodingKey];
 
-                var decodeResult = await ser.Decode(resp.ResponseStream, key.Eid, encoding);
+                var decodeResult = await ser.Decode(resp.ResponseStream, key.EntId, encoding);
                 return decodeResult.IsOk
                     ? new Result<EntityStamp>(new EntityStamp(key, decodeResult.Value))
                     : new Result<EntityStamp>(decodeResult.Error);
@@ -75,8 +75,8 @@ namespace Funes.S3 {
             catch (Exception e) { return Result<EntityStamp>.Exception(e); }
         }
         
-        public async ValueTask<Result<IEnumerable<CognitionId>>> History(EntityId id, 
-                        CognitionId before, int maxCount = 1, CancellationToken ct = default) {
+        public async ValueTask<Result<IEnumerable<IncrementId>>> History(EntityId id, 
+                        IncrementId before, int maxCount = 1, CancellationToken ct = default) {
             try {
                 var req = new ListObjectsV2Request {
                     BucketName = BucketName,
@@ -88,16 +88,16 @@ namespace Funes.S3 {
                 var resp = await _client.ListObjectsV2Async(req, ct);
 
                 return
-                    new Result<IEnumerable<CognitionId>>(
+                    new Result<IEnumerable<IncrementId>>(
                         resp!.S3Objects
-                            .Select(s3Obj => new CognitionId (s3Obj.Key.Substring(req.Prefix.Length))));
+                            .Select(s3Obj => new IncrementId (s3Obj.Key.Substring(req.Prefix.Length))));
             }
             catch (TaskCanceledException) { throw; }
-            catch (AmazonS3Exception e) { return Result<IEnumerable<CognitionId>>.IoError(e.ToString()); }
-            catch (Exception e) { return Result<IEnumerable<CognitionId>>.Exception(e); }
+            catch (AmazonS3Exception e) { return Result<IEnumerable<IncrementId>>.IoError(e.ToString()); }
+            catch (Exception e) { return Result<IEnumerable<IncrementId>>.Exception(e); }
         }
 
-        private string CreateMemS3Key(EntityStampKey key) => $"{Prefix}/{key.Eid.Id}/{key.Cid.Id}";
+        private string CreateMemS3Key(EntityStampKey key) => $"{Prefix}/{key.EntId.Id}/{key.IncId.Id}";
         private string CreateMemS3Id(EntityId id) => $"{Prefix}/{id.Id}/";
     }
 }

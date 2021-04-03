@@ -12,18 +12,17 @@ namespace Funes.Tests {
 
         private async Task AssertCommit(ITransactionEngine tre, bool expectedSuccess, 
             IEnumerable<EntityStampKey> premises, IEnumerable<EntityStampKey> conclusions) {
-            var commitResult = await tre.Commit(premises, conclusions, default);
+            var commitResult = await tre.TryCommit(premises, conclusions, default);
             if (expectedSuccess) {
                 Assert.True(commitResult.IsOk, commitResult.Error.ToString());
-                Assert.True(commitResult.Value);
             }
             else {
-                Assert.True(commitResult.Error is Error.TransactionError);
+                Assert.True(commitResult.Error is Error.CommitError);
             }
         }
         
         private IEnumerable<EntityStampKey> Keys(params (EntityId,string)[] keys) => 
-            keys.Select(x => new EntityStampKey(x.Item1, new CognitionId(x.Item2)));
+            keys.Select(x => new EntityStampKey(x.Item1, new IncrementId(x.Item2)));
 
         [Fact]
         public async void EmptyTest() {
@@ -31,7 +30,7 @@ namespace Funes.Tests {
 
             await AssertCommit(tre, true, Keys(), Keys());
 
-            var eid = CreateRandomEid(); 
+            var eid = CreateRandomEntId(); 
             // if a transaction engine doesn't know about premise, it should treat is as truth 
             await AssertCommit(tre, true, Keys((eid, "100500")), Keys((eid, "100501")));
         }
@@ -39,7 +38,7 @@ namespace Funes.Tests {
         [Fact]
         public async void SingleEntityTest() {
             var tre = CreateEngine();
-            var eid = CreateRandomEid();
+            var eid = CreateRandomEntId();
             await AssertCommit(tre, true, Keys(), Keys((eid, "100500")));
             await AssertCommit(tre, false, Keys((eid, "100499")), Keys((eid, "100499")));
             await AssertCommit(tre, true, Keys((eid, "100500")), Keys((eid, "100500")));
@@ -52,8 +51,8 @@ namespace Funes.Tests {
         [Fact]
         public async void MultipleEntityTest() {
             var tre = CreateEngine();
-            var eid1 = CreateRandomEid();
-            var eid2 = CreateRandomEid();
+            var eid1 = CreateRandomEntId();
+            var eid2 = CreateRandomEntId();
             await AssertCommit(tre, true, Keys(), Keys((eid1, "100500"), (eid2, "100500")));
             await AssertCommit(tre, true, Keys((eid1, "100500"), (eid2, "100500")), Keys((eid1, "100499")));
             await AssertCommit(tre, true, Keys((eid1, "100499"), (eid2, "100500")), Keys());

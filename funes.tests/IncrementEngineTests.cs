@@ -8,15 +8,15 @@ using Xunit.Abstractions;
 using static Funes.Tests.TestHelpers;
 
 namespace Funes.Tests {
-    public class CognitionEngineTests {
+    public class IncrementEngineTests {
         
         private readonly ITestOutputHelper _testOutputHelper;
 
-        public CognitionEngineTests(ITestOutputHelper testOutputHelper) {
+        public IncrementEngineTests(ITestOutputHelper testOutputHelper) {
             _testOutputHelper = testOutputHelper;
         }
 
-        private CognitionEngine<TModel, TMsg, TSideEffect> CreateCognitionEngine<TModel, TMsg, TSideEffect>(
+        private IncrementEngine<TModel, TMsg, TSideEffect> CreateCognitionEngine<TModel, TMsg, TSideEffect>(
             ILogic<TModel, TMsg, TSideEffect> logic, Behavior<TSideEffect> behavior, 
             IRepository? repository = null,
             ICache? cache_ = null,
@@ -30,7 +30,7 @@ namespace Funes.Tests {
             var de = new StatelessDataEngine(repo, cache, tre, logger);
             var logicEngine = new  LogicEngine<TModel, TMsg, TSideEffect>(logic, ser, de, logger, tracer);
 
-            return new CognitionEngine<TModel, TMsg, TSideEffect>(logicEngine, behavior, ser, de, logger);
+            return new IncrementEngine<TModel, TMsg, TSideEffect>(logicEngine, behavior, ser, de, logger);
         }
         
         [Fact]
@@ -49,13 +49,13 @@ namespace Funes.Tests {
 
             var result = await cognitionEngine.Run(fact, default);
             Assert.True(result.IsOk, result.Error.ToString());
-            var repoResult = await repo.Load(Cognition.CreateStampKey(result.Value), sysSer, default);
+            var repoResult = await repo.Load(Increment.CreateStampKey(result.Value), sysSer, default);
             Assert.True(repoResult.IsOk, repoResult.Error.ToString());
-            Assert.True(repoResult.Value.Value is Cognition);
-            if (repoResult.Value.Value is Cognition cognition) {
+            Assert.True(repoResult.Value.Value is Increment);
+            if (repoResult.Value.Value is Increment cognition) {
                 Assert.Equal(result.Value, cognition.Id);
-                Assert.Equal(CognitionId.None, cognition.ParentId);
-                Assert.Equal(CognitionStatus.Truth, cognition.Status);
+                Assert.Equal(IncrementId.None, cognition.ParentId);
+                Assert.Equal(IncrementStatus.Success, cognition.Status);
                 Assert.Equal(fact.Id, cognition.Fact);
                 Assert.Empty(cognition.Inputs);
                 Assert.Empty(cognition.Outputs);
@@ -105,13 +105,13 @@ namespace Funes.Tests {
             Assert.Equal("update", endModel);
             Assert.Equal("effect", sideEffect);
             
-            var repoResult = await repo.Load(Cognition.CreateStampKey(result.Value), sysSer, default);
+            var repoResult = await repo.Load(Increment.CreateStampKey(result.Value), sysSer, default);
             Assert.True(repoResult.IsOk, repoResult.Error.ToString());
-            Assert.True(repoResult.Value.Value is Cognition);
-            if (repoResult.Value.Value is Cognition cognition) {
+            Assert.True(repoResult.Value.Value is Increment);
+            if (repoResult.Value.Value is Increment cognition) {
                 Assert.Equal(result.Value, cognition.Id);
-                Assert.Equal(CognitionId.None, cognition.ParentId);
-                Assert.Equal(CognitionStatus.Truth, cognition.Status);
+                Assert.Equal(IncrementId.None, cognition.ParentId);
+                Assert.Equal(IncrementStatus.Success, cognition.Status);
                 Assert.Equal(fact.Id, cognition.Fact);
                 Assert.Empty(cognition.Inputs);
                 Assert.Empty(cognition.Outputs);
@@ -130,17 +130,17 @@ namespace Funes.Tests {
 
             var evt = new ManualResetEventSlim(false);
 
-            var eid = CreateRandomEid();
-            var stamp = new EntityStamp(new Entity(eid, new Simple(0, "value1")), CognitionId.NewId()); 
+            var eid = CreateRandomEntId();
+            var stamp = new EntityStamp(new Entity(eid, new Simple(0, "value1")), IncrementId.NewId()); 
             Assert.True((await repo.Save(stamp, ser, default)).IsOk);
 
             var logic = new CallbackLogic<string,string,string>(
-                fact => ("", new Cmd<string, string>.RetrieveCmd(eid, entry => "go")),
+                fact => ("", new Cmd<string, string>.RetrieveCmd(eid, entry => "go", false)),
                 (model, msg) => ("", new Cmd<string, string>.UploadCmd(new Entity(eid, new Simple(1, "value2")))),
                 model => Cmd<string, string>.None);
 
             var logicWithWaiting = new CallbackLogic<string, string, string>(
-                fact => ("", new Cmd<string, string>.RetrieveCmd(eid, entry => "go", true)),
+                fact => ("", new Cmd<string, string>.RetrieveCmd(eid, entry => "go")),
                 (model, msg) => ("", new Cmd<string, string>.UploadCmd(new Entity(eid, new Simple(2, "value3")))),
                 model => {
                     evt.Wait();
@@ -161,42 +161,42 @@ namespace Funes.Tests {
             var result2 = await waitingTask;
             Assert.True(result2.IsOk, result2.Error.ToString());
             
-            var repoParentCognitionResult = await repo.Load(Cognition.CreateStampKey(result2.Value), sysSer, default);
+            var repoParentCognitionResult = await repo.Load(Increment.CreateStampKey(result2.Value), sysSer, default);
             Assert.True(repoParentCognitionResult.IsOk, repoParentCognitionResult.Error.ToString());
-            Assert.True(repoParentCognitionResult.Value.Value is Cognition);
-            if (repoParentCognitionResult.Value.Value is Cognition cognition) {
+            Assert.True(repoParentCognitionResult.Value.Value is Increment);
+            if (repoParentCognitionResult.Value.Value is Increment cognition) {
                 Assert.Equal(result2.Value, cognition.Id);
-                Assert.Equal(CognitionId.None, cognition.ParentId);
-                Assert.Equal(CognitionStatus.Fallacy, cognition.Status);
+                Assert.Equal(IncrementId.None, cognition.ParentId);
+                Assert.Equal(IncrementStatus.Fail, cognition.Status);
                 Assert.Equal(fact.Id, cognition.Fact);
                 Assert.Equal(new List<KeyValuePair<EntityStampKey, bool>>
                     {new (stamp.Key, true)}, cognition.Inputs);
                 Assert.Equal(new EntityId[]{eid}, cognition.Outputs);
                 Assert.Empty(cognition.Constants);
                 Assert.Empty(cognition.SideEffects);
-                Assert.Equal("1", cognition.Details[Cognition.DetailsAttempt]);
+                Assert.Equal("1", cognition.Details[Increment.DetailsAttempt]);
             }
 
-            var childrenHistoryResult = await repo.History(Cognition.CreateChildEntityId(result2.Value),
-                CognitionId.Singularity, 42, default);
+            var childrenHistoryResult = await repo.History(Increment.CreateChildEntId(result2.Value),
+                IncrementId.Singularity, 42, default);
             Assert.True(childrenHistoryResult.IsOk, childrenHistoryResult.Error.ToString());
             Assert.Single(childrenHistoryResult.Value);
-            var childCid = childrenHistoryResult.Value.First();
+            var childIncId = childrenHistoryResult.Value.First();
 
-            var repoCognitionResult = await repo.Load(Cognition.CreateStampKey(childCid), sysSer, default);
+            var repoCognitionResult = await repo.Load(Increment.CreateStampKey(childIncId), sysSer, default);
             Assert.True(repoCognitionResult.IsOk, repoCognitionResult.Error.ToString());
-            Assert.True(repoCognitionResult.Value.Value is Cognition);
-            if (repoCognitionResult.Value.Value is Cognition childCognition) {
-                Assert.Equal(childCid, childCognition.Id);
+            Assert.True(repoCognitionResult.Value.Value is Increment);
+            if (repoCognitionResult.Value.Value is Increment childCognition) {
+                Assert.Equal(childIncId, childCognition.Id);
                 Assert.Equal(result2.Value, childCognition.ParentId);
-                Assert.Equal(CognitionStatus.Truth, childCognition.Status);
+                Assert.Equal(IncrementStatus.Success, childCognition.Status);
                 Assert.Equal(fact.Id, childCognition.Fact);
                 Assert.Equal(new List<KeyValuePair<EntityStampKey, bool>>
                     {new (eid.CreateStampKey(result1.Value), true)}, childCognition.Inputs);
                 Assert.Equal(new EntityId[]{eid}, childCognition.Outputs);
                 Assert.Empty(childCognition.Constants);
                 Assert.Empty(childCognition.SideEffects);
-                Assert.Equal("2", childCognition.Details[Cognition.DetailsAttempt]);
+                Assert.Equal("2", childCognition.Details[Increment.DetailsAttempt]);
             }
         }
         
@@ -224,13 +224,13 @@ namespace Funes.Tests {
             var result = await cognitionEngine.Run(fact, default);
             Assert.True(result.IsOk, result.Error.ToString());
             
-            var repoResult = await repo.Load(Cognition.CreateStampKey(result.Value), sysSer, default);
+            var repoResult = await repo.Load(Increment.CreateStampKey(result.Value), sysSer, default);
             Assert.True(repoResult.IsOk, repoResult.Error.ToString());
-            Assert.True(repoResult.Value.Value is Cognition);
-            if (repoResult.Value.Value is Cognition cognition) {
+            Assert.True(repoResult.Value.Value is Increment);
+            if (repoResult.Value.Value is Increment cognition) {
                 Assert.Equal(result.Value, cognition.Id);
-                Assert.Equal(CognitionId.None, cognition.ParentId);
-                Assert.Equal(CognitionStatus.Truth, cognition.Status);
+                Assert.Equal(IncrementId.None, cognition.ParentId);
+                Assert.Equal(IncrementStatus.Success, cognition.Status);
                 Assert.Equal(fact.Id, cognition.Fact);
                 Assert.Empty(cognition.Inputs);
                 Assert.Empty(cognition.Outputs);
@@ -238,18 +238,18 @@ namespace Funes.Tests {
                 Assert.Empty(cognition.SideEffects);
             }
             
-            var childrenHistoryResult = await repo.History(Cognition.CreateChildEntityId(result.Value),
-                CognitionId.Singularity, 42, default);
+            var childrenHistoryResult = await repo.History(Increment.CreateChildEntId(result.Value),
+                IncrementId.Singularity, 42, default);
             Assert.True(childrenHistoryResult.IsOk, childrenHistoryResult.Error.ToString());
             Assert.Equal(3, childrenHistoryResult.Value.Count());
-            foreach (var childCid in childrenHistoryResult.Value) {
-                var repoCognitionResult = await repo.Load(Cognition.CreateStampKey(childCid), sysSer, default);
+            foreach (var childIncId in childrenHistoryResult.Value) {
+                var repoCognitionResult = await repo.Load(Increment.CreateStampKey(childIncId), sysSer, default);
                 Assert.True(repoCognitionResult.IsOk, repoCognitionResult.Error.ToString());
-                Assert.True(repoCognitionResult.Value.Value is Cognition);
-                if (repoCognitionResult.Value.Value is Cognition childCognition) {
-                    Assert.Equal(childCid, childCognition.Id);
+                Assert.True(repoCognitionResult.Value.Value is Increment);
+                if (repoCognitionResult.Value.Value is Increment childCognition) {
+                    Assert.Equal(childIncId, childCognition.Id);
                     Assert.Equal(result.Value, childCognition.ParentId);
-                    Assert.Equal(CognitionStatus.Truth, childCognition.Status);
+                    Assert.Equal(IncrementStatus.Success, childCognition.Status);
                     //Assert.Equal(fact.Id, childCognition.Fact);
                     Assert.Empty(childCognition.Inputs);
                     Assert.Empty(childCognition.Outputs);

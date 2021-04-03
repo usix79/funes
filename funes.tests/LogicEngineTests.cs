@@ -82,17 +82,17 @@ namespace Funes.Tests {
             var result = await logicEngine.Run(fact, null!, default);
             Assert.True(result.IsOk);
             Assert.Equal("Publish: FlipFlop", result.Value.SideEffects.First());
-            Assert.Equal("42", result.Value.DerivedFacts.First().Value.Value.ToString());
+            Assert.Equal("42", result.Value.DerivedFacts.First().Value.ToString());
         }
         
         public class RetrieveLogic : ILogic<string, string, string> {
-            public static EntityId Eid => new EntityId("/tests/entity1");
+            public static EntityId EntId => new EntityId("/tests/entity1");
             public (string, Cmd<string, string>) Begin(Entity fact, IConstants constants) {
-                return ("", new Cmd<string, string>.RetrieveCmd(Eid, 
-                    entry => (string)fact.Value + ((Simple)entry.Value).Value));
+                return ("", new Cmd<string, string>.RetrieveCmd(EntId, 
+                    entry => (string)fact.Value + ((Simple)entry.Value).Value, false));
             }
             public (string, Cmd<string, string>) Update(string model, string msg) {
-                var entity = new Entity(Eid,  new Simple(0, msg));
+                var entity = new Entity(EntId,  new Simple(0, msg));
                 return ("", new Cmd<string,string>.UploadCmd(entity));
             }
             public Cmd<string, string>.OutputCmd End(string model) => Cmd<string, string>.None;
@@ -102,8 +102,8 @@ namespace Funes.Tests {
         public async void RetrieveLogicTest() {
             var ser = new SimpleSerializer<Simple>();
             var repo = new SimpleRepository();
-            var entity = new Entity(RetrieveLogic.Eid, new Simple(0, "42"));
-            var saveResult = await repo.Save(new EntityStamp(entity, CognitionId.NewId()), ser, default);
+            var entity = new Entity(RetrieveLogic.EntId, new Simple(0, "42"));
+            var saveResult = await repo.Save(new EntityStamp(entity, IncrementId.NewId()), ser, default);
             Assert.True(saveResult.IsOk);
             
             var logicEngine = CreateLogicEngine(new RetrieveLogic(), repo);

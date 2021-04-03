@@ -16,24 +16,24 @@ namespace Funes.Tests {
 
         [Fact]
         public async void CognitionEncoding() {
-            var cid = CognitionId.NewId();
-            var parentCid = CognitionId.NewId();
+            var incId = IncrementId.NewId();
+            var parentIncId = IncrementId.NewId();
             var fact = CreateSimpleFact(0, "");
             var inputs = new Dictionary<EntityStampKey, bool> {
                 {CreateRandomStampKey(), false}, {CreateRandomStampKey(), true}, {CreateRandomStampKey(), false}
                 };
-            var outputs = new EntityId[] {CreateRandomEid(), CreateRandomEid(), CreateRandomEid()};
+            var outputs = new EntityId[] {CreateRandomEntId(), CreateRandomEntId(), CreateRandomEntId()};
             var constants = new Dictionary<string, string> {{"c1", "1"}, {"c2", "12"}, {"c3",  "123"}};
             var sideEffects = new List<string> {"effect1", "effect2", "effect3"};
             var details = new Dictionary<string, string> {["d1"] = "a", ["d2"] = "ab", ["d3"] = "abc"};
 
-            var cognition = new Cognition(cid, parentCid, CognitionStatus.Truth, fact.Id,
+            var cognition = new Increment(incId, parentIncId, IncrementStatus.Success, fact.Id,
                 inputs.ToList(), outputs, constants.ToList(), sideEffects, details);
 
             var sysSer = new SystemSerializer();
             
             var stream = new MemoryStream();
-            var encodingResult = await sysSer.Encode(stream, Cognition.CreateEntityId(cid), cognition);
+            var encodingResult = await sysSer.Encode(stream, Increment.CreateEntId(incId), cognition);
             Assert.True(encodingResult.IsOk, encodingResult.Error.ToString());
 
             stream.Position = 0;
@@ -41,10 +41,10 @@ namespace Funes.Tests {
             _testOutputHelper.WriteLine($"JSON: {await reader.ReadToEndAsync()}");
 
             stream.Position = 0;
-            var decodingResult = await sysSer.Decode(stream, Cognition.CreateEntityId(cid), encodingResult.Value);
+            var decodingResult = await sysSer.Decode(stream, Increment.CreateEntId(incId), encodingResult.Value);
             Assert.True(decodingResult.IsOk, decodingResult.Error.ToString());
-            Assert.IsType<Cognition>(decodingResult.Value);
-            if (decodingResult.Value is Cognition decodedCognition) {
+            Assert.IsType<Increment>(decodingResult.Value);
+            if (decodingResult.Value is Increment decodedCognition) {
                 Assert.Equal(cognition.Id, decodedCognition.Id);
                 Assert.Equal(cognition.ParentId, decodedCognition.ParentId);
                 Assert.Equal(cognition.Status, decodedCognition.Status);

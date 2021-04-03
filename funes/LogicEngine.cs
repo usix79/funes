@@ -26,7 +26,7 @@ namespace Funes {
         }
         
         public class LogicResult {
-            public Dictionary<EntityId, (Entity,CognitionId,bool)> Inputs { get; } = new ();
+            public Dictionary<EntityId, (Entity,IncrementId,bool)> Inputs { get; } = new ();
             public Dictionary<EntityId, Entity> Outputs { get; } = new ();
             public List<Entity> DerivedFacts { get; } = new ();
             public List<TSideEffect> SideEffects { get; } = new ();
@@ -155,7 +155,7 @@ namespace Funes {
                         output.Inputs[entry.Entity.Id] = (tuple.Item1, tuple.Item2,  tuple.Item3 || asPremise);
                     }
                     else {
-                        output.Inputs[entry.Entity.Id] = (entry.Entity, entry.Cid, asPremise);
+                        output.Inputs[entry.Entity.Id] = (entry.Entity, entry.IncId, asPremise);
                     }
                 }
             }

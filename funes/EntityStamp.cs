@@ -1,14 +1,14 @@
 namespace Funes {
     public readonly struct EntityStamp {
         public Entity Entity { get; }
-        public CognitionId Cid { get; }
-        public EntityStampKey Key => new (Entity.Id, Cid);
+        public IncrementId IncId { get; }
+        public EntityStampKey Key => new (Entity.Id, IncId);
         public object Value => Entity.Value;
-        public EntityId Eid => Entity.Id;
+        public EntityId EntId => Entity.Id;
 
-        public EntityStamp(Entity entity, CognitionId cid) => (Entity, Cid) = (entity, cid);
-        public EntityStamp(EntityStampKey key, object value) => (Entity, Cid) = (new Entity(key.Eid, value), key.Cid);
+        public EntityStamp(Entity entity, IncrementId incId) => (Entity, IncId) = (entity, incId);
+        public EntityStamp(EntityStampKey key, object value) => (Entity, IncId) = (new Entity(key.EntId, value), key.IncId);
         
-        public EntityEntry ToEntry() => EntityEntry.Ok(Entity, Cid);
+        public EntityEntry ToEntry() => EntityEntry.Ok(Entity, IncId);
     }
 }

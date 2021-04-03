@@ -10,14 +10,14 @@ namespace Funes {
         public record NotSupportedEncodingError(string Encoding) : Error;
         public record SerdeError(string Msg) : Error;
         public record IoError(string Msg) : Error;
-        public record CognitionError(Cognition Cognition, Error Error) : Error;
+        public record CognitionError(Increment Increment, Error Error) : Error;
 
-        public record TransactionError(TransactionError.Conflict[] Conflicts) : Error {
+        public record CommitError(CommitError.Conflict[] Conflicts) : Error {
             public readonly struct Conflict {
-                public EntityId Eid { get; init; }
-                public CognitionId PremiseCid { get; init; }
-                public CognitionId ActualCid { get; init; }
-                public override string ToString() => $"|{Eid}, Premise {PremiseCid}, Actual {ActualCid}|";
+                public EntityId EntId { get; init; }
+                public IncrementId PremiseIncId { get; init; }
+                public IncrementId ActualIncId { get; init; }
+                public override string ToString() => $"|{EntId}, Premise {PremiseIncId}, Actual {ActualIncId}|";
             }
 
             public override string ToString() {

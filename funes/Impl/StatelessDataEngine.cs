@@ -27,7 +27,7 @@ namespace Funes.Impl {
             // cache miss, look in the repo
             if (_logger.IsEnabled(LogLevel.Debug)) _logger.LogDebug($"Retrieve {eid}, cache miss");
             
-            var repoResult = await LoadActualStamp(eid, CognitionId.Singularity, ss, ct);
+            var repoResult = await LoadActualStamp(eid, IncrementId.Singularity, ss, ct);
 
             if (repoResult.IsError && repoResult.Error != Error.NotFound)
                 return new Result<EntityEntry>(repoResult.Error);
@@ -98,12 +98,12 @@ namespace Funes.Impl {
             return new Result<bool>(result);
         }
         
-        public async ValueTask<Result<bool>> Commit(IEnumerable<EntityStampKey> premises, 
+        public async ValueTask<Result<Void>> TryCommit(IEnumerable<EntityStampKey> premises, 
                 IEnumerable<EntityStampKey> conclusions, CancellationToken ct) {
 
-            var commitResult = await _tre.Commit(premises, conclusions, ct);
+            var commitResult = await _tre.TryCommit(premises, conclusions, ct);
 
-            if (commitResult.Error is Error.TransactionError err) {
+            if (commitResult.Error is Error.CommitError err) {
                 var piSecArr = err.Conflicts.Where(IsPiSec).ToArray();
                 if (piSecArr.Length > 0) {
                     var conflictsTxt = string.Join(',', piSecArr.Select(x => x.ToString()));
@@ -124,27 +124,27 @@ namespace Funes.Impl {
             return Task.WhenAll(tasks);
         }
 
-        private bool IsPiSec(Error.TransactionError.Conflict conflict) { 
-            if (conflict.ActualCid.IsOlderThan(conflict.PremiseCid)) return true;
+        private bool IsPiSec(Error.CommitError.Conflict conflict) { 
+            if (conflict.ActualIncId.IsOlderThan(conflict.PremiseIncId)) return true;
             
-            // if actualCid is OlderThan 3.14sec
-            if (conflict.ActualCid.IsOlderThan(
-                CognitionId.ComposeId(DateTimeOffset.UtcNow.AddMilliseconds(-3140), ""))) return true;
+            // if actualIncId is OlderThan 3.14sec
+            if (conflict.ActualIncId.IsOlderThan(
+                IncrementId.ComposeId(DateTimeOffset.UtcNow.AddMilliseconds(-3140), ""))) return true;
             
             return false;
         }
 
         private async Task<Result<EntityStamp>> LoadActualStamp(
-            EntityId eid, CognitionId before, ISerializer ser, CancellationToken ct) {
+            EntityId eid, IncrementId before, ISerializer ser, CancellationToken ct) {
             while (true) {
                 ct.ThrowIfCancellationRequested();
                 
                 var historyResult = await _repo.History(eid, before, 42, ct);
                 if (historyResult.IsError) return new Result<EntityStamp>(historyResult.Error);
 
-                var cid = historyResult.Value.FirstOrDefault(x => x.IsTruth());
-                if (!cid.IsNull()) {
-                    return await _repo.Load(new EntityStampKey(eid, cid), ser, ct);
+                var incId = historyResult.Value.FirstOrDefault(x => x.IsSuccess());
+                if (!incId.IsNull()) {
+                    return await _repo.Load(new EntityStampKey(eid, incId), ser, ct);
                 }
 
                 before = historyResult.Value.LastOrDefault();
@@ -155,44 +155,42 @@ namespace Funes.Impl {
         private Task SaveStamps(IEnumerable<EntityStamp> stamps, ISerializer ser, CancellationToken ct) =>
             Task.WhenAll(stamps.Select(x => _repo.Save(x, ser, ct).AsTask()));
 
-        private Task CheckCollisions(IEnumerable<Error.TransactionError.Conflict> conflicts, CancellationToken ct) =>
+        private Task CheckCollisions(IEnumerable<Error.CommitError.Conflict> conflicts, CancellationToken ct) =>
             Task.WhenAll(conflicts.Select(x => CheckConflict(x, ct)));
         
-        private async Task CheckConflict(Error.TransactionError.Conflict conflict, CancellationToken ct) {
+        private async Task CheckConflict(Error.CommitError.Conflict conflict, CancellationToken ct) {
             ct.ThrowIfCancellationRequested();
             var ss = new StreamSerializer();
-            var cacheGetResult = await _cache.Get(conflict.Eid, ss, ct);
+            var cacheGetResult = await _cache.Get(conflict.EntId, ss, ct);
 
-            if (cacheGetResult.IsOk && cacheGetResult.Value.IsOk && cacheGetResult.Value.Cid == conflict.ActualCid) {
-                // cache == actualCid, all ok
+            if (cacheGetResult.IsOk && cacheGetResult.Value.IsOk && cacheGetResult.Value.IncId == conflict.ActualIncId) {
+                // cache == actualIncId, all ok
                 return;
             }
 
-            _logger.LogError($"PiSec confirmed in {nameof(StatelessDataEngine)}, {conflict}, stamp in cache {cacheGetResult.Value.Cid}");
-            var repoResult = await LoadActualStamp(conflict.Eid, CognitionId.Singularity, ss, ct);
+            _logger.LogError($"PiSec confirmed in {nameof(StatelessDataEngine)}, {conflict}, stamp in cache {cacheGetResult.Value.IncId}");
+            var repoResult = await LoadActualStamp(conflict.EntId, IncrementId.Singularity, ss, ct);
             if (repoResult.IsError) {
                 _logger.LogError($"{nameof(StatelessDataEngine)} Unable to resolve piSec, LoadActualStamp error {repoResult.Error}");
                 return;
             }
 
-            var commitResult = await _tre.Commit(
-                new[] {conflict.Eid.CreateStampKey(conflict.ActualCid)}, 
-                new[] {conflict.Eid.CreateStampKey(repoResult.Value.Cid)}, 
+            var commitResult = await _tre.TryCommit(
+                new[] {conflict.EntId.CreateStampKey(conflict.ActualIncId)}, 
+                new[] {conflict.EntId.CreateStampKey(repoResult.Value.IncId)}, 
                 ct);
 
             if (commitResult.IsOk) {
-                if (commitResult.Value) {
-                    var cacheSetResult = await _cache.Set(repoResult.Value.ToEntry(), ss, ct);
-                    if (cacheSetResult.IsError) {
-                        _logger.LogError($"{nameof(StatelessDataEngine)} Unable to resolve piSec, Cache Set error {cacheSetResult.Error}");
-                    }
-                    else {
-                        _logger.LogWarning($"PiSec resolved in {nameof(StatelessDataEngine)}, {conflict}, with {repoResult.Value.Cid}");
-                    }
+                var cacheSetResult = await _cache.Set(repoResult.Value.ToEntry(), ss, ct);
+                if (cacheSetResult.IsError) {
+                    _logger.LogError($"{nameof(StatelessDataEngine)} Unable to resolve piSec, Cache Set error {cacheSetResult.Error}");
+                }
+                else {
+                    _logger.LogWarning($"PiSec resolved in {nameof(StatelessDataEngine)}, {conflict}, with {repoResult.Value.IncId}");
                 }
             }
             else {
-                _logger.LogError($"{nameof(StatelessDataEngine)} Unable to resolve piSec, Commit error {commitResult.Error}");
+                _logger.LogError($"{nameof(StatelessDataEngine)} Unable to resolve piSec, TryCommit error {commitResult.Error}");
             }
         }
     }

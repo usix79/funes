@@ -7,8 +7,8 @@ using Microsoft.Extensions.Logging;
 namespace Funes {
     public abstract record Cmd<TMsg,TSideEffect> {
         public record MsgCmd(TMsg Msg) : Cmd<TMsg,TSideEffect>;
-        public record RetrieveCmd(EntityId EntityId, Func<EntityEntry, TMsg> Action, bool AsPremise = false) : Cmd<TMsg,TSideEffect>;
-        public record RetrieveManyCmd(IEnumerable<EntityId> EntityIds, Func<EntityEntry[], TMsg> Action, bool AsPremise = false) : Cmd<TMsg,TSideEffect>;
+        public record RetrieveCmd(EntityId EntityId, Func<EntityEntry, TMsg> Action, bool AsPremise = true) : Cmd<TMsg,TSideEffect>;
+        public record RetrieveManyCmd(IEnumerable<EntityId> EntityIds, Func<EntityEntry[], TMsg> Action, bool AsPremise = true) : Cmd<TMsg,TSideEffect>;
 
         public record BatchCmd(IEnumerable<Cmd<TMsg, TSideEffect>> Items) : Cmd<TMsg, TSideEffect> {
             public override string ToString() {

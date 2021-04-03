@@ -23,7 +23,7 @@ namespace Funes.Fs {
         private async ValueTask<Result<bool>> Write(EntityStampKey key, 
                         ReadOnlyMemory<byte> value, string encoding, CancellationToken ct) {
             try {
-                Directory.CreateDirectory(GetMemPath(key.Eid));
+                Directory.CreateDirectory(GetMemPath(key.EntId));
                 var fileName = GetMemFileName(key, encoding);
                 await using FileStream fs = File.OpenWrite(fileName);
                 await fs.WriteAsync(value, ct);
@@ -39,8 +39,8 @@ namespace Funes.Fs {
                 if (Directory.Exists(memDirectory)) {
                     foreach (var fileName in Directory.GetFiles(memDirectory, GetMemFileMask(key))) {
                         ct.ThrowIfCancellationRequested();
-                        var (cid, encoding) = ParseFileName(fileName);
-                        var decodeResult = await ser.Decode(File.OpenRead(fileName), key.Eid, encoding);
+                        var (incId, encoding) = ParseFileName(fileName);
+                        var decodeResult = await ser.Decode(File.OpenRead(fileName), key.EntId, encoding);
 
                         if (decodeResult.IsOk) 
                             return new Result<EntityStamp>(new EntityStamp(key, decodeResult.Value));
@@ -55,40 +55,40 @@ namespace Funes.Fs {
             catch (Exception x) { return Result<EntityStamp>.Exception(x); }
         }
         
-        public ValueTask<Result<IEnumerable<CognitionId>>> History(EntityId id, 
-                    CognitionId before, int maxCount = 1, CancellationToken ct = default) {
+        public ValueTask<Result<IEnumerable<IncrementId>>> History(EntityId id, 
+                    IncrementId before, int maxCount = 1, CancellationToken ct = default) {
             try {
                 var path = GetMemPath(id);
 
-                var cids =
+                var incIds =
                     Directory.GetFiles(path)
                         .Select(name => ParseFileName(Path.GetFileName(name)).Item1)
                         .OrderBy(x => x)
-                        .SkipWhile(cid => before.CompareTo(cid) >= 0)
+                        .SkipWhile(incId => before.CompareTo(incId) >= 0)
                         .Take(maxCount);
 
-                return ValueTask.FromResult(new Result<IEnumerable<CognitionId>>(cids));
+                return ValueTask.FromResult(new Result<IEnumerable<IncrementId>>(incIds));
             }
             catch (TaskCanceledException) { throw; }
             catch (Exception e) {
-                return ValueTask.FromResult(Result<IEnumerable<CognitionId>>.Exception(e));
+                return ValueTask.FromResult(Result<IEnumerable<IncrementId>>.Exception(e));
             }
         }
 
         private string GetMemPath(EntityId id) => Path.Combine(Root, id.Id);
 
-        private string GetMemDirectory(EntityStampKey key) => Path.Combine(Root, key.Eid.Id);
+        private string GetMemDirectory(EntityStampKey key) => Path.Combine(Root, key.EntId.Id);
 
         private string GetMemFileMask(EntityStampKey key) =>
-            key.Cid.Id + ".*";
+            key.IncId.Id + ".*";
 
-        private (CognitionId, string) ParseFileName(string fullFileName) {
+        private (IncrementId, string) ParseFileName(string fullFileName) {
             var fileName = Path.GetFileName(fullFileName);
             var parts = fileName.Split('.');
-            return (new CognitionId(parts[0]), parts.Length > 1 ? parts[1] : "");
+            return (new IncrementId(parts[0]), parts.Length > 1 ? parts[1] : "");
         }
         
         private string GetMemFileName(EntityStampKey key, string encoding) => 
-            Path.Combine(Root, key.Eid.Id, key.Cid.Id + "." + encoding);
+            Path.Combine(Root, key.EntId.Id, key.IncId.Id + "." + encoding);
     }
 }

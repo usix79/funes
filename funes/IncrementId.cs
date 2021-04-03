@@ -3,25 +3,25 @@ using System.Diagnostics;
 using System.Threading;
 
 namespace Funes {
-    public readonly struct CognitionId : IEquatable<CognitionId>, IComparable<CognitionId>, IComparable {
+    public readonly struct IncrementId : IEquatable<IncrementId>, IComparable<IncrementId>, IComparable {
         public int CompareTo(object? obj) {
             if (ReferenceEquals(null, obj)) return 1;
-            return obj is CognitionId other ? CompareTo(other) : throw new ArgumentException($"Object must be of type {nameof(CognitionId)}");
+            return obj is IncrementId other ? CompareTo(other) : throw new ArgumentException($"Object must be of type {nameof(IncrementId)}");
         }
         
         public string Id { get; init; }
 
-        public static readonly CognitionId Singularity = new ("");
-        public static readonly CognitionId None = new ("");
+        public static readonly IncrementId Singularity = new ("");
+        public static readonly IncrementId None = new ("");
         private static readonly DateTimeOffset FryReawakening = 
             new (3000, 1, 1, 0, 0, 0, TimeSpan.Zero);
 
-        public CognitionId(string id) => Id = id;
+        public IncrementId(string id) => Id = id;
 
-        public CognitionId AsFallacy() => new (Id + "-fallacy");
-        public CognitionId AsLost() => new (Id + "-lost");
+        public IncrementId AsFail() => new (Id + "-fail");
+        public IncrementId AsLost() => new (Id + "-lost");
 
-        public bool IsTruth() => !Id.EndsWith("-fallacy") && !Id.EndsWith("-lost");
+        public bool IsSuccess() => !Id.EndsWith("-fail") && !Id.EndsWith("-lost");
         public bool IsNull() => Id is null;
 
         public static long MillisecondsBeforeFryReawakening(DateTimeOffset dt) => 
@@ -32,7 +32,7 @@ namespace Funes {
 
         private static readonly ThreadLocal<Random> Rand = new (() => new Random(DateTime.Now.Millisecond));
         
-        public static CognitionId ComposeId(DateTimeOffset dt, Random? rand) {
+        public static IncrementId ComposeId(DateTimeOffset dt, Random? rand) {
             Debug.Assert(rand != null, nameof(rand) + " != null");
 
             var id = string.Create(DigitsLength + 1 + TailLenght, MillisecondsBeforeFryReawakening(dt), 
@@ -46,10 +46,10 @@ namespace Funes {
                     }
                 });
             
-            return new CognitionId(id);
+            return new IncrementId(id);
         }
 
-        public static CognitionId ComposeId(DateTimeOffset dt, string tail) {
+        public static IncrementId ComposeId(DateTimeOffset dt, string tail) {
             var id = string.Create(DigitsLength + 1 + tail.Length, MillisecondsBeforeFryReawakening(dt), 
                 (span, num) => {
                     for (var i = 0; i < DigitsLength; i++, num /= 10) {
@@ -61,21 +61,21 @@ namespace Funes {
                     }
                 });
             
-            return new CognitionId(id);
+            return new IncrementId(id);
         }
 
-        public static CognitionId NewId() => ComposeId(DateTimeOffset.UtcNow, Rand.Value);
+        public static IncrementId NewId() => ComposeId(DateTimeOffset.UtcNow, Rand.Value);
 
-        public bool IsOlderThan(CognitionId other) => CompareTo(other) > 0;
+        public bool IsOlderThan(IncrementId other) => CompareTo(other) > 0;
 
-        public bool IsNewerThan(CognitionId other) => CompareTo(other) < 0;
+        public bool IsNewerThan(IncrementId other) => CompareTo(other) < 0;
 
-        public bool Equals(CognitionId other) => Id == other.Id;
-        public override bool Equals(object? obj) => obj is CognitionId other && Equals(other);
+        public bool Equals(IncrementId other) => Id == other.Id;
+        public override bool Equals(object? obj) => obj is IncrementId other && Equals(other);
         public override int GetHashCode() => Id.GetHashCode();
-        public static bool operator ==(CognitionId left, CognitionId right) => left.Equals(right);
-        public static bool operator !=(CognitionId left, CognitionId right) => !left.Equals(right);
-        public int CompareTo(CognitionId other) => string.Compare(Id, other.Id, StringComparison.Ordinal);
+        public static bool operator ==(IncrementId left, IncrementId right) => left.Equals(right);
+        public static bool operator !=(IncrementId left, IncrementId right) => !left.Equals(right);
+        public int CompareTo(IncrementId other) => string.Compare(Id, other.Id, StringComparison.Ordinal);
         public override string ToString() => $"CID:{Id}";
     }
 }

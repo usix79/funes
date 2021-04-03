@@ -9,8 +9,8 @@ namespace Funes {
         public async ValueTask<Result<string>> Encode(Stream output, EntityId eid, object content) {
             return
                 eid.GetCategory() switch {
-                    Cognition.Category => await JsonEncode(output, content),
-                    Cognition.ChildrenCategory => new Result<string>(""),
+                    Increment.Category => await JsonEncode(output, content),
+                    Increment.ChildrenCategory => new Result<string>(""),
                     _ => Result<string>.SerdeError($"Not supported category: {eid.GetCategory()}")
                 };
         }
@@ -18,8 +18,8 @@ namespace Funes {
         public async ValueTask<Result<object>> Decode(Stream input, EntityId eid, string encoding) {
             return
                 eid.GetCategory() switch {
-                    Cognition.Category => await JsonDecode<Cognition>(input, encoding),
-                    Cognition.ChildrenCategory => new Result<object>(null!),
+                    Increment.Category => await JsonDecode<Increment>(input, encoding),
+                    Increment.ChildrenCategory => new Result<object>(null!),
                     _ => Result<object>.SerdeError($"Not supported category: {eid.GetCategory()}")
                 };
         }

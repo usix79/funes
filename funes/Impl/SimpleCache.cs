@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 
 namespace Funes.Impl {
     public class SimpleCache : ICache {
-        private readonly ConcurrentDictionary<EntityId, (CognitionId, MemoryStream?, string)> _data = new();
+        private readonly ConcurrentDictionary<EntityId, (IncrementId, MemoryStream?, string)> _data = new();
         public async Task<Result<EntityEntry>> Get(EntityId eid, ISerializer ser, CancellationToken ct) {
             ct.ThrowIfCancellationRequested();
 
@@ -30,12 +30,12 @@ namespace Funes.Impl {
 
             if (entry.IsOk) {
                 stream = new MemoryStream();
-                var serResult = await ser.Encode(stream, entry.Eid, entry.Value);
+                var serResult = await ser.Encode(stream, entry.EntId, entry.Value);
                 if (serResult.IsError) return new Result<bool>(serResult.Error);
                 encoding = serResult.Value;
             }
 
-            _data[entry.Eid] = (entry.Cid, stream, encoding);
+            _data[entry.EntId] = (entry.IncId, stream, encoding);
             return new Result<bool>(true);
         }
 
@@ -46,8 +46,8 @@ namespace Funes.Impl {
                 ct.ThrowIfCancellationRequested();
                 
                 (MemoryStream? stream, string encoding) = (null, "");
-                if (_data.TryGetValue(entry.Eid, out var triple)) {
-                    if (!entry.Cid.IsNewerThan(triple.Item1)){
+                if (_data.TryGetValue(entry.EntId, out var triple)) {
+                    if (!entry.IncId.IsNewerThan(triple.Item1)){
                         return new Result<bool>(false);
                     }
                 }
@@ -60,12 +60,12 @@ namespace Funes.Impl {
 
                 if (entry.IsOk) {
                     stream = new MemoryStream();
-                    var serResult = await ser.Encode(stream, entry.Eid, entry.Value);
+                    var serResult = await ser.Encode(stream, entry.EntId, entry.Value);
                     if (serResult.IsError) return new Result<bool>(serResult.Error);
                     encoding = serResult.Value;
                 }
 
-                _data[entry.Eid] = (entry.Cid, stream, encoding);
+                _data[entry.EntId] = (entry.IncId, stream, encoding);
             }
  
             return new Result<bool>(true);

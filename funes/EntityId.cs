@@ -21,7 +21,7 @@ namespace Funes {
         public EntityId(string id) => Id = id;
         public EntityId(string cat, string name) => Id = cat + "/" + name;
 
-        public EntityStampKey CreateStampKey(CognitionId cid) => new (this, cid);
+        public EntityStampKey CreateStampKey(IncrementId incId) => new (this, incId);
 
         public bool Equals(EntityId other) => Id == other.Id;
         public override bool Equals(object? obj) => obj is EntityId other && Equals(other);

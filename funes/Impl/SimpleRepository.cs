@@ -15,7 +15,7 @@ namespace Funes.Impl {
         public async ValueTask<Result<bool>> Save(EntityStamp stamp, ISerializer ser, CancellationToken ct) {
             ct.ThrowIfCancellationRequested();
             var stream = new MemoryStream();
-            var serResult = await ser.Encode(stream, stamp.Eid, stamp.Value);
+            var serResult = await ser.Encode(stream, stamp.EntId, stamp.Value);
             if (serResult.IsError) return new Result<bool>(serResult.Error);
 
             if (!stream.TryGetBuffer(out var buffer)) buffer = stream.ToArray();
@@ -30,25 +30,25 @@ namespace Funes.Impl {
             if (!_data.TryGetValue(key, out var pair)) return Result<EntityStamp>.NotFound;
 
             var stream = new MemoryStream(pair.Item2.Array!, pair.Item2.Offset, pair.Item2.Count);
-            var serResult = await ser.Decode(stream, key.Eid, pair.Item1);
+            var serResult = await ser.Decode(stream, key.EntId, pair.Item1);
             if (serResult.IsError) return new Result<EntityStamp>(serResult.Error);
 
             return new Result<EntityStamp>(new EntityStamp(key, serResult.Value));
         }
         
-        public ValueTask<Result<IEnumerable<CognitionId>>> History(EntityId id, 
-            CognitionId before, int maxCount = 1, CancellationToken ct = default) {
+        public ValueTask<Result<IEnumerable<IncrementId>>> History(EntityId id, 
+            IncrementId before, int maxCount = 1, CancellationToken ct = default) {
             ct.ThrowIfCancellationRequested();
 
             var result =
                 _data.Keys
-                    .Where(key => key.Eid == id)
-                    .OrderBy(key => key.Cid)
-                    .SkipWhile(key => string.CompareOrdinal(key.Cid.Id, before.Id) <= 0)
+                    .Where(key => key.EntId == id)
+                    .OrderBy(key => key.IncId)
+                    .SkipWhile(key => string.CompareOrdinal(key.IncId.Id, before.Id) <= 0)
                     .Take(maxCount)
-                    .Select(key => key.Cid);
+                    .Select(key => key.IncId);
 
-            return ValueTask.FromResult(new Result<IEnumerable<CognitionId>>(result));
+            return ValueTask.FromResult(new Result<IEnumerable<IncrementId>>(result));
         }
     }
 }

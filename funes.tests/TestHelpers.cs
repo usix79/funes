@@ -16,18 +16,18 @@ namespace Funes.Tests {
                 }
             });
         
-        public static EntityId CreateRandomEid(string? cat = null) =>
+        public static EntityId CreateRandomEntId(string? cat = null) =>
             new (cat ?? "cat-" + RandomString(10), "id-" + RandomString(10));
 
-        public static CognitionId CreateRandomCid(string? cat = null) => CognitionId.NewId();
+        public static IncrementId CreateRandomIncId(string? cat = null) => IncrementId.NewId();
 
-        public static EntityStampKey CreateRandomStampKey() => CreateRandomEid().CreateStampKey(CreateRandomCid());
+        public static EntityStampKey CreateRandomStampKey() => CreateRandomEntId().CreateStampKey(CreateRandomIncId());
 
         public static Simple CreateRandomValue() =>
             new (Rand.Next(1024), RandomString(1024));    
 
-        public static EntityStamp CreateSimpleEntityStamp(CognitionId cid, EntityId? eid = null) =>
-            new EntityStamp (new Entity(eid??CreateRandomEid(), CreateRandomValue()), cid);
+        public static EntityStamp CreateSimpleEntityStamp(IncrementId incId, EntityId? eid = null) =>
+            new EntityStamp (new Entity(eid??CreateRandomEntId(), CreateRandomValue()), incId);
         
         public static void AssertEntitiesEqual(EntityStamp expected, EntityStamp actual) {
             Assert.Equal(expected.Key, actual.Key);

@@ -24,7 +24,7 @@ namespace Funes.Tests {
         private ILogger Logger() => XUnitLogger.CreateLogger(_testOutputHelper);
 
         private async Task CheckCache(ICache cache, ISerializer ser, EntityEntry entry) {
-            var res = await cache.Get(entry.Eid, ser, default);
+            var res = await cache.Get(entry.EntId, ser, default);
             Assert.True(res.IsOk, res.Error.ToString());
             Assert.Equal(entry, res.Value);
         }
@@ -48,7 +48,7 @@ namespace Funes.Tests {
 
         [Fact]
         public async void RetrieveNotExistedTest() {
-            var eid = CreateRandomEid();
+            var eid = CreateRandomEntId();
             var ser = new SimpleSerializer<Simple>();
             var repo = new SimpleRepository();
             var cache = new SimpleCache();
@@ -65,7 +65,7 @@ namespace Funes.Tests {
 
         [Fact]
         public async void RetrieveCachedTest() {
-            var entry = CreateSimpleEntityStamp(new CognitionId("100")).ToEntry();
+            var entry = CreateSimpleEntityStamp(new IncrementId("100")).ToEntry();
             var ser = new SimpleSerializer<Simple>();
             var repo = new SimpleRepository();
             var cache = new SimpleCache();
@@ -75,7 +75,7 @@ namespace Funes.Tests {
 
             var de = CreateEngine(repo, cache, tre, Logger());
 
-            var retResult = await de.Retrieve(entry.Eid, ser, default);
+            var retResult = await de.Retrieve(entry.EntId, ser, default);
             Assert.True(retResult.IsOk, retResult.Error.ToString());
             Assert.Equal(entry, retResult.Value);
 
@@ -84,8 +84,8 @@ namespace Funes.Tests {
 
         [Fact]
         public async void RetrieveSavedTest() {
-            var prevEntry = CreateSimpleEntityStamp(new CognitionId("100")).ToEntry();
-            var entry = CreateSimpleEntityStamp(new CognitionId("099"), prevEntry.Eid).ToEntry();
+            var prevEntry = CreateSimpleEntityStamp(new IncrementId("100")).ToEntry();
+            var entry = CreateSimpleEntityStamp(new IncrementId("099"), prevEntry.EntId).ToEntry();
             var ser = new SimpleSerializer<Simple>();
             var repo = new SimpleRepository();
             var cache = new SimpleCache();
@@ -96,7 +96,7 @@ namespace Funes.Tests {
 
             var de = CreateEngine(repo, cache, tre, Logger());
 
-            var retResult = await de.Retrieve(entry.Eid, ser, default);
+            var retResult = await de.Retrieve(entry.EntId, ser, default);
             Assert.True(retResult.IsOk, retResult.Error.ToString());
             Assert.Equal(entry, retResult.Value);
 
@@ -107,7 +107,7 @@ namespace Funes.Tests {
 
         [Fact]
         public async void UploadNewTest() {
-            var stamp = CreateSimpleEntityStamp(new CognitionId("100"));
+            var stamp = CreateSimpleEntityStamp(new IncrementId("100"));
             var ser = new SimpleSerializer<Simple>();
             var repo = new SimpleRepository();
             var cache = new SimpleCache();
@@ -128,8 +128,8 @@ namespace Funes.Tests {
 
         [Fact]
         public async void UploadYoungerTest() {
-            var prevStamp = CreateSimpleEntityStamp(new CognitionId("100"));
-            var stamp = CreateSimpleEntityStamp(new CognitionId("099"), prevStamp.Eid);
+            var prevStamp = CreateSimpleEntityStamp(new IncrementId("100"));
+            var stamp = CreateSimpleEntityStamp(new IncrementId("099"), prevStamp.EntId);
             var ser = new SimpleSerializer<Simple>();
             var repo = new SimpleRepository();
             var cache = new SimpleCache();
@@ -152,8 +152,8 @@ namespace Funes.Tests {
 
         [Fact]
         public async void TryUploadOlderTest() {
-            var nextStamp = CreateSimpleEntityStamp(new CognitionId("098"));
-            var stamp = CreateSimpleEntityStamp(new CognitionId("099"), nextStamp.Eid);
+            var nextStamp = CreateSimpleEntityStamp(new IncrementId("098"));
+            var stamp = CreateSimpleEntityStamp(new IncrementId("099"), nextStamp.EntId);
             var ser = new SimpleSerializer<Simple>();
             var repo = new SimpleRepository();
             var cache = new SimpleCache();
@@ -176,8 +176,8 @@ namespace Funes.Tests {
 
         [Fact]
         public async void TryUploadIfRepoHasYoungerAndCacheIsEmpty() {
-            var nextStamp = CreateSimpleEntityStamp(new CognitionId("098"));
-            var stamp = CreateSimpleEntityStamp(new CognitionId("099"), nextStamp.Eid);
+            var nextStamp = CreateSimpleEntityStamp(new IncrementId("098"));
+            var stamp = CreateSimpleEntityStamp(new IncrementId("099"), nextStamp.EntId);
             var ser = new SimpleSerializer<Simple>();
             var repo = new SimpleRepository();
             var cache = new SimpleCache();
@@ -200,7 +200,7 @@ namespace Funes.Tests {
 
         [Fact]
         public async void SkipCache() {
-            var stamp = CreateSimpleEntityStamp(new CognitionId("099"));
+            var stamp = CreateSimpleEntityStamp(new IncrementId("099"));
             var ser = new SimpleSerializer<Simple>();
             var repo = new SimpleRepository();
             var cache = new SimpleCache();
@@ -212,7 +212,7 @@ namespace Funes.Tests {
             Assert.True(uploadResult.IsOk, uploadResult.Error.ToString());
             Assert.False(uploadResult.Value);
 
-            var cacheResult = await cache.Get(stamp.Eid, ser, default);
+            var cacheResult = await cache.Get(stamp.EntId, ser, default);
             Assert.Equal(Error.NotFound, cacheResult.Error);
 
             await de.Flush();
@@ -220,20 +220,19 @@ namespace Funes.Tests {
             await CheckRepo(repo, ser, stamp);
         }
 
-        private IEnumerable<EntityStampKey> Keys(params (EntityId, CognitionId)[] keys) => 
+        private IEnumerable<EntityStampKey> Keys(params (EntityId, IncrementId)[] keys) => 
             keys.Select(x => new EntityStampKey(x.Item1, x.Item2));
 
         private async Task AssertCommit(IDataEngine de, bool expectedSuccess,
             IEnumerable<EntityStampKey> premises, IEnumerable<EntityStampKey> conclusions) {
         
-            var r = await de.Commit(premises, conclusions, default);
+            var r = await de.TryCommit(premises, conclusions, default);
         
             if (expectedSuccess) {
                 Assert.True(r.IsOk, r.Error.ToString());
-                Assert.True(r.Value);
             }
             else {
-                Assert.True(r.Error is Error.TransactionError);
+                Assert.True(r.Error is Error.CommitError);
             }
         }
 
@@ -247,15 +246,15 @@ namespace Funes.Tests {
 
             var startTime = DateTimeOffset.UtcNow;
 
-            var eid = CreateRandomEid();
-            var startCid = CognitionId.ComposeId(startTime, "testing");
-            await AssertCommit(de, true, Keys(), Keys((eid, startCid)));
+            var eid = CreateRandomEntId();
+            var startIncId = IncrementId.ComposeId(startTime, "testing");
+            await AssertCommit(de, true, Keys(), Keys((eid, startIncId)));
 
-            var nextCid = CognitionId.ComposeId(startTime.AddSeconds(1), "testing");
-            await AssertCommit(de, true, Keys((eid, startCid)), Keys((eid, nextCid)));
+            var nextIncId = IncrementId.ComposeId(startTime.AddSeconds(1), "testing");
+            await AssertCommit(de, true, Keys((eid, startIncId)), Keys((eid, nextIncId)));
             
-            var prevCid = CognitionId.ComposeId(startTime.AddSeconds(-1), "testing");
-            await AssertCommit(de, true, Keys((eid, nextCid)), Keys((eid, prevCid)));
+            var prevIncId = IncrementId.ComposeId(startTime.AddSeconds(-1), "testing");
+            await AssertCommit(de, true, Keys((eid, nextIncId)), Keys((eid, prevIncId)));
         }
 
         [Fact]
@@ -268,18 +267,18 @@ namespace Funes.Tests {
 
             var startTime = DateTimeOffset.UtcNow;
 
-            var eid = CreateRandomEid();
-            var actualCid = CognitionId.ComposeId(startTime.AddMinutes(-1), "testing");
-            var actualStamp = CreateSimpleEntityStamp(actualCid, eid);
-            await AssertCommit(de, true, Keys(),Keys((eid, actualCid)));
+            var eid = CreateRandomEntId();
+            var actualIncId = IncrementId.ComposeId(startTime.AddMinutes(-1), "testing");
+            var actualStamp = CreateSimpleEntityStamp(actualIncId, eid);
+            await AssertCommit(de, true, Keys(),Keys((eid, actualIncId)));
             var uploadResult = await de.Upload(new[] {actualStamp}, ser, default);
             Assert.True(uploadResult.IsOk, uploadResult.Error.ToString());
 
-            var wrongCid = CognitionId.ComposeId(startTime.AddSeconds(-30), "wrong");
+            var wrongIncId = IncrementId.ComposeId(startTime.AddSeconds(-30), "wrong");
 
-            var currentCid = CognitionId.ComposeId(startTime, "testing");
-            var commitResult = await de.Commit(Keys((eid, wrongCid)), Keys((eid, currentCid)), default);
-            Assert.True(commitResult.Error is Error.TransactionError);
+            var currentIncId = IncrementId.ComposeId(startTime, "testing");
+            var commitResult = await de.TryCommit(Keys((eid, wrongIncId)), Keys((eid, currentIncId)), default);
+            Assert.True(commitResult.Error is Error.CommitError);
 
             await de.Flush();
             
@@ -288,7 +287,7 @@ namespace Funes.Tests {
             Assert.True(retrieveResult.IsOk, retrieveResult.Error.ToString());
             Assert.Equal(actualStamp.ToEntry(), retrieveResult.Value);
             
-            await AssertCommit(de, true, Keys((eid, actualCid)),Keys((eid, currentCid)));
+            await AssertCommit(de, true, Keys((eid, actualIncId)),Keys((eid, currentIncId)));
         }
 
         [Fact]
@@ -301,32 +300,32 @@ namespace Funes.Tests {
 
             var startTime = DateTimeOffset.UtcNow.AddMinutes(-2);
 
-            var eid = CreateRandomEid();
+            var eid = CreateRandomEntId();
             
-            var originCid = CognitionId.ComposeId(startTime, "testing");
-            var originStamp = CreateSimpleEntityStamp(originCid, eid);
-            await AssertCommit(de, true, Keys(),Keys((eid, originCid)));
+            var originIncId = IncrementId.ComposeId(startTime, "testing");
+            var originStamp = CreateSimpleEntityStamp(originIncId, eid);
+            await AssertCommit(de, true, Keys(),Keys((eid, originIncId)));
             var uploadResult = await de.Upload(new[] {originStamp}, ser, default);
             Assert.True(uploadResult.IsOk, uploadResult.Error.ToString());
             
             // 1 minute letter
-            // new cognition went bad
-            var actualCid = CognitionId.ComposeId(startTime.AddMinutes(1), "testing");
-            await AssertCommit(de, true, Keys((eid, originCid)),Keys((eid, actualCid)));
+            // new increment went bad
+            var actualIncId = IncrementId.ComposeId(startTime.AddMinutes(1), "testing");
+            await AssertCommit(de, true, Keys((eid, originIncId)),Keys((eid, actualIncId)));
             // something went wrong and upload was not performed
             // ...
             // ...
             await de.Flush();
             
             // 1 minute latter...
-            // new cognition is performed
-            var nextCid = CognitionId.ComposeId(startTime.AddMinutes(2), "testing");
+            // new increment is performed
+            var nextIncId = IncrementId.ComposeId(startTime.AddMinutes(2), "testing");
 
             var retrieveResult = await de.Retrieve(eid, ser, default);
             Assert.True(retrieveResult.IsOk, retrieveResult.Error.ToString());
-            Assert.Equal(originCid, retrieveResult.Value.Cid);
-            // origin cid in cache and actual cid is in transaction engine, so commit should fail
-            await AssertCommit(de,false, Keys((eid, retrieveResult.Value.Cid)), Keys((eid, nextCid)));
+            Assert.Equal(originIncId, retrieveResult.Value.IncId);
+            // origin incId in cache and actual incId is in transaction engine, so commit should fail
+            await AssertCommit(de,false, Keys((eid, retrieveResult.Value.IncId)), Keys((eid, nextIncId)));
 
             await de.Flush();
             
@@ -335,8 +334,8 @@ namespace Funes.Tests {
             Assert.True(retrieveResultAfterPiSec.IsOk, retrieveResultAfterPiSec.Error.ToString());
             Assert.Equal(originStamp.ToEntry(), retrieveResultAfterPiSec.Value);
             
-            // now next cid may be commited
-            await AssertCommit(de, true, Keys((eid, retrieveResultAfterPiSec.Value.Cid)),Keys((eid, nextCid)));
+            // now next incId may be commited
+            await AssertCommit(de, true, Keys((eid, retrieveResultAfterPiSec.Value.IncId)),Keys((eid, nextIncId)));
         }
 
     }
