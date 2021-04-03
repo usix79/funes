@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Funes.Impl;
@@ -160,21 +161,104 @@ namespace Funes.Tests {
             var result2 = await waitingTask;
             Assert.True(result2.IsOk, result2.Error.ToString());
             
-            var repoCognitionResult = await repo.Load(Cognition.CreateStampKey(result2.Value), sysSer, default);
-            Assert.True(repoCognitionResult.IsOk, repoCognitionResult.Error.ToString());
-            Assert.True(repoCognitionResult.Value.Value is Cognition);
-            if (repoCognitionResult.Value.Value is Cognition cognition) {
+            var repoParentCognitionResult = await repo.Load(Cognition.CreateStampKey(result2.Value), sysSer, default);
+            Assert.True(repoParentCognitionResult.IsOk, repoParentCognitionResult.Error.ToString());
+            Assert.True(repoParentCognitionResult.Value.Value is Cognition);
+            if (repoParentCognitionResult.Value.Value is Cognition cognition) {
                 Assert.Equal(result2.Value, cognition.Id);
                 Assert.Equal(CognitionId.None, cognition.ParentId);
-                Assert.Equal(CognitionStatus.Truth, cognition.Status);
+                Assert.Equal(CognitionStatus.Fallacy, cognition.Status);
                 Assert.Equal(fact.Id, cognition.Fact);
                 Assert.Equal(new List<KeyValuePair<EntityStampKey, bool>>
-                    {new (eid.CreateStampKey(result1.Value), true)}, cognition.Inputs);
+                    {new (stamp.Key, true)}, cognition.Inputs);
                 Assert.Equal(new EntityId[]{eid}, cognition.Outputs);
                 Assert.Empty(cognition.Constants);
                 Assert.Empty(cognition.SideEffects);
-                Assert.Equal("2", cognition.Details[Cognition.DetailsAttempt]);
+                Assert.Equal("1", cognition.Details[Cognition.DetailsAttempt]);
+            }
+
+            var childrenHistoryResult = await repo.History(Cognition.CreateChildEntityId(result2.Value),
+                CognitionId.Singularity, 42, default);
+            Assert.True(childrenHistoryResult.IsOk, childrenHistoryResult.Error.ToString());
+            Assert.Single(childrenHistoryResult.Value);
+            var childCid = childrenHistoryResult.Value.First();
+
+            var repoCognitionResult = await repo.Load(Cognition.CreateStampKey(childCid), sysSer, default);
+            Assert.True(repoCognitionResult.IsOk, repoCognitionResult.Error.ToString());
+            Assert.True(repoCognitionResult.Value.Value is Cognition);
+            if (repoCognitionResult.Value.Value is Cognition childCognition) {
+                Assert.Equal(childCid, childCognition.Id);
+                Assert.Equal(result2.Value, childCognition.ParentId);
+                Assert.Equal(CognitionStatus.Truth, childCognition.Status);
+                Assert.Equal(fact.Id, childCognition.Fact);
+                Assert.Equal(new List<KeyValuePair<EntityStampKey, bool>>
+                    {new (eid.CreateStampKey(result1.Value), true)}, childCognition.Inputs);
+                Assert.Equal(new EntityId[]{eid}, childCognition.Outputs);
+                Assert.Empty(childCognition.Constants);
+                Assert.Empty(childCognition.SideEffects);
+                Assert.Equal("2", childCognition.Details[Cognition.DetailsAttempt]);
             }
         }
+        
+        [Fact]
+        public async void CognitionWithChildren() {
+            var sysSer = new SystemSerializer();
+            var repo = new SimpleRepository();
+
+            var logic = new CallbackLogic<string, string, string>(
+                entity => ("init", 
+                    ((Simple)entity.Value).Id == 1
+                        ? new Cmd<string,string>.BatchCmd(new [] {
+                            new Cmd<string, string>.DerivedFactCmd(CreateSimpleFact(11, "fact1")),
+                            new Cmd<string, string>.DerivedFactCmd(CreateSimpleFact(12, "fact2")),
+                            new Cmd<string, string>.DerivedFactCmd(CreateSimpleFact(13, "fact3"))})
+                        : Cmd<string,string>.None),
+                (model, msg) => ("update", Cmd<string, string>.None),
+                model => Cmd<string, string>.None);
+
+            Task Behavior(string se, CancellationToken ct) => Task.CompletedTask;
+
+            var cognitionEngine = CreateCognitionEngine(logic, Behavior, repo);
+            var fact = CreateSimpleFact(1, "fact");
+
+            var result = await cognitionEngine.Run(fact, default);
+            Assert.True(result.IsOk, result.Error.ToString());
+            
+            var repoResult = await repo.Load(Cognition.CreateStampKey(result.Value), sysSer, default);
+            Assert.True(repoResult.IsOk, repoResult.Error.ToString());
+            Assert.True(repoResult.Value.Value is Cognition);
+            if (repoResult.Value.Value is Cognition cognition) {
+                Assert.Equal(result.Value, cognition.Id);
+                Assert.Equal(CognitionId.None, cognition.ParentId);
+                Assert.Equal(CognitionStatus.Truth, cognition.Status);
+                Assert.Equal(fact.Id, cognition.Fact);
+                Assert.Empty(cognition.Inputs);
+                Assert.Empty(cognition.Outputs);
+                Assert.Empty(cognition.Constants);
+                Assert.Empty(cognition.SideEffects);
+            }
+            
+            var childrenHistoryResult = await repo.History(Cognition.CreateChildEntityId(result.Value),
+                CognitionId.Singularity, 42, default);
+            Assert.True(childrenHistoryResult.IsOk, childrenHistoryResult.Error.ToString());
+            Assert.Equal(3, childrenHistoryResult.Value.Count());
+            foreach (var childCid in childrenHistoryResult.Value) {
+                var repoCognitionResult = await repo.Load(Cognition.CreateStampKey(childCid), sysSer, default);
+                Assert.True(repoCognitionResult.IsOk, repoCognitionResult.Error.ToString());
+                Assert.True(repoCognitionResult.Value.Value is Cognition);
+                if (repoCognitionResult.Value.Value is Cognition childCognition) {
+                    Assert.Equal(childCid, childCognition.Id);
+                    Assert.Equal(result.Value, childCognition.ParentId);
+                    Assert.Equal(CognitionStatus.Truth, childCognition.Status);
+                    //Assert.Equal(fact.Id, childCognition.Fact);
+                    Assert.Empty(childCognition.Inputs);
+                    Assert.Empty(childCognition.Outputs);
+                    Assert.Empty(childCognition.Constants);
+                    Assert.Empty(childCognition.SideEffects);
+                }
+            }
+            
+        }
+        
     }
 }

@@ -24,7 +24,7 @@ namespace Funes.Tests {
         }
 
         private async Task<bool> UpdateIfOlder(ICache cache, params EntityEntry[] entries) {
-            var updateResult = await cache.UpdateIfOlder(entries, _ser, default);
+            var updateResult = await cache.UpdateIfNewer(entries, _ser, default);
             Assert.True(updateResult.IsOk, updateResult.Error.ToString());
             return updateResult.Value;
         }

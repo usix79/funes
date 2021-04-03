@@ -35,5 +35,9 @@ namespace Funes {
         public override int GetHashCode() => HashCode.Combine((int) Status, Value, Cid);
         public static bool operator ==(EntityEntry left, EntityEntry right) => left.Equals(right);
         public static bool operator !=(EntityEntry left, EntityEntry right) => !left.Equals(right);
+
+        public override string ToString() {
+            return $"{nameof(Status)}: {Status}, {nameof(Eid)}: {Eid}, {nameof(Value)}: {Value}, {nameof(Cid)}: {Cid}";
+        }
     }
 }

@@ -7,6 +7,6 @@ namespace Funes {
 
         Task<Result<EntityEntry>> Get(EntityId eid, ISerializer ser, CancellationToken ct);
         Task<Result<bool>> Set(EntityEntry entry, ISerializer ser, CancellationToken ct);
-        Task<Result<bool>> UpdateIfOlder(IEnumerable<EntityEntry> entries, ISerializer ser, CancellationToken ct);
+        Task<Result<bool>> UpdateIfNewer(IEnumerable<EntityEntry> entries, ISerializer ser, CancellationToken ct);
     }
 }

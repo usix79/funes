@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text;
 
 namespace Funes {
     public abstract record Error {
@@ -18,8 +19,23 @@ namespace Funes {
                 public CognitionId ActualCid { get; init; }
                 public override string ToString() => $"|{Eid}, Premise {PremiseCid}, Actual {ActualCid}|";
             }
+
+            public override string ToString() {
+                var txt = new StringBuilder("TransactionError: ");
+                foreach (var cf in Conflicts) txt.Append(cf);
+                return txt.ToString();
+            }
         }
-        public record AggregateError(IEnumerable<Error> Errors) : Error;
+
+        public record AggregateError(IEnumerable<Error> Errors) : Error {
+            public override string ToString() {
+                var txt = new StringBuilder("AggregateError: ");
+                foreach (var err in Errors) {
+                    txt.Append(err).Append(',');
+                }
+                return txt.ToString();
+            }
+        }
 
         public static readonly Error No = new NoError();
         public static readonly Error NotFound = new NotFoundError();

@@ -106,10 +106,11 @@ namespace Funes {
                 long startMilliseconds, LogicEngine<TModel, TMsg, TSideEffect>.LogicResult result) {
 
                 var cognitionResult = await TryCognize(aFact, parentId, attempt, startMilliseconds, result);
-
+                
                 if (cognitionResult.IsOk) {
                     var cid = cognitionResult.Value.Id;
                     if (parentId is null) rootCid = cid;
+                    
                     try { 
                         await Task.WhenAll(result.SideEffects.Select(effect => _behavior(effect, ct)));
                     }
@@ -118,18 +119,21 @@ namespace Funes {
                     }
 
                     foreach (var derivedFact in result.DerivedFacts) {
-                        RunLogic(derivedFact.Value, cognitionResult.Value.Id, 1);
+                        RunLogic(derivedFact, cognitionResult.Value.Id, 1);
                     }
                 }
                 else {
                     switch (cognitionResult.Error) {
                         case Error.CognitionError x:
+                            if (parentId is null) rootCid = x.Cognition.Id;
+                            parentId = x.Cognition.Id;
                             LogError(x.Cognition.Id, "ProcessLogicResult", "TryReflect", x.Error);
                             break;
                         default:
                             LogError(aFact, "ProcessLogicResult", "TryReflect", cognitionResult.Error);
                             break;
                     }
+
                     RunLogic(aFact, parentId, attempt+1);
                 }
             }
@@ -173,6 +177,7 @@ namespace Funes {
                     var uploadOutputsResult = await _dataEngine.Upload(outputsArr, _serializer, ct, commitResult.IsError);
                     if (uploadOutputsResult.IsError) {
                         status = CognitionStatus.Lost;
+                        
                         cid = cid.AsLost();
                     }
                     
@@ -197,18 +202,30 @@ namespace Funes {
                     sysEntities.Add(new EntityStamp(new Entity(Cognition.CreateEntityId(cid), cognition), cid));
                     
                     if (parentId.HasValue) {
-                        var eid = Cognition.CreateChildrenEntityId(parentId.Value);
+                        var eid = Cognition.CreateChildEntityId(parentId.Value);
                         sysEntities.Add(new EntityStamp(new Entity(eid, null!), cid));
                     }
                     
                     var uploadFactResult = await _dataEngine.Upload(new[] {factEntity}, _serializer, ct, true);
                     var uploadSysEntitiesResult = await _dataEngine.Upload(sysEntities, _systemSerializer, ct, true);
 
-                    return status == CognitionStatus.Truth && uploadSysEntitiesResult.IsOk 
-                        ?  new Result<Cognition>(cognition)
-                        : Result<Cognition>.CongnitionError(cognition, 
-                            new Error.AggregateError(new []{uploadOutputsResult.Error, uploadFactResult.Error,
-                                uploadSysEntitiesResult.Error}));
+                    if (uploadFactResult.IsError) {
+                        _logger.LogError($"{cid} Upload fact error: {uploadFactResult.Error}");
+                    }
+                    if (uploadSysEntitiesResult.IsError) {
+                        _logger.LogError($"{cid} Upload sysEntities error: {uploadSysEntitiesResult.Error}");
+                    }
+                    
+                    if (status == CognitionStatus.Truth) {
+                        return new Result<Cognition>(cognition);
+                    }
+                    else {
+                        var errors = new List<Error>();
+                        if (commitResult.IsError) errors.Add(commitResult.Error);
+                        if (uploadOutputsResult.IsError) errors.Add(uploadOutputsResult.Error);
+                        var error = errors.Count > 1 ? new Error.AggregateError(errors.ToArray()) : errors[0];
+                        return Result<Cognition>.CongnitionError(cognition, error);
+                    }
                 }
                 catch (TaskCanceledException) { throw; }
                 catch (Exception e) { return Result<Cognition>.Exception(e); }

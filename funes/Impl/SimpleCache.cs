@@ -39,7 +39,7 @@ namespace Funes.Impl {
             return new Result<bool>(true);
         }
 
-        public async Task<Result<bool>> UpdateIfOlder(IEnumerable<EntityEntry> entries, ISerializer ser, CancellationToken ct) {
+        public async Task<Result<bool>> UpdateIfNewer(IEnumerable<EntityEntry> entries, ISerializer ser, CancellationToken ct) {
             var entityEntries = entries as EntityEntry[] ?? entries.ToArray();
             
             foreach (var entry in entityEntries) {
@@ -47,7 +47,7 @@ namespace Funes.Impl {
                 
                 (MemoryStream? stream, string encoding) = (null, "");
                 if (_data.TryGetValue(entry.Eid, out var triple)) {
-                    if (!entry.Cid.IsOlderThan(triple.Item1)){
+                    if (!entry.Cid.IsNewerThan(triple.Item1)){
                         return new Result<bool>(false);
                     }
                 }

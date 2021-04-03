@@ -299,7 +299,7 @@ namespace Funes.Tests {
             var tre = new SimpleTransactionEngine();
             var de = CreateEngine(repo, cache, tre, Logger());
 
-            var startTime = DateTimeOffset.UtcNow;
+            var startTime = DateTimeOffset.UtcNow.AddMinutes(-2);
 
             var eid = CreateRandomEid();
             
@@ -309,7 +309,7 @@ namespace Funes.Tests {
             var uploadResult = await de.Upload(new[] {originStamp}, ser, default);
             Assert.True(uploadResult.IsOk, uploadResult.Error.ToString());
             
-            // 1 minute letter//
+            // 1 minute letter
             // new cognition went bad
             var actualCid = CognitionId.ComposeId(startTime.AddMinutes(1), "testing");
             await AssertCommit(de, true, Keys((eid, originCid)),Keys((eid, actualCid)));
@@ -325,7 +325,7 @@ namespace Funes.Tests {
             var retrieveResult = await de.Retrieve(eid, ser, default);
             Assert.True(retrieveResult.IsOk, retrieveResult.Error.ToString());
             Assert.Equal(originCid, retrieveResult.Value.Cid);
-            // origin cid in cache acn actual cid is in transaction engine, so commit may fail
+            // origin cid in cache and actual cid is in transaction engine, so commit should fail
             await AssertCommit(de,false, Keys((eid, retrieveResult.Value.Cid)), Keys((eid, nextCid)));
 
             await de.Flush();

@@ -26,7 +26,7 @@ namespace Funes {
         public static string DetailsCommitErrors = "CommitErrors";
 
         public static EntityId CreateEntityId(CognitionId cid) => new (Category, cid.Id);
-        public static EntityId CreateChildrenEntityId(CognitionId parentId) => new (Category, parentId.Id);
+        public static EntityId CreateChildEntityId(CognitionId parentId) => new (ChildrenCategory, parentId.Id);
         public static EntityStampKey CreateStampKey(CognitionId cid) => new (CreateEntityId(cid), cid);
         
         public static async ValueTask<Result<Cognition>> Load(IRepository repo, ISerializer serializer, CognitionId cid) {

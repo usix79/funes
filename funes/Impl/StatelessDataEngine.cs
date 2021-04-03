@@ -37,7 +37,7 @@ namespace Funes.Impl {
                 : EntityEntry.NotExist(eid);
             
             // try set cache item
-            var trySetResult = await _cache.UpdateIfOlder(new[] {entry}, ss, ct);
+            var trySetResult = await _cache.UpdateIfNewer(new[] {entry}, ss, ct);
 
             if (trySetResult.IsOk && !trySetResult.Value) {
                 // what? cache already has gotten a value, look in cache again
@@ -84,7 +84,7 @@ namespace Funes.Impl {
                 }
 
                 if (stampsList.Count > 0) {
-                    var cacheResult = await _cache.UpdateIfOlder(stampsList.Select(x => x.ToEntry()), ss, ct);
+                    var cacheResult = await _cache.UpdateIfNewer(stampsList.Select(x => x.ToEntry()), ss, ct);
                     if (cacheResult.IsError) {
                         errors ??= new ();
                         errors.Add(cacheResult.Error);

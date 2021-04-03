@@ -28,7 +28,7 @@ namespace Funes {
         public class LogicResult {
             public Dictionary<EntityId, (Entity,CognitionId,bool)> Inputs { get; } = new ();
             public Dictionary<EntityId, Entity> Outputs { get; } = new ();
-            public Dictionary<EntityId, Entity> DerivedFacts { get; } = new ();
+            public List<Entity> DerivedFacts { get; } = new ();
             public List<TSideEffect> SideEffects { get; } = new ();
             public List<KeyValuePair<string, string>> Constants { get; } = new ();
         }
@@ -92,8 +92,7 @@ namespace Funes {
                         entities[x.Entity.Id] = EntityEntry.Ok(x.Entity);
                         break;
                     case Cmd<TMsg, TSideEffect>.DerivedFactCmd x:
-                        output.DerivedFacts[x.Entity.Id] = x.Entity;
-                        entities[x.Entity.Id] = EntityEntry.Ok(x.Entity);
+                        output.DerivedFacts.Add(x.Entity);
                         break;
                     case Cmd<TMsg, TSideEffect>.SideEffectCmd x:
                         output.SideEffects.Add(x.SideEffect);
