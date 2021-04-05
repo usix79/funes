@@ -23,7 +23,7 @@ namespace Funes.Impl {
             return new Result<EntityEntry>(EntityEntry.Ok(new Entity(eid, serResult.Value), triple.Item1));
         }
 
-        public async Task<Result<bool>> Set(EntityEntry entry, ISerializer ser, CancellationToken ct) {
+        public async Task<Result<Void>> Set(EntityEntry entry, ISerializer ser, CancellationToken ct) {
             ct.ThrowIfCancellationRequested();
             MemoryStream? stream = null;
             string encoding = "";
@@ -31,12 +31,12 @@ namespace Funes.Impl {
             if (entry.IsOk) {
                 stream = new MemoryStream();
                 var serResult = await ser.Encode(stream, entry.EntId, entry.Value);
-                if (serResult.IsError) return new Result<bool>(serResult.Error);
+                if (serResult.IsError) return new Result<Void>(serResult.Error);
                 encoding = serResult.Value;
             }
 
             _data[entry.EntId] = (entry.IncId, stream, encoding);
-            return new Result<bool>(true);
+            return new Result<Void>(Void.Value);
         }
 
         public async Task<Result<bool>> UpdateIfNewer(IEnumerable<EntityEntry> entries, ISerializer ser, CancellationToken ct) {

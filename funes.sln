@@ -12,6 +12,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "funes.s3", "funes.s3\funes.
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "funes.s3.tests", "funes.s3.tests\funes.s3.tests.csproj", "{830AF221-E29D-41AC-B727-C7F0FD12A34C}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "funes.redis", "funes.redis\funes.redis.csproj", "{631C2DD3-CCA4-45AA-AC95-F458052688F9}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "funes.redis.tests", "funes.redis.tests\funes.redis.tests.csproj", "{C9E88EFC-3E49-4C83-A01C-7C70C2B31CD0}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -42,5 +46,13 @@ Global
 		{830AF221-E29D-41AC-B727-C7F0FD12A34C}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{830AF221-E29D-41AC-B727-C7F0FD12A34C}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{830AF221-E29D-41AC-B727-C7F0FD12A34C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{631C2DD3-CCA4-45AA-AC95-F458052688F9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{631C2DD3-CCA4-45AA-AC95-F458052688F9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{631C2DD3-CCA4-45AA-AC95-F458052688F9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{631C2DD3-CCA4-45AA-AC95-F458052688F9}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C9E88EFC-3E49-4C83-A01C-7C70C2B31CD0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C9E88EFC-3E49-4C83-A01C-7C70C2B31CD0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C9E88EFC-3E49-4C83-A01C-7C70C2B31CD0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C9E88EFC-3E49-4C83-A01C-7C70C2B31CD0}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
