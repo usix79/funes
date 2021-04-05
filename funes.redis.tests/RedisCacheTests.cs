@@ -10,8 +10,6 @@ namespace Funes.Redis.Tests {
         
         private readonly ITestOutputHelper _testOutputHelper;
         
-        private readonly string _connectionString = "localhost";
-
         private ILogger Logger() => XUnitLogger.CreateLogger(_testOutputHelper);
 
         public RedisCacheTests(ITestOutputHelper testOutputHelper) {

@@ -2,10 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using System.Xml;
 using Funes.Impl;
 using Microsoft.Extensions.Logging;
-using Moq;
 using Xunit;
 using Xunit.Abstractions;
 using static Funes.Tests.TestHelpers;
@@ -37,11 +35,12 @@ namespace Funes.Tests {
 
         [Fact]
         public async void EmptyTest() {
-            var mockRepo = new Mock<IRepository>();
-            var mockCache = new Mock<ICache>();
-            var mockTre = new Mock<ITransactionEngine>();
+            var ser = new SimpleSerializer<Simple>();
+            var repo = new SimpleRepository();
+            var cache = new SimpleCache();
+            var tre = new SimpleTransactionEngine();
 
-            var de = CreateEngine(mockRepo.Object, mockCache.Object, mockTre.Object, Logger());
+            var de = CreateEngine(repo, cache, tre, Logger());
 
             await de.Flush();
         }
