@@ -8,11 +8,12 @@ namespace Funes {
         IncrementId Id, 
         IncrementId ParentId, 
         IncrementStatus Status,
-        EntityId Fact, 
+        EntityStampKey Fact, 
         List<KeyValuePair<EntityStampKey, bool>> Inputs, 
         EntityId[] Outputs,
-        List<KeyValuePair<string,string>> Constants,
+        EntityId[] DerivedFacts,
         List<string> SideEffects,
+        List<KeyValuePair<string,string>> Constants,
         Dictionary<string, string> Details
         ) {
         

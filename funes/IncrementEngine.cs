@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -28,7 +29,7 @@ namespace Funes {
         }
         
         private readonly struct WorkItem {
-            public Entity Fact { get; init; }
+            public EntityStamp FactStamp { get; init; }
             public IncrementId? ParentId { get; init; }
             public int Attempt { get; init; }
             public long StartMilliseconds { get; init; }
@@ -43,7 +44,13 @@ namespace Funes {
             LinkedList<WorkItem> workItems = new ();
 
             try {
-                RunLogic(fact, null, 1);
+                var factStamp = new EntityStamp(fact, IncrementId.NewFactId());
+                var uploadFactResult = await _dataEngine.Upload(new[] {factStamp}, _serializer, ct, true);
+                if (uploadFactResult.IsError) {
+                    _logger.LogError($"{fact.Id} Upload fact error: {uploadFactResult.Error}");
+                }
+                
+                RunLogic(factStamp, null, 1);
 
                 while (workItems.First != null) {
                     await Task.WhenAny(workItems.Select(holder => holder.Task));
@@ -62,11 +69,11 @@ namespace Funes {
                 await _dataEngine.Flush();
             }
             
-            void RunLogic(Entity aFact, IncrementId? parentId, int attempt) {
+            void RunLogic(EntityStamp aFactStamp, IncrementId? parentId, int attempt) {
                 if (attempt <= _maxAttempts) {
-                    var task = _logicEngine.Run(aFact, null!, ct);
+                    var task = _logicEngine.Run(aFactStamp.Entity, null!, ct);
                     var item = new WorkItem {
-                        Fact = aFact, 
+                        FactStamp = aFactStamp, 
                         ParentId = parentId, 
                         Attempt = attempt, 
                         StartMilliseconds = stopWatch!.ElapsedMilliseconds, 
@@ -75,7 +82,7 @@ namespace Funes {
                     workItems.AddLast(item);
                 }
                 else {
-                    LogError(aFact, "RunLogic", "MaxAttempts");
+                    LogError(aFactStamp.IncId, "RunLogic", "MaxAttempts");
                 }
             }
 
@@ -87,38 +94,38 @@ namespace Funes {
                         if (node.Value.Task.IsCompletedSuccessfully && node.Value.Task.Result.IsOk) {
                             var item = node.Value;
                             await ProcessLogicResult(
-                                item.Fact, item.ParentId, item.Attempt, item.StartMilliseconds, item.Task.Result.Value);                            
+                                item.FactStamp, item.ParentId, item.Attempt, item.StartMilliseconds, item.Task.Result.Value);                            
                         }
                         else {
                             var ex = node.Value.Task.Exception;
-                            if (ex is null) LogError(node.Value.Fact, "CheckLogic", "LogicFailed", node.Value.Task.Result.Error);
-                            else LogError(node.Value.Fact, "CheckLogic", "LogicException", null, ex);
+                            if (ex is null) LogError(node.Value.FactStamp.IncId, "CheckLogic", "LogicFailed", node.Value.Task.Result.Error);
+                            else LogError(node.Value.FactStamp.IncId, "CheckLogic", "LogicException", null, ex);
                             
-                            RunLogic(node.Value.Fact, node.Value.ParentId, node.Value.Attempt + 1);
+                            RunLogic(node.Value.FactStamp, node.Value.ParentId, node.Value.Attempt + 1);
                         }
                     }
                     node = node.Next;
                 }
             }
 
-            async ValueTask ProcessLogicResult(Entity aFact, IncrementId? parentId, int attempt, 
+            async ValueTask ProcessLogicResult(EntityStamp aFactStamp, IncrementId? parentId, int attempt, 
                 long startMilliseconds, LogicEngine<TModel, TMsg, TSideEffect>.LogicResult result) {
 
-                var cognitionResult = await TryIncrement(aFact, parentId, attempt, startMilliseconds, result);
+                var cognitionResult = await TryIncrement(aFactStamp, parentId, attempt, startMilliseconds, result);
                 
                 if (cognitionResult.IsOk) {
-                    var incId = cognitionResult.Value.Id;
-                    if (parentId is null) rootIncId = incId;
+                    var (increment, derivedFacts) = cognitionResult.Value;
+                    if (parentId is null) rootIncId = increment.Id;
                     
                     try { 
                         await Task.WhenAll(result.SideEffects.Select(effect => _behavior(effect, ct)));
                     }
                     catch (AggregateException x) {
-                        LogError(incId, "ProcessLogicResult", "SideEffect", null, x);
+                        LogError(increment.Id, "ProcessLogicResult", "SideEffect", null, x);
                     }
 
-                    foreach (var derivedFact in result.DerivedFacts) {
-                        RunLogic(derivedFact, cognitionResult.Value.Id, 1);
+                    foreach (var derivedFact in derivedFacts) {
+                        RunLogic(derivedFact, increment.Id, 1);
                     }
                 }
                 else {
@@ -129,16 +136,16 @@ namespace Funes {
                             LogError(x.Increment.Id, "ProcessLogicResult", "TryReflect", x.Error);
                             break;
                         default:
-                            LogError(aFact, "ProcessLogicResult", "TryReflect", cognitionResult.Error);
+                            LogError(aFactStamp.IncId, "ProcessLogicResult", "TryReflect", cognitionResult.Error);
                             break;
                     }
 
-                    RunLogic(aFact, parentId, attempt+1);
+                    RunLogic(aFactStamp, parentId, attempt+1);
                 }
             }
 
-            async ValueTask<Result<Increment>> TryIncrement(
-                Entity aFact, IncrementId? parentId, int attempt, long startMilliseconds,
+            async ValueTask<Result<(Increment, IEnumerable<EntityStamp>)>> TryIncrement(
+                EntityStamp aFactStamp, IncrementId? parentId, int attempt, long startMilliseconds,
                 LogicEngine<TModel, TMsg, TSideEffect>.LogicResult output) {
                 
                 try {
@@ -157,21 +164,34 @@ namespace Funes {
                                                 && Equals(entity.Value, pair.Item1.Value)))
                             .Select(mem => new EntityStamp(mem, incId)).ToArray();
 
+                    var derivedFactsArr = output.DerivedFacts.Select(x => x.ToStamp(incId)).ToArray();
+
                     var commitResult = await _dataEngine.TryCommit(premisesArr, outputsArr.Select(x => x.Key), ct);
                     var endCommitMilliseconds = stopWatch?.ElapsedMilliseconds;
 
                     var status = IncrementStatus.Unknown;
                     var detailsDict = new Dictionary<string, string>();
                     List<Error>? errors = null;
+
+                    // upload outputs only after success commit
                     if (commitResult.IsOk) {
                         status = IncrementStatus.Success;
-                        // upload outputs only after success commit
-                        var uploadOutputsResult = await _dataEngine.Upload(outputsArr, _serializer, ct, commitResult.IsError);
-                        if (uploadOutputsResult.IsError) {
-                            status = IncrementStatus.Lost;
-                            incId = incId.AsLost();
-                            errors ??= new List<Error>();
-                            errors.Add(uploadOutputsResult.Error);
+                        if (outputsArr.Length > 0) {
+                            var uploadOutputsResult =
+                                await _dataEngine.Upload(outputsArr, _serializer, ct, commitResult.IsError);
+                            if (uploadOutputsResult.IsError) {
+                                status = IncrementStatus.Lost;
+                                incId = incId.AsLost();
+                                errors ??= new List<Error>();
+                                errors.Add(uploadOutputsResult.Error);
+                            }
+                        }
+
+                        if (derivedFactsArr.Length > 0) {
+                            var uploadFactsResult = await _dataEngine.Upload(derivedFactsArr, _serializer, ct, true);
+                            if (uploadFactsResult.IsError) {
+                                _logger.LogError($"{incId} Upload derived fact error: {uploadFactsResult.Error}");
+                            }
                         }
                     }
                     else {
@@ -189,20 +209,20 @@ namespace Funes {
                         errors.Add(commitResult.Error);
                     }
                     
-                    var factEntity = new EntityStamp(aFact, incId);
                     var increment = new Increment(
                         incId, 
                         parentId ?? IncrementId.None, 
                         status,
-                        fact.Id,
+                        aFactStamp.Key,
                         output.Inputs
                             .ToList()
                             .Select(pair => new KeyValuePair<EntityStampKey,bool>(
                                 new EntityStampKey(pair.Key, pair.Value.Item2), pair.Value.Item3))
                             .ToList(),
                         outputsArr.Select(x => x.Key.EntId).ToArray(),
-                        output.Constants,
+                        output.DerivedFacts.Select(x => x.Id).ToArray(),
                         output.SideEffects.Select(x => x?.ToString() ?? "???").ToList(),
+                        output.Constants,
                         detailsDict);
                     
                     detailsDict[Increment.DetailsIncrementTime] = reflectTime.ToFileTimeUtc().ToString();
@@ -211,13 +231,6 @@ namespace Funes {
                     detailsDict[Increment.DetailsCommitDuration] = (endCommitMilliseconds - startCommitMilliseconds).ToString()!;
                     detailsDict[Increment.DetailsUploadDuration] = (stopWatch!.ElapsedMilliseconds - endCommitMilliseconds).ToString()!;
                     
-                    var uploadFactResult = await _dataEngine.Upload(new[] {factEntity}, _serializer, ct, true);
-                    if (uploadFactResult.IsError) {
-                        errors ??= new List<Error>();
-                        errors.Add(uploadFactResult.Error);
-                        _logger.LogError($"{incId} Upload fact error: {uploadFactResult.Error}");
-                    }
-
                     var sysEntities = parentId.HasValue
                         ? new [] {Increment.CreateEntStamp(increment), Increment.CreateChildEntStamp(increment.Id, parentId.Value)}
                         : new [] {Increment.CreateEntStamp(increment)}; 
@@ -234,13 +247,13 @@ namespace Funes {
                                 ? new Error.AggregateError(errors.ToArray()) 
                                 : errors[0]
                             : Error.No; // should not be that
-                        return Result<Increment>.CongnitionError(increment, error);
+                        return Result<(Increment, IEnumerable<EntityStamp>)>.CongnitionError(increment, error);
                     }
 
-                    return new Result<Increment>(increment);
+                    return new Result<(Increment, IEnumerable<EntityStamp>)>((increment, derivedFactsArr));
                 }
                 catch (TaskCanceledException) { throw; }
-                catch (Exception e) { return Result<Increment>.Exception(e); }
+                catch (Exception e) { return Result<(Increment, IEnumerable<EntityStamp>)>.Exception(e); }
             }
         }
 

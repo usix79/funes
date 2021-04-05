@@ -56,7 +56,7 @@ namespace Funes.Tests {
                 Assert.Equal(result.Value, cognition.Id);
                 Assert.Equal(IncrementId.None, cognition.ParentId);
                 Assert.Equal(IncrementStatus.Success, cognition.Status);
-                Assert.Equal(fact.Id, cognition.Fact);
+                Assert.Equal(fact.Id, cognition.Fact.EntId);
                 Assert.Empty(cognition.Inputs);
                 Assert.Empty(cognition.Outputs);
                 Assert.Empty(cognition.Constants);
@@ -112,7 +112,7 @@ namespace Funes.Tests {
                 Assert.Equal(result.Value, cognition.Id);
                 Assert.Equal(IncrementId.None, cognition.ParentId);
                 Assert.Equal(IncrementStatus.Success, cognition.Status);
-                Assert.Equal(fact.Id, cognition.Fact);
+                Assert.Equal(fact.Id, cognition.Fact.EntId);
                 Assert.Empty(cognition.Inputs);
                 Assert.Empty(cognition.Outputs);
                 Assert.Empty(cognition.Constants);
@@ -168,7 +168,7 @@ namespace Funes.Tests {
                 Assert.Equal(result2.Value, cognition.Id);
                 Assert.Equal(IncrementId.None, cognition.ParentId);
                 Assert.Equal(IncrementStatus.Fail, cognition.Status);
-                Assert.Equal(fact.Id, cognition.Fact);
+                Assert.Equal(fact.Id, cognition.Fact.EntId);
                 Assert.Equal(new List<KeyValuePair<EntityStampKey, bool>>
                     {new (stamp.Key, true)}, cognition.Inputs);
                 Assert.Equal(new EntityId[]{eid}, cognition.Outputs);
@@ -190,7 +190,7 @@ namespace Funes.Tests {
                 Assert.Equal(childIncId, childCognition.Id);
                 Assert.Equal(result2.Value, childCognition.ParentId);
                 Assert.Equal(IncrementStatus.Success, childCognition.Status);
-                Assert.Equal(fact.Id, childCognition.Fact);
+                Assert.Equal(fact.Id, childCognition.Fact.EntId);
                 Assert.Equal(new List<KeyValuePair<EntityStampKey, bool>>
                     {new (eid.CreateStampKey(result1.Value), true)}, childCognition.Inputs);
                 Assert.Equal(new EntityId[]{eid}, childCognition.Outputs);
@@ -231,7 +231,7 @@ namespace Funes.Tests {
                 Assert.Equal(result.Value, cognition.Id);
                 Assert.Equal(IncrementId.None, cognition.ParentId);
                 Assert.Equal(IncrementStatus.Success, cognition.Status);
-                Assert.Equal(fact.Id, cognition.Fact);
+                Assert.Equal(fact.Id, cognition.Fact.EntId);
                 Assert.Empty(cognition.Inputs);
                 Assert.Empty(cognition.Outputs);
                 Assert.Empty(cognition.Constants);
