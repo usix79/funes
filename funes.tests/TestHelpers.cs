@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Funes.Impl;
 using Xunit;
@@ -36,5 +38,16 @@ namespace Funes.Tests {
 
         public static Entity CreateSimpleFact(int id, string value) =>
             new Entity(new EntityId("/tests/facts"), new Simple(id, value));
+
+        public static IEnumerable<EntityStampKey> Keys(params (EntityId, string)[] keys) =>
+            Keys(keys.Select(pair => (pair.Item1, new IncrementId(pair.Item2))).ToArray());
+
+        public static IEnumerable<EntityStampKey> Keys(params (EntityId, IncrementId)[] keys) => 
+            keys.Select(x => new EntityStampKey(x.Item1, x.Item2));
+        
+        public static IEnumerable<EntityStampKey> EmptyKeys = ArraySegment<EntityStampKey>.Empty; 
+
+        public static IEnumerable<EntityId> EntIds(params EntityId[] entIds) => entIds; 
+        
     }
 }

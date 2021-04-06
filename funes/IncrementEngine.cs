@@ -166,7 +166,9 @@ namespace Funes {
 
                     var derivedFactsArr = output.DerivedFacts.Select(x => x.ToStamp(incId)).ToArray();
 
-                    var commitResult = await _dataEngine.TryCommit(premisesArr, outputsArr.Select(x => x.Key), ct);
+                    var commitResult = await _dataEngine.TryCommit(
+                        premisesArr, outputsArr.Select(x => x.EntId), incId,  ct);
+                    
                     var endCommitMilliseconds = stopWatch?.ElapsedMilliseconds;
 
                     var status = IncrementStatus.Unknown;

@@ -89,10 +89,10 @@ namespace Funes.Impl {
             return new Result<Void>(Void.Value);
         }
         
-        public async ValueTask<Result<Void>> TryCommit(IEnumerable<EntityStampKey> premises, 
-                IEnumerable<EntityStampKey> conclusions, CancellationToken ct) {
+        public async ValueTask<Result<Void>> TryCommit(IEnumerable<EntityStampKey> inputs, 
+                IEnumerable<EntityId> outputs, IncrementId incId, CancellationToken ct) {
 
-            var commitResult = await _tre.TryCommit(premises, conclusions, ct);
+            var commitResult = await _tre.TryCommit(inputs, outputs, incId, ct);
 
             if (commitResult.Error is Error.CommitError err) {
                 var piSecArr = err.Conflicts.Where(IsPiSec).ToArray();
@@ -134,12 +134,12 @@ namespace Funes.Impl {
                 if (historyResult.IsError) return new Result<EntityStamp>(historyResult.Error);
 
                 var incId = historyResult.Value.FirstOrDefault(x => x.IsSuccess());
-                if (!incId.IsNull()) {
+                if (!incId.IsNull) {
                     return await _repo.Load(new EntityStampKey(eid, incId), ser, ct);
                 }
 
                 before = historyResult.Value.LastOrDefault();
-                if (before.IsNull()) return new Result<EntityStamp>(Error.NotFound);
+                if (before.IsNull) return new Result<EntityStamp>(Error.NotFound);
             }
         }
 
@@ -168,7 +168,7 @@ namespace Funes.Impl {
 
             var commitResult = await _tre.TryCommit(
                 new[] {conflict.EntId.CreateStampKey(conflict.ActualIncId)}, 
-                new[] {conflict.EntId.CreateStampKey(repoResult.Value.IncId)}, 
+                new[] {conflict.EntId}, repoResult.Value.IncId,
                 ct);
 
             if (commitResult.IsOk) {

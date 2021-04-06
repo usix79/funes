@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading.Tasks;
 using Funes.Impl;
 using Microsoft.Extensions.Logging;
@@ -212,14 +211,11 @@ namespace Funes.Tests {
             
             await CheckRepo(repo, ser, stamp);
         }
-
-        private IEnumerable<EntityStampKey> Keys(params (EntityId, IncrementId)[] keys) => 
-            keys.Select(x => new EntityStampKey(x.Item1, x.Item2));
-
-        private async Task AssertCommit(IDataEngine de, bool expectedSuccess,
-            IEnumerable<EntityStampKey> premises, IEnumerable<EntityStampKey> conclusions) {
         
-            var r = await de.TryCommit(premises, conclusions, default);
+        private async Task AssertCommit(IDataEngine de, bool expectedSuccess,
+            IEnumerable<EntityStampKey> inputs, IEnumerable<EntityId> outputs, IncrementId incId) {
+        
+            var r = await de.TryCommit(inputs, outputs, incId, default);
         
             if (expectedSuccess) {
                 Assert.True(r.IsOk, r.Error.ToString());
@@ -240,13 +236,13 @@ namespace Funes.Tests {
 
             var eid = CreateRandomEntId();
             var startIncId = IncrementId.ComposeId(startTime, "testing");
-            await AssertCommit(de, true, Keys(), Keys((eid, startIncId)));
+            await AssertCommit(de, true, EmptyKeys, EntIds(eid), startIncId);
 
             var nextIncId = IncrementId.ComposeId(startTime.AddSeconds(1), "testing");
-            await AssertCommit(de, true, Keys((eid, startIncId)), Keys((eid, nextIncId)));
+            await AssertCommit(de, true, Keys((eid, startIncId)), EntIds(eid), nextIncId);
             
             var prevIncId = IncrementId.ComposeId(startTime.AddSeconds(-1), "testing");
-            await AssertCommit(de, true, Keys((eid, nextIncId)), Keys((eid, prevIncId)));
+            await AssertCommit(de, true, Keys((eid, nextIncId)), EntIds(eid), prevIncId);
         }
 
         [Fact]
@@ -262,14 +258,14 @@ namespace Funes.Tests {
             var eid = CreateRandomEntId();
             var actualIncId = IncrementId.ComposeId(startTime.AddMinutes(-1), "testing");
             var actualStamp = CreateSimpleEntityStamp(actualIncId, eid);
-            await AssertCommit(de, true, Keys(),Keys((eid, actualIncId)));
+            await AssertCommit(de, true, EmptyKeys,EntIds(eid), actualIncId);
             var uploadResult = await de.Upload(new[] {actualStamp}, ser, default);
             Assert.True(uploadResult.IsOk, uploadResult.Error.ToString());
 
             var wrongIncId = IncrementId.ComposeId(startTime.AddSeconds(-30), "wrong");
 
             var currentIncId = IncrementId.ComposeId(startTime, "testing");
-            var commitResult = await de.TryCommit(Keys((eid, wrongIncId)), Keys((eid, currentIncId)), default);
+            var commitResult = await de.TryCommit(Keys((eid, wrongIncId)), EntIds(eid), currentIncId, default);
             Assert.True(commitResult.Error is Error.CommitError);
 
             await de.Flush();
@@ -279,7 +275,7 @@ namespace Funes.Tests {
             Assert.True(retrieveResult.IsOk, retrieveResult.Error.ToString());
             Assert.Equal(actualStamp.ToEntry(), retrieveResult.Value);
             
-            await AssertCommit(de, true, Keys((eid, actualIncId)),Keys((eid, currentIncId)));
+            await AssertCommit(de, true, Keys((eid, actualIncId)),EntIds(eid), currentIncId);
         }
 
         [Fact]
@@ -296,14 +292,14 @@ namespace Funes.Tests {
             
             var originIncId = IncrementId.ComposeId(startTime, "testing");
             var originStamp = CreateSimpleEntityStamp(originIncId, eid);
-            await AssertCommit(de, true, Keys(),Keys((eid, originIncId)));
+            await AssertCommit(de, true, EmptyKeys,EntIds(eid), originIncId);
             var uploadResult = await de.Upload(new[] {originStamp}, ser, default);
             Assert.True(uploadResult.IsOk, uploadResult.Error.ToString());
             
             // 1 minute letter
             // new increment went bad
             var actualIncId = IncrementId.ComposeId(startTime.AddMinutes(1), "testing");
-            await AssertCommit(de, true, Keys((eid, originIncId)),Keys((eid, actualIncId)));
+            await AssertCommit(de, true, Keys((eid, originIncId)),EntIds(eid), actualIncId);
             // something went wrong and upload was not performed
             // ...
             // ...
@@ -317,7 +313,7 @@ namespace Funes.Tests {
             Assert.True(retrieveResult.IsOk, retrieveResult.Error.ToString());
             Assert.Equal(originIncId, retrieveResult.Value.IncId);
             // origin incId in cache and actual incId is in transaction engine, so commit should fail
-            await AssertCommit(de,false, Keys((eid, retrieveResult.Value.IncId)), Keys((eid, nextIncId)));
+            await AssertCommit(de,false, Keys((eid, retrieveResult.Value.IncId)), EntIds(eid), nextIncId);
 
             await de.Flush();
             
@@ -327,7 +323,7 @@ namespace Funes.Tests {
             Assert.Equal(originStamp.ToEntry(), retrieveResultAfterPiSec.Value);
             
             // now next incId may be committed
-            await AssertCommit(de, true, Keys((eid, retrieveResultAfterPiSec.Value.IncId)),Keys((eid, nextIncId)));
+            await AssertCommit(de, true, Keys((eid, retrieveResultAfterPiSec.Value.IncId)),EntIds(eid), nextIncId);
         }
 
     }

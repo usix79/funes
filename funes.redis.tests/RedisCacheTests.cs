@@ -6,7 +6,6 @@ using Xunit.Abstractions;
 namespace Funes.Redis.Tests {
     
     public class RedisCacheTests: AbstractCacheTests {
-        private const string ConnectionStringEnvName = "FUNES_REDIS_TESTS_CS";
         
         private readonly ITestOutputHelper _testOutputHelper;
         
@@ -17,10 +16,8 @@ namespace Funes.Redis.Tests {
         }
 
         protected override ICache CreateCache() {
-            return new RedisCache(ResolveConnectionString(), Logger());
+            return new RedisCache(Helpers.ResolveConnectionString(), Logger());
         }
 
-        private string ResolveConnectionString() =>
-            Environment.GetEnvironmentVariable(ConnectionStringEnvName) ?? "localhost";
     }
 }

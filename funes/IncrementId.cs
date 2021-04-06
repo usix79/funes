@@ -22,7 +22,7 @@ namespace Funes {
         public IncrementId AsLost() => new (Id + LostTag);
 
         public bool IsSuccess() => !Id.EndsWith(FailTag) && !Id.EndsWith(LostTag);
-        public bool IsNull() => Id is null;
+        public bool IsNull => Id is null;
 
         public static long MillisecondsBeforeFryReawakening(DateTimeOffset dt) => 
             Convert.ToInt64((FryReawakening - dt).TotalMilliseconds);
