@@ -13,15 +13,18 @@ namespace Funes.Redis {
         private const string PropStatus = "Status";
         private const string PropEncoding = "Enc";
         private const string PropData = "Data";
-        private readonly RedisValue[] _hashFields = {new (PropStatus), new (PropIncId), new (PropEncoding), new (PropData)};
+        private readonly RedisValue[] _hashFields 
+            = {new (PropStatus), new (PropIncId), new (PropEncoding), new (PropData)};
 
         private readonly ILogger _logger;
         private readonly ConnectionMultiplexer _redis;
         private readonly int _ttl;
+        private readonly TimeSpan _ttlSpan;
 
         public RedisCache(string connectionString, ILogger logger, int ttl = 3600) {
             _logger = logger;
             _ttl = ttl;
+            _ttlSpan = TimeSpan.FromSeconds(_ttl);
             _redis = ConnectionMultiplexer.Connect(connectionString);
         }
 
@@ -30,7 +33,14 @@ namespace Funes.Redis {
 
             RedisValue[]? values;
             try {
-                values = await db!.HashGetAsync(eid.Id, _hashFields);
+                var tran = db!.CreateTransaction();
+                var t1 = tran!.HashGetAsync(eid.Id, _hashFields);
+                var t2 = tran!.KeyExpireAsync(eid.Id, _ttlSpan);
+                var committed = await tran.ExecuteAsync();
+                if (!committed) {
+                    return new Result<EntityEntry>(new Error.IoError("redis hash get failed"));
+                }
+                values = await t1;
             }
             catch (Exception x) {
                 return new Result<EntityEntry>(new Error.ExceptionError(x));
@@ -75,7 +85,8 @@ namespace Funes.Redis {
         public async Task<Result<Void>> Set(EntityEntry entry, ISerializer ser, CancellationToken ct) {
             var db = _redis.GetDatabase();
             
-            var (encodingValue, dataValue, incIdValue) = (RedisValue.EmptyString, RedisValue.EmptyString, RedisValue.EmptyString);
+            var (encodingValue, dataValue, incIdValue) = 
+                (RedisValue.EmptyString, RedisValue.EmptyString, RedisValue.EmptyString);
 
             if (entry.Status == EntityEntry.EntryStatus.IsOk) {
                 await using var stream = new MemoryStream();
@@ -90,22 +101,29 @@ namespace Funes.Redis {
             }
 
             var hashEntries = new HashEntry[] {
-                new (PropStatus, (int)entry.Status),
-                new (PropIncId, incIdValue),
-                new (PropEncoding, encodingValue),
-                new (PropData, dataValue)
+                new(PropStatus, (int) entry.Status),
+                new(PropIncId, incIdValue),
+                new(PropEncoding, encodingValue),
+                new(PropData, dataValue)
             };
 
             try {
-                await db!.HashSetAsync(entry.EntId.Id, hashEntries);
-                await db!.KeyExpireAsync(entry.EntId.Id, TimeSpan.FromSeconds(_ttl));
-                return new Result<Void>(Void.Value);
+                var tran = db!.CreateTransaction();
+                var t1 = tran!.HashSetAsync(entry.EntId.Id, hashEntries);
+                var t2 = tran!.KeyExpireAsync(entry.EntId.Id, _ttlSpan);
+                var committed = await tran.ExecuteAsync();
+
+                return committed
+                    ? new Result<Void>(Void.Value)
+                    : new Result<Void>(new Error.IoError("redis hash set failed"));
             }
             catch (Exception x) {
                 return new Result<Void>(new Error.ExceptionError(x));
             }
         }
 
-        public Task<Result<bool>> UpdateIfNewer(IEnumerable<EntityEntry> entries, ISerializer ser, CancellationToken ct) => throw new System.NotImplementedException();
+        public Task<Result<bool>> UpdateIfNewer(IEnumerable<EntityEntry> entries, ISerializer ser, CancellationToken ct) {
+            throw new System.NotImplementedException();
+        }
     }
 }

@@ -35,7 +35,6 @@ namespace Funes.Tests {
 
         [Fact]
         public async void EmptyTest() {
-            var ser = new SimpleSerializer<Simple>();
             var repo = new SimpleRepository();
             var cache = new SimpleCache();
             var tre = new SimpleTransactionEngine();
@@ -333,7 +332,7 @@ namespace Funes.Tests {
             Assert.True(retrieveResultAfterPiSec.IsOk, retrieveResultAfterPiSec.Error.ToString());
             Assert.Equal(originStamp.ToEntry(), retrieveResultAfterPiSec.Value);
             
-            // now next incId may be commited
+            // now next incId may be committed
             await AssertCommit(de, true, Keys((eid, retrieveResultAfterPiSec.Value.IncId)),Keys((eid, nextIncId)));
         }
 
