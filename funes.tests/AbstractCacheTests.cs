@@ -23,10 +23,18 @@ namespace Funes.Tests {
             return getResult.Value;
         }
 
-        private async Task<bool> UpdateIfOlder(ICache cache, params EntityEntry[] entries) {
-            var updateResult = await cache.UpdateIfNewer(entries, _ser, default);
+        private async Task<Void> UpdateIfNewer(ICache cache, EntityEntry entry) {
+            var updateResult = await cache.UpdateIfNewer(entry, _ser, default);
             Assert.True(updateResult.IsOk, updateResult.Error.ToString());
             return updateResult.Value;
+        }
+
+        private async Task<bool> CheckUpdateIfNewer(ICache cache, EntityEntry entry) {
+            var updateResult = await cache.UpdateIfNewer(entry, _ser, default);
+            Assert.True(updateResult.IsOk, updateResult.Error.ToString());
+            var getResult = await cache.Get(entry.EntId, _ser, default);
+            Assert.True(getResult.IsOk, getResult.Error.ToString());
+            return getResult.Value.IncId == entry.IncId;
         }
 
         [Fact]
@@ -90,13 +98,13 @@ namespace Funes.Tests {
             var entry2 = EntityEntry.Ok(entry1.Entity.MapValue(CreateRandomValue()), new IncrementId("099"));
             var entry3 = EntityEntry.Ok(entry1.Entity.MapValue(CreateRandomValue()), new IncrementId("101"));
             
-            Assert.True(await UpdateIfOlder(cache, entry1));
+            Assert.True(await CheckUpdateIfNewer(cache, entry1));
             Assert.Equal(entry1, await Get(cache, entry1.EntId));
 
-            Assert.True(await UpdateIfOlder(cache, entry2));
+            Assert.True(await CheckUpdateIfNewer(cache, entry2));
             Assert.Equal(entry2, await Get(cache, entry2.EntId));
             
-            Assert.False(await UpdateIfOlder(cache, entry3));
+            Assert.False(await CheckUpdateIfNewer(cache, entry3));
             Assert.Equal(entry2, await Get(cache, entry2.EntId));
         }
 
@@ -106,7 +114,8 @@ namespace Funes.Tests {
             
             var entry1 = EntityEntry.NotExist(CreateRandomEntId("c1"));
             var entry2 = EntityEntry.NotExist(CreateRandomEntId("c2"));
-            Assert.True(await UpdateIfOlder(cache, entry1, entry2));
+            await UpdateIfNewer(cache, entry1);
+            await UpdateIfNewer(cache, entry2);
             Assert.Equal(entry1, await Get(cache, entry1.EntId));
             Assert.Equal(entry2, await Get(cache, entry2.EntId));
         }
@@ -120,12 +129,12 @@ namespace Funes.Tests {
 
             var otherEntry = EntityEntry.NotExist(CreateRandomEntId("other"));
 
-            Assert.True(await UpdateIfOlder(cache, entry1));
+            Assert.True(await CheckUpdateIfNewer(cache, entry1));
             Assert.Equal(entry1, await Get(cache, entry1.EntId));
-            Assert.False(await UpdateIfOlder(cache, entry2, otherEntry));
+            await UpdateIfNewer(cache, entry2);
+            await UpdateIfNewer(cache, otherEntry);
             Assert.Equal(entry1, await Get(cache, entry1.EntId));
-            var getOtherResult = await cache.Get(otherEntry.EntId, _ser, default);
-            Assert.True(getOtherResult.Error == Error.NotFound, getOtherResult.Error.ToString());
+            Assert.Equal(otherEntry, await Get(cache, otherEntry.EntId));
         }
     }
 }

@@ -115,7 +115,6 @@ namespace Funes.Tests {
 
             var uploadResult = await de.Upload(new []{stamp}, ser, default);
             Assert.True(uploadResult.IsOk, uploadResult.Error.ToString());
-            Assert.True(uploadResult.Value);
 
             await CheckCache(cache, ser, stamp.ToEntry());
 
@@ -139,7 +138,6 @@ namespace Funes.Tests {
 
             var uploadResult = await de.Upload(new []{stamp}, ser, default);
             Assert.True(uploadResult.IsOk, uploadResult.Error.ToString());
-            Assert.True(uploadResult.Value);
 
             await CheckCache(cache, ser, stamp.ToEntry());
 
@@ -163,7 +161,6 @@ namespace Funes.Tests {
 
             var uploadResult = await de.Upload(new []{stamp}, ser, default);
             Assert.True(uploadResult.IsOk, uploadResult.Error.ToString());
-            Assert.False(uploadResult.Value);
 
             await CheckCache(cache, ser, nextStamp.ToEntry());
 
@@ -187,7 +184,6 @@ namespace Funes.Tests {
 
             var uploadResult = await de.Upload(new []{stamp}, ser, default);
             Assert.True(uploadResult.IsOk, uploadResult.Error.ToString());
-            Assert.True(uploadResult.Value);
 
             await CheckCache(cache, ser, stamp.ToEntry());
 
@@ -208,7 +204,6 @@ namespace Funes.Tests {
             
             var uploadResult = await de.Upload(new []{stamp}, ser, default, true);
             Assert.True(uploadResult.IsOk, uploadResult.Error.ToString());
-            Assert.False(uploadResult.Value);
 
             var cacheResult = await cache.Get(stamp.EntId, ser, default);
             Assert.Equal(Error.NotFound, cacheResult.Error);
@@ -236,7 +231,6 @@ namespace Funes.Tests {
 
         [Fact]
         public async void SuccessCommit() {
-            var ser = new SimpleSerializer<Simple>();
             var repo = new SimpleRepository();
             var cache = new SimpleCache();
             var tre = new SimpleTransactionEngine();

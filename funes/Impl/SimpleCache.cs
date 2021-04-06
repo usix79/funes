@@ -39,36 +39,26 @@ namespace Funes.Impl {
             return new Result<Void>(Void.Value);
         }
 
-        public async Task<Result<bool>> UpdateIfNewer(IEnumerable<EntityEntry> entries, ISerializer ser, CancellationToken ct) {
-            var entityEntries = entries as EntityEntry[] ?? entries.ToArray();
+        public async Task<Result<Void>> UpdateIfNewer(EntityEntry entry, ISerializer ser, CancellationToken ct) {
+            ct.ThrowIfCancellationRequested();
             
-            foreach (var entry in entityEntries) {
-                ct.ThrowIfCancellationRequested();
-                
-                (MemoryStream? stream, string encoding) = (null, "");
-                if (_data.TryGetValue(entry.EntId, out var triple)) {
-                    if (!entry.IncId.IsNewerThan(triple.Item1)){
-                        return new Result<bool>(false);
-                    }
+            if (_data.TryGetValue(entry.EntId, out var triple)) {
+                if (!entry.IncId.IsNewerThan(triple.Item1)){
+                    return new Result<Void>(Void.Value);
                 }
             }
-
-            foreach (var entry in entityEntries) {
-                ct.ThrowIfCancellationRequested();
-                
-                (MemoryStream? stream, string encoding) = (null, "");
-
-                if (entry.IsOk) {
-                    stream = new MemoryStream();
-                    var serResult = await ser.Encode(stream, entry.EntId, entry.Value);
-                    if (serResult.IsError) return new Result<bool>(serResult.Error);
-                    encoding = serResult.Value;
-                }
-
-                _data[entry.EntId] = (entry.IncId, stream, encoding);
+            
+            (MemoryStream? stream, string encoding) = (null, "");
+            if (entry.IsOk) {
+                stream = new MemoryStream();
+                var serResult = await ser.Encode(stream, entry.EntId, entry.Value);
+                if (serResult.IsError) return new Result<Void>(serResult.Error);
+                encoding = serResult.Value;
             }
- 
-            return new Result<bool>(true);
+
+            _data[entry.EntId] = (entry.IncId, stream, encoding);
+            
+            return new Result<Void>(Void.Value);
         }
     }
 }

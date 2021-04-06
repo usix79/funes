@@ -1,6 +1,7 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -18,14 +19,20 @@ namespace Funes.Redis {
 
         private readonly ILogger _logger;
         private readonly ConnectionMultiplexer _redis;
-        private readonly int _ttl;
         private readonly TimeSpan _ttlSpan;
+        private readonly string _updateScript;
+        private readonly byte[] _updateScriptDigest;
+        private readonly string _emptyScript;
+        private readonly byte[] _emptyScriptDigest;
 
         public RedisCache(string connectionString, ILogger logger, int ttl = 3600) {
             _logger = logger;
-            _ttl = ttl;
-            _ttlSpan = TimeSpan.FromSeconds(_ttl);
+            _ttlSpan = TimeSpan.FromSeconds(ttl);
             _redis = ConnectionMultiplexer.Connect(connectionString);
+            _updateScript = ComposeUpdateScript(ttl);
+            _updateScriptDigest = Digest(_updateScript);
+            _emptyScript = ComposeUploadEmptyScript(ttl);
+            _emptyScriptDigest = Digest(_emptyScript);
         }
 
         public async Task<Result<EntityEntry>> Get(EntityId eid, ISerializer ser, CancellationToken ct) {
@@ -121,9 +128,81 @@ namespace Funes.Redis {
                 return new Result<Void>(new Error.ExceptionError(x));
             }
         }
+        
+        private static byte[] Digest(string script) {
+            using var sha1 = SHA1.Create();
+            var bytes = sha1.ComputeHash(Encoding.UTF8.GetBytes(script));
+            return bytes;
+        }
+        private static byte[] Encode(byte[] value)
+        {
+            const string hex = "0123456789abcdef";
+            var result = new byte[value.Length * 2];
+            var offset = 0;
+            foreach (int val in value) {
+                result[offset++] = (byte)hex[val >> 4];
+                result[offset++] = (byte)hex[val & 15];
+            }
+            return result;
+        } 
+        
+        private static string ComposeUpdateScript(int ttl) =>
+            @$"local incId = redis.call('HGET', KEYS[1], '{PropIncId}')
+if (incId == false or incId == '' or ARGV[2] < incId) then
+    redis.call('HMSET', KEYS[1], '{PropStatus}', ARGV[1], '{PropIncId}', ARGV[2], '{PropEncoding}', ARGV[3], '{PropData}', ARGV[4])
+    redis.call('EXPIRE', KEYS[1], {ttl})
+    return 1
+else
+    return 0
+end";
+        private static string ComposeUploadEmptyScript(int ttl) =>
+            @$"local incId = redis.call('HGET', KEYS[1], '{PropIncId}')
+if (incId == false) then
+    redis.call('HMSET', KEYS[1], '{PropStatus}', ARGV[1], '{PropIncId}', '', '{PropEncoding}', '', '{PropData}', '')
+    redis.call('EXPIRE', KEYS[1], {ttl})
+    return 1
+else
+    return 0
+end";
 
-        public Task<Result<bool>> UpdateIfNewer(IEnumerable<EntityEntry> entries, ISerializer ser, CancellationToken ct) {
-            throw new System.NotImplementedException();
+        public async Task<Result<Void>> UpdateIfNewer(EntityEntry entry, ISerializer ser, CancellationToken ct) {
+            if (entry.IsOk) {
+                await using var stream = new MemoryStream();
+                var encodeResult = await ser.Encode(stream, entry.EntId, entry.Value);
+                if (encodeResult.IsError) {
+                    return new Result<Void>(encodeResult.Error);
+                }
+
+                return await Eval(_updateScriptDigest, _updateScript, new[] {new RedisKey(entry.EntId.Id)},
+                    new RedisValue[]
+                        {(int) entry.Status, entry.IncId.Id, encodeResult.Value, RedisValue.CreateFrom(stream)});
+            }
+
+            return await Eval(_emptyScriptDigest, _emptyScript, new[] {new RedisKey(entry.EntId.Id)},
+                new RedisValue[] {(int) entry.Status});
+        }
+
+        private async Task<Result<Void>> Eval(byte[] digest, string script, RedisKey[] keys, RedisValue[] values) {
+            try {
+                var db = _redis.GetDatabase();
+                var evalResult1 = await db.ScriptEvaluateAsync(digest, keys, values);
+                
+            }
+            catch (Exception x ) {
+                if (x.Message.StartsWith("NOSCRIPT")) {
+                    try {
+                        var db = _redis.GetDatabase();
+                        var evalResult2 = await db.ScriptEvaluateAsync(script, keys, values);
+                    }
+                    catch(Exception xx) {
+                        return new Result<Void>(new Error.ExceptionError(xx));
+                    }
+                }
+                else {
+                    return new Result<Void>(new Error.ExceptionError(x));
+                }
+            }
+            return new Result<Void>(Void.Value);
         }
     }
 }

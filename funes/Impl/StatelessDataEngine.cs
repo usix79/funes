@@ -37,15 +37,7 @@ namespace Funes.Impl {
                 : EntityEntry.NotExist(eid);
             
             // try set cache item
-            var trySetResult = await _cache.UpdateIfNewer(new[] {entry}, ss, ct);
-
-            if (trySetResult.IsOk && !trySetResult.Value) {
-                // what? cache already has gotten a value, look in cache again
-                if (_logger.IsEnabled(LogLevel.Debug)) 
-                    _logger.LogDebug($"Retrieve {eid}, unsuccessfull cache update");
-                
-                return await _cache.Get(eid, ser, ct);
-            }
+            var trySetResult = await _cache.UpdateIfNewer(entry, ss, ct);
 
             if (trySetResult.IsError)
                 _logger.LogError($"Retrieve {eid}, cache update error {trySetResult.Error}");
@@ -59,13 +51,11 @@ namespace Funes.Impl {
             return new Result<EntityEntry>(entry);
         }
         
-        public async ValueTask<Result<bool>> Upload(
+        public async ValueTask<Result<Void>> Upload(
             IEnumerable<EntityStamp> stamps, ISerializer ser, CancellationToken ct, bool skipCache = false) {
 
-            var result = true;
             if (skipCache) {
                 _tasksQueue.Enqueue(SaveStamps(stamps, ser, ct));
-                result = false;
             }
             else {
                 var stampsList = new List<EntityStamp>();
@@ -84,18 +74,19 @@ namespace Funes.Impl {
                 }
 
                 if (stampsList.Count > 0) {
-                    var cacheResult = await _cache.UpdateIfNewer(stampsList.Select(x => x.ToEntry()), ss, ct);
-                    if (cacheResult.IsError) {
-                        errors ??= new ();
-                        errors.Add(cacheResult.Error);
+                    foreach (var stamp in stampsList) {
+                        var cacheResult = await _cache.UpdateIfNewer(stamp.ToEntry(), ss, ct);
+                        if (cacheResult.IsError) {
+                            errors ??= new ();
+                            errors.Add(cacheResult.Error);
+                        }
                     }
-                    result = cacheResult.Value;
                     _tasksQueue.Enqueue(SaveStamps(stampsList, ss, ct));
                 }
 
-                if (errors?.Count > 0) return Result<bool>.AggregateError(errors); 
+                if (errors?.Count > 0) return Result<Void>.AggregateError(errors); 
             }
-            return new Result<bool>(result);
+            return new Result<Void>(Void.Value);
         }
         
         public async ValueTask<Result<Void>> TryCommit(IEnumerable<EntityStampKey> premises, 
