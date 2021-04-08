@@ -10,7 +10,7 @@ namespace Funes {
         public record NotSupportedEncodingError(string Encoding) : Error;
         public record SerdeError(string Msg) : Error;
         public record IoError(string Msg) : Error;
-        public record CognitionError(Increment Increment, Error Error) : Error;
+        public record IncrementError(Increment Increment, Error Error) : Error;
 
         public record CommitError(CommitError.Conflict[] Conflicts) : Error {
             public readonly struct Conflict {

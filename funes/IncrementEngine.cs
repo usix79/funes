@@ -93,13 +93,12 @@ namespace Funes {
             }
 
             async ValueTask ProcessLogicResult(WorkItem<TModel,TMsg,TSideEffect> item) {
-
                 var result = item.Task.Result.Value;
                 var parentId = item.ParentId;
-                var cognitionResult = await TryIncrement(item);
+                var incrementResult = await TryIncrement(item);
 
-                if (cognitionResult.IsOk) {
-                    var (increment, derivedFacts) = cognitionResult.Value;
+                if (incrementResult.IsOk) {
+                    var (increment, derivedFacts) = incrementResult.Value;
                     
                     if (item.ParentId is null) rootIncId = increment.Id;
                     
@@ -112,15 +111,19 @@ namespace Funes {
                     }
                 }
                 else {
-                    if (cognitionResult.Error is Error.CognitionError x) {
-                        if (parentId is null) rootIncId = x.Increment.Id;
-                        parentId = x.Increment.Id;
+                    if (incrementResult.Error is Error.IncrementError x) {
                         LogError(x.Increment.Id, "ProcessLogicResult", "TryReflect", x.Error);
+
+                        if (x.Error is Error.CommitError) {
+                            // new attempt if transaction failed
+                            if (parentId is null) rootIncId = x.Increment.Id;
+                            parentId = x.Increment.Id;
+                            RunLogic(item.FactStamp, parentId, item.Attempt + 1);
+                        }
                     }
                     else {
-                        LogError(item.FactStamp.IncId, "ProcessLogicResult", "TryReflect", cognitionResult.Error);
+                        LogError(item.FactStamp.IncId, "ProcessLogicResult", "TryReflect", incrementResult.Error);
                     }
-                    RunLogic(item.FactStamp, parentId, item.Attempt + 1);
                 }
             }
 
@@ -156,9 +159,8 @@ namespace Funes {
                     builder.RegisterCommitResult(commitResult, env.ElapsedMilliseconds);
 
                     List<EntityStamp>? derivedFacts = logicResult.DerivedFacts.Count > 0 ? new() : null;
-                    foreach (var derivedFact in logicResult.DerivedFacts) {
+                    foreach (var derivedFact in logicResult.DerivedFacts)
                         derivedFacts!.Add(derivedFact.ToStamp(builder.IncId));
-                    }
                     
                     if (commitResult.IsOk) {
                         foreach (var outputEntity in logicResult.Outputs.Values) {

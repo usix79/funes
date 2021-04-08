@@ -17,7 +17,7 @@ namespace Funes {
         public static Result<T> SerdeError(string msg) => new (new Error.SerdeError(msg));
         public static Result<T> IoError(string msg) => new (new Error.IoError(msg));
         public static Result<T> IncrementError(Increment increment, Error error) => 
-            new (new Error.CognitionError(increment, error));
+            new (new Error.IncrementError(increment, error));
         public static Result<T> TransactionError(Error.CommitError.Conflict[] conflicts) =>
             new (new Error.CommitError(conflicts));
         public static Result<T> AggregateError(IEnumerable<Error> errors) => 
