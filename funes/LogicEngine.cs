@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Funes.Indexes;
 using Microsoft.Extensions.Logging;
 
 namespace Funes {
@@ -28,6 +29,7 @@ namespace Funes {
         public class LogicResult {
             public Dictionary<EntityId, (Entity,IncrementId,bool)> Inputs { get; } = new ();
             public Dictionary<EntityId, Entity> Outputs { get; } = new ();
+            public Dictionary<string, IndexRecord> IndexOps { get; } = new();
             public List<Entity> DerivedFacts { get; } = new ();
             public List<TSideEffect> SideEffects { get; } = new ();
             public List<KeyValuePair<string, string>> Constants { get; } = new ();
@@ -90,6 +92,13 @@ namespace Funes {
                     case Cmd<TMsg, TSideEffect>.UploadCmd x:
                         output.Outputs[x.Entity.Id] = x.Entity;
                         entities[x.Entity.Id] = EntityEntry.Ok(x.Entity);
+                        break;
+                    case Cmd<TMsg, TSideEffect>.TagEntityCmd x:
+                        if (!output.IndexOps.TryGetValue(x.IdxName, out var idxRecord)) {
+                            idxRecord = new IndexRecord();
+                            output.IndexOps[x.IdxName] = idxRecord;
+                        }
+                        idxRecord.Add(new IndexOp(IndexOp.Kind.AddTag, x.EntId.Id, x.Tag));
                         break;
                     case Cmd<TMsg, TSideEffect>.DerivedFactCmd x:
                         output.DerivedFacts.Add(x.Entity);
@@ -184,13 +193,14 @@ namespace Funes {
                 
                 var node = pendingCommands.First;
                 while (node != null) {
+                    var nextNode = node.Next;
                     if (node.Value switch {
                         Cmd<TMsg, TSideEffect>.RetrieveCmd x => TryCompleteRetrieve(x),
                         Cmd<TMsg, TSideEffect>.RetrieveManyCmd x => TryCompleteRetrieveMany(x),
                         _ => true}) {
                         pendingCommands.Remove(node);
                     }
-                    node = node.Next;
+                    node = nextNode;
                 }
             }
                 

@@ -16,7 +16,7 @@ namespace Funes.Tests {
             _testOutputHelper = testOutputHelper;
         }
 
-        private IncrementEngine<TModel, TMsg, TSideEffect> CreateCognitionEngine<TModel, TMsg, TSideEffect>(
+        private IncrementEngineEnv<TModel, TMsg, TSideEffect> CreateIncrementEngineEnv<TModel, TMsg, TSideEffect>(
             ILogic<TModel, TMsg, TSideEffect> logic, Behavior<TSideEffect> behavior, 
             IRepository? repository = null,
             ICache? cache_ = null,
@@ -30,7 +30,7 @@ namespace Funes.Tests {
             var de = new StatelessDataEngine(repo, cache, tre, logger);
             var logicEngine = new  LogicEngine<TModel, TMsg, TSideEffect>(logic, ser, de, logger, tracer);
 
-            return new IncrementEngine<TModel, TMsg, TSideEffect>(logicEngine, behavior, ser, de, logger);
+            return new IncrementEngineEnv<TModel, TMsg, TSideEffect>(logicEngine, behavior, ser, de, logger);
         }
         
         [Fact]
@@ -44,10 +44,10 @@ namespace Funes.Tests {
             
             Task Behavior(string sideEffect, CancellationToken ct) => Task.CompletedTask;
 
-            var cognitionEngine = CreateCognitionEngine(logic, Behavior, repo);
+            var env = CreateIncrementEngineEnv(logic, Behavior, repo);
             var fact = CreateSimpleFact(0, "");
-
-            var result = await cognitionEngine.Run(fact, default);
+            var result = await IncrementEngine.Run(env, fact, default);
+            await env.DataEngine.Flush();
             Assert.True(result.IsOk, result.Error.ToString());
             var repoResult = await repo.Load(Increment.CreateStampKey(result.Value), sysSer, default);
             Assert.True(repoResult.IsOk, repoResult.Error.ToString());
@@ -60,7 +60,6 @@ namespace Funes.Tests {
                 Assert.Empty(cognition.Inputs);
                 Assert.Empty(cognition.Outputs);
                 Assert.Empty(cognition.Constants);
-                Assert.Empty(cognition.SideEffects);
             }
         }
         
@@ -94,10 +93,11 @@ namespace Funes.Tests {
                 return Task.CompletedTask;
             }
 
-            var cognitionEngine = CreateCognitionEngine(logic, Behavior, repo);
+            var env = CreateIncrementEngineEnv(logic, Behavior, repo);
             var fact = CreateSimpleFact(1, "fact");
 
-            var result = await cognitionEngine.Run(fact, default);
+            var result = await IncrementEngine.Run(env, fact, default);
+            await env.DataEngine.Flush();
             Assert.True(result.IsOk, result.Error.ToString());
             Assert.Equal(fact, initEntity);
             Assert.Equal("init", updateModel);
@@ -116,7 +116,7 @@ namespace Funes.Tests {
                 Assert.Empty(cognition.Inputs);
                 Assert.Empty(cognition.Outputs);
                 Assert.Empty(cognition.Constants);
-                Assert.Equal(new List<string>{"effect"}, cognition.SideEffects);
+                Assert.Equal("effect\n", cognition.Details[Increment.DetailsSideEffects]);
             }
         }
 
@@ -148,18 +148,21 @@ namespace Funes.Tests {
 
             Task Behavior(string sideEffect, CancellationToken ct) => Task.CompletedTask;
 
-            var cognitionEngine1 = CreateCognitionEngine(logic, Behavior, repo, cache, tre);
-            var cognitionEngine2 = CreateCognitionEngine(logicWithWaiting, Behavior, repo, cache, tre);
+            var env1 = CreateIncrementEngineEnv(logic, Behavior, repo, cache, tre);
+            var env2 = CreateIncrementEngineEnv(logicWithWaiting, Behavior, repo, cache, tre);
             var fact = CreateSimpleFact(0, "");
 
-            var waitingTask = Task.Factory.StartNew(() => cognitionEngine2.Run(fact)).Unwrap();
+            var waitingTask = Task.Factory.StartNew(() => IncrementEngine.Run(env2, fact)).Unwrap();
             
-            var result1 = await cognitionEngine1.Run(fact);
+            var result1 = await IncrementEngine.Run(env1, fact);
             Assert.True(result1.IsOk, result1.Error.ToString());
             evt.Set();
 
             var result2 = await waitingTask;
             Assert.True(result2.IsOk, result2.Error.ToString());
+
+            await env1.DataEngine.Flush();
+            await env2.DataEngine.Flush();
             
             var repoParentCognitionResult = await repo.Load(Increment.CreateStampKey(result2.Value), sysSer, default);
             Assert.True(repoParentCognitionResult.IsOk, repoParentCognitionResult.Error.ToString());
@@ -173,7 +176,6 @@ namespace Funes.Tests {
                     {new (stamp.Key, true)}, cognition.Inputs);
                 Assert.Equal(new EntityId[]{eid}, cognition.Outputs);
                 Assert.Empty(cognition.Constants);
-                Assert.Empty(cognition.SideEffects);
                 Assert.Equal("1", cognition.Details[Increment.DetailsAttempt]);
             }
 
@@ -195,7 +197,6 @@ namespace Funes.Tests {
                     {new (eid.CreateStampKey(result1.Value), true)}, childCognition.Inputs);
                 Assert.Equal(new EntityId[]{eid}, childCognition.Outputs);
                 Assert.Empty(childCognition.Constants);
-                Assert.Empty(childCognition.SideEffects);
                 Assert.Equal("2", childCognition.Details[Increment.DetailsAttempt]);
             }
         }
@@ -218,10 +219,11 @@ namespace Funes.Tests {
 
             Task Behavior(string se, CancellationToken ct) => Task.CompletedTask;
 
-            var cognitionEngine = CreateCognitionEngine(logic, Behavior, repo);
+            var env = CreateIncrementEngineEnv(logic, Behavior, repo);
             var fact = CreateSimpleFact(1, "fact");
 
-            var result = await cognitionEngine.Run(fact, default);
+            var result = await IncrementEngine.Run(env, fact);
+            await env.DataEngine.Flush();
             Assert.True(result.IsOk, result.Error.ToString());
             
             var repoResult = await repo.Load(Increment.CreateStampKey(result.Value), sysSer, default);
@@ -235,7 +237,6 @@ namespace Funes.Tests {
                 Assert.Empty(cognition.Inputs);
                 Assert.Empty(cognition.Outputs);
                 Assert.Empty(cognition.Constants);
-                Assert.Empty(cognition.SideEffects);
             }
             
             var childrenHistoryResult = await repo.History(Increment.CreateChildEntId(result.Value),
@@ -254,7 +255,6 @@ namespace Funes.Tests {
                     Assert.Empty(childCognition.Inputs);
                     Assert.Empty(childCognition.Outputs);
                     Assert.Empty(childCognition.Constants);
-                    Assert.Empty(childCognition.SideEffects);
                 }
             }
             

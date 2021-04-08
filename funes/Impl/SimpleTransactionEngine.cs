@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -7,13 +8,13 @@ namespace Funes.Impl {
     public class SimpleTransactionEngine: ITransactionEngine {
         private readonly Dictionary<EntityId, IncrementId> _actualIncIds = new();
         public Task<Result<Void>> TryCommit(
-                IEnumerable<EntityStampKey> inputs, 
-                IEnumerable<EntityId> outputs, IncrementId incId, CancellationToken ct) {
+            ArraySegment<EntityStampKey> premises, 
+            ArraySegment<EntityId> conclusions, IncrementId incId, CancellationToken ct) {
             ct.ThrowIfCancellationRequested();
 
             lock (_actualIncIds) {
                 List<Error.CommitError.Conflict>? conflicts = null;
-                foreach (var premise in inputs) {
+                foreach(var premise in premises){
                     if (_actualIncIds.TryGetValue(premise.EntId, out var actualIncId)) {
                         if (actualIncId != premise.IncId) {
                             conflicts ??= new List<Error.CommitError.Conflict>();
@@ -28,7 +29,7 @@ namespace Funes.Impl {
                     return Task.FromResult(Result<Void>.TransactionError(conflicts.ToArray()));
                 }
 
-                foreach (var entId in outputs) {
+                foreach (var entId in conclusions) {
                     _actualIncIds[entId] = incId;
                 }
             }

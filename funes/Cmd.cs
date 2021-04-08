@@ -18,31 +18,33 @@ namespace Funes {
                 return txt.ToString();
             }
         };
-
-        public record LogCmd(LogLevel Level, string Message, params object[] Args) : Cmd<TMsg, TSideEffect>; 
-
+        
         public abstract record OutputCmd : Cmd<TMsg,TSideEffect>;
         public record NoneCmd : OutputCmd;
+        public static readonly NoneCmd None = new NoneCmd();
         public record UploadCmd(Entity Entity) : OutputCmd;
         public record DerivedFactCmd(Entity Entity) : OutputCmd;
         public record SideEffectCmd(TSideEffect SideEffect) : OutputCmd;
         public record ConstantCmd(string Name, string Value) : OutputCmd;
 
+        public record TagEntityCmd(string IdxName, EntityId EntId, string Tag) : OutputCmd;
+
         public record BatchOutputCmd(IEnumerable<OutputCmd> Items) : OutputCmd {
             public override string ToString() {
                 var txt = new StringBuilder("OutputBatch[");
                 foreach (var item in Items) txt.Append(item).Append(',');
-                txt.Append("]");
+                txt.Append(']');
                 return txt.ToString();
             }
         }
 
-        public static readonly NoneCmd None = new NoneCmd();
+        public record LogCmd(LogLevel Level, string Message, params object[] Args) : Cmd<TMsg, TSideEffect>; 
+
         public static Cmd<TMsg, TSideEffect> Error(string msg, params object[] args) => new LogCmd(LogLevel.Error, msg, args);
         public static Cmd<TMsg, TSideEffect> Warning(string msg, params object[] args) => new LogCmd(LogLevel.Warning, msg, args);
         public static Cmd<TMsg, TSideEffect> Information(string msg, params object[] args) => new LogCmd(LogLevel.Information, msg, args);
         public static Cmd<TMsg, TSideEffect> Debug(string msg, params object[] args) => new LogCmd(LogLevel.Debug, msg, args);
 
-        // TODO: consider private constructors and static creators
+        // TODO: consider using pool of commands
     }
 }

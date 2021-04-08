@@ -9,7 +9,7 @@ namespace Funes.Tests {
         protected abstract ITransactionEngine CreateEngine();
 
         private async Task AssertCommit(ITransactionEngine tre, bool expectedSuccess, 
-            IEnumerable<EntityStampKey> inputs, IEnumerable<EntityId> outputs, string incId) {
+            EntityStampKey[] inputs, EntityId[] outputs, string incId) {
             var commitResult = await tre.TryCommit(inputs, outputs, new IncrementId(incId), default);
             if (expectedSuccess) {
                 Assert.True(commitResult.IsOk, commitResult.Error.ToString());

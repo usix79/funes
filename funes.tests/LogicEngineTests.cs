@@ -1,11 +1,10 @@
-using System.Collections;
 using System.Collections.Generic;
-using System.Collections.Specialized;
 using System.Linq;
-using System.Runtime.InteropServices;
 using Funes.Impl;
+using Funes.Indexes;
 using Xunit;
 using Xunit.Abstractions;
+using static Funes.Tests.TestHelpers;
 
 namespace Funes.Tests {
     
@@ -114,6 +113,30 @@ namespace Funes.Tests {
             var output = (Simple)result.Value.Outputs.First().Value.Value;
             Assert.Equal("Answer:42", output.Value);
         }
-        
+
+        [Fact]
+        public async void AddTagLogicTest() {
+            var entId = CreateRandomEntId();
+            var idxName = "testIdx";
+            var tag = "top";
+            
+            var logic = new CallbackLogic<string,string,string>(
+                entity => ("", new Cmd<string, string>.TagEntityCmd(idxName, entId, tag )),
+                (model, msg) => ("", Cmd<string, string>.None),
+                model => Cmd<string, string>.None);
+            
+            var logicEngine = CreateLogicEngine(logic);
+
+            var fact = new Entity(new EntityId("/tests/fact"), "!");
+            var result = await logicEngine.Run(fact, null!, default);
+            Assert.True(result.IsOk);
+            Assert.True(result.Value.IndexOps.TryGetValue(idxName, out var idxRecord));
+            Assert.True(idxRecord!.Count == 1);
+            var op = idxRecord[0];
+            Assert.Equal(IndexOp.Kind.AddTag, op.OpKind);
+            Assert.Equal(entId.Id, op.Key);
+            Assert.Equal(tag, op.Tag);
+        }
+
     }
 }

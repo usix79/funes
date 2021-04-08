@@ -51,48 +51,32 @@ namespace Funes.Impl {
             return new Result<EntityEntry>(entry);
         }
         
-        public async ValueTask<Result<Void>> Upload(
-            IEnumerable<EntityStamp> stamps, ISerializer ser, CancellationToken ct, bool skipCache = false) {
+        public async ValueTask<Result<Void>> Upload(EntityStamp stamp, ISerializer ser, CancellationToken ct, bool skipCache = false) {
 
             if (skipCache) {
-                _tasksQueue.Enqueue(SaveStamps(stamps, ser, ct));
+                _tasksQueue.Enqueue(SaveStamp(stamp, ser, ct));
             }
             else {
-                var stampsList = new List<EntityStamp>();
-                List<Error>? errors = null; 
                 var ss = new StreamSerializer();
             
-                foreach (var stamp in stamps) {
-                    var encodeResult = await ss.EncodeForReal(stamp.Entity.Id, stamp.Entity.Value, ser);
-                    if (encodeResult.IsOk) {
-                        stampsList.Add(stamp);
-                    }
-                    else{
-                        errors ??= new ();
-                        errors.Add(encodeResult.Error);
-                    }
-                }
+                var encodeResult = await ss.EncodeForReal(stamp.Entity.Id, stamp.Entity.Value, ser);
+                if (encodeResult.IsError) return new Result<Void>(encodeResult.Error);
+                
+                var cacheResult = await _cache.UpdateIfNewer(stamp.ToEntry(), ss, ct);
+                _tasksQueue.Enqueue(SaveStamp(stamp, ss, ct));
 
-                if (stampsList.Count > 0) {
-                    foreach (var stamp in stampsList) {
-                        var cacheResult = await _cache.UpdateIfNewer(stamp.ToEntry(), ss, ct);
-                        if (cacheResult.IsError) {
-                            errors ??= new ();
-                            errors.Add(cacheResult.Error);
-                        }
-                    }
-                    _tasksQueue.Enqueue(SaveStamps(stampsList, ss, ct));
-                }
-
-                if (errors?.Count > 0) return Result<Void>.AggregateError(errors); 
+                if (cacheResult.IsError) return new Result<Void>(cacheResult.Error);
             }
+            
             return new Result<Void>(Void.Value);
         }
-        
-        public async ValueTask<Result<Void>> TryCommit(IEnumerable<EntityStampKey> inputs, 
-                IEnumerable<EntityId> outputs, IncrementId incId, CancellationToken ct) {
 
-            var commitResult = await _tre.TryCommit(inputs, outputs, incId, ct);
+        public ValueTask<Result<int>> UploadEvents(IEnumerable<(EntityStamp, EntityId)> events, ISerializer ser, CancellationToken ct, bool skipCache = false) => throw new NotImplementedException();
+
+        public async ValueTask<Result<Void>> TryCommit(ArraySegment<EntityStampKey> premises,
+            ArraySegment<EntityId> outputs, IncrementId incId, CancellationToken ct) {
+
+            var commitResult = await _tre.TryCommit(premises, outputs, incId, ct);
 
             if (commitResult.Error is Error.CommitError err) {
                 var piSecArr = err.Conflicts.Where(IsPiSec).ToArray();
@@ -143,8 +127,8 @@ namespace Funes.Impl {
             }
         }
 
-        private Task SaveStamps(IEnumerable<EntityStamp> stamps, ISerializer ser, CancellationToken ct) =>
-            Task.WhenAll(stamps.Select(x => _repo.Save(x, ser, ct).AsTask()));
+        private Task SaveStamp(EntityStamp stamp, ISerializer ser, CancellationToken ct) =>
+            _repo.Save(stamp, ser, ct).AsTask();
 
         private Task CheckCollisions(IEnumerable<Error.CommitError.Conflict> conflicts, CancellationToken ct) =>
             Task.WhenAll(conflicts.Select(x => CheckConflict(x, ct)));

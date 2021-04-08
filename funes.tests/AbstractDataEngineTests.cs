@@ -112,7 +112,7 @@ namespace Funes.Tests {
 
             var de = CreateEngine(repo, cache, tre, Logger());
 
-            var uploadResult = await de.Upload(new []{stamp}, ser, default);
+            var uploadResult = await de.Upload(stamp, ser, default);
             Assert.True(uploadResult.IsOk, uploadResult.Error.ToString());
 
             await CheckCache(cache, ser, stamp.ToEntry());
@@ -135,7 +135,7 @@ namespace Funes.Tests {
 
             await repo.Save(prevStamp, ser, default);
 
-            var uploadResult = await de.Upload(new []{stamp}, ser, default);
+            var uploadResult = await de.Upload(stamp, ser, default);
             Assert.True(uploadResult.IsOk, uploadResult.Error.ToString());
 
             await CheckCache(cache, ser, stamp.ToEntry());
@@ -158,7 +158,7 @@ namespace Funes.Tests {
 
             await cache.Set(nextStamp.ToEntry(), ser, default);
 
-            var uploadResult = await de.Upload(new []{stamp}, ser, default);
+            var uploadResult = await de.Upload(stamp, ser, default);
             Assert.True(uploadResult.IsOk, uploadResult.Error.ToString());
 
             await CheckCache(cache, ser, nextStamp.ToEntry());
@@ -181,7 +181,7 @@ namespace Funes.Tests {
 
             await repo.Save(nextStamp, ser, default);
 
-            var uploadResult = await de.Upload(new []{stamp}, ser, default);
+            var uploadResult = await de.Upload(stamp, ser, default);
             Assert.True(uploadResult.IsOk, uploadResult.Error.ToString());
 
             await CheckCache(cache, ser, stamp.ToEntry());
@@ -201,7 +201,7 @@ namespace Funes.Tests {
 
             var de = CreateEngine(repo, cache, tre, Logger());
             
-            var uploadResult = await de.Upload(new []{stamp}, ser, default, true);
+            var uploadResult = await de.Upload(stamp, ser, default, true);
             Assert.True(uploadResult.IsOk, uploadResult.Error.ToString());
 
             var cacheResult = await cache.Get(stamp.EntId, ser, default);
@@ -213,7 +213,7 @@ namespace Funes.Tests {
         }
         
         private async Task AssertCommit(IDataEngine de, bool expectedSuccess,
-            IEnumerable<EntityStampKey> inputs, IEnumerable<EntityId> outputs, IncrementId incId) {
+            EntityStampKey[] inputs, EntityId[] outputs, IncrementId incId) {
         
             var r = await de.TryCommit(inputs, outputs, incId, default);
         
@@ -259,7 +259,7 @@ namespace Funes.Tests {
             var actualIncId = IncrementId.ComposeId(startTime.AddMinutes(-1), "testing");
             var actualStamp = CreateSimpleEntityStamp(actualIncId, eid);
             await AssertCommit(de, true, EmptyKeys,EntIds(eid), actualIncId);
-            var uploadResult = await de.Upload(new[] {actualStamp}, ser, default);
+            var uploadResult = await de.Upload(actualStamp, ser, default);
             Assert.True(uploadResult.IsOk, uploadResult.Error.ToString());
 
             var wrongIncId = IncrementId.ComposeId(startTime.AddSeconds(-30), "wrong");
@@ -293,7 +293,7 @@ namespace Funes.Tests {
             var originIncId = IncrementId.ComposeId(startTime, "testing");
             var originStamp = CreateSimpleEntityStamp(originIncId, eid);
             await AssertCommit(de, true, EmptyKeys,EntIds(eid), originIncId);
-            var uploadResult = await de.Upload(new[] {originStamp}, ser, default);
+            var uploadResult = await de.Upload(originStamp, ser, default);
             Assert.True(uploadResult.IsOk, uploadResult.Error.ToString());
             
             // 1 minute letter

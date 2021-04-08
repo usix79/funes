@@ -22,14 +22,13 @@ namespace Funes.Tests {
             var inputs = new Dictionary<EntityStampKey, bool> {
                 {CreateRandomStampKey(), false}, {CreateRandomStampKey(), true}, {CreateRandomStampKey(), false}
                 };
-            var outputs = new EntityId[] {CreateRandomEntId(), CreateRandomEntId(), CreateRandomEntId()};
-            var derivedFacts = new EntityId[] {CreateRandomEntId(), CreateRandomEntId(), CreateRandomEntId()};
+            var outputs = new [] {CreateRandomEntId(), CreateRandomEntId(), CreateRandomEntId()};
+            var derivedFacts = new [] {CreateRandomEntId(), CreateRandomEntId(), CreateRandomEntId()};
             var constants = new Dictionary<string, string> {{"c1", "1"}, {"c2", "12"}, {"c3",  "123"}};
-            var sideEffects = new List<string> {"effect1", "effect2", "effect3"};
             var details = new Dictionary<string, string> {["d1"] = "a", ["d2"] = "ab", ["d3"] = "abc"};
 
             var cognition = new Increment(incId, parentIncId, IncrementStatus.Success, factStamp.Key,
-                inputs.ToList(), outputs, derivedFacts, sideEffects, constants.ToList(), details);
+                inputs.ToArray(), outputs, derivedFacts, constants.ToList(), details);
 
             var sysSer = new SystemSerializer();
             
@@ -54,7 +53,6 @@ namespace Funes.Tests {
                 Assert.Equal(cognition.Outputs, decodedCognition.Outputs);
                 Assert.Equal(cognition.DerivedFacts, decodedCognition.DerivedFacts);
                 Assert.Equal(cognition.Constants, decodedCognition.Constants);
-                Assert.Equal(cognition.SideEffects, decodedCognition.SideEffects);
                 Assert.Equal(cognition.Details, decodedCognition.Details);
             }
         }

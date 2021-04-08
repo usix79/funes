@@ -1,6 +1,4 @@
-using System.Collections.Generic;
-using System.Linq;
-using System.Net;
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -9,8 +7,8 @@ using static Funes.Redis.RedisHelpers;
 
 namespace Funes.Redis {
     public class RedisTransactionEngine : ITransactionEngine {
-        private static string _prefix = "TRE:"; 
-        private static RedisKey _prefixKey = _prefix; 
+        private const string Prefix = "TRE:";
+        private static readonly RedisKey PrefixKey = Prefix; 
         private readonly ILogger _logger;
         private readonly ConnectionMultiplexer _redis;
         private readonly string _commitScript;
@@ -23,52 +21,58 @@ namespace Funes.Redis {
             _commitScriptDigest = Digest(_commitScript);
         }
 
-        public async Task<Result<Void>> TryCommit(IEnumerable<EntityStampKey> inputs, 
-            IEnumerable<EntityId> outputs, IncrementId incId, CancellationToken ct) {
-            var inputsArr = inputs as EntityStampKey[] ?? inputs.ToArray();
-            var inputsCount = inputsArr.Length;
-            var outputsCount = outputs.Count();
-            if (outputsCount == 0) return new Result<Void>(Void.Value);
-            
-            var keys = new RedisKey[inputsCount + outputsCount];
-            var values = new RedisValue[inputsCount + 3];
-            values[0] = inputsCount;
-            values[1] = outputsCount;
-            values[2] = incId.Id;
-            for(var i = 0; i < inputsCount; i++) {
-                keys[i] = _prefixKey.Append(inputsArr[i].EntId.Id);
-                values[3 + i] = inputsArr[i].IncId.Id;
-            }
+        public async Task<Result<Void>> TryCommit(ArraySegment<EntityStampKey> premises,
+            ArraySegment<EntityId> conclusions, IncrementId incId, CancellationToken ct) {
 
-            var index = inputsCount;
-            foreach (var entId in outputs) {
-                keys[index++] = _prefixKey.Append(entId.Id);
+            if (conclusions.Count == 0) 
+                return new Result<Void>(Void.Value);
+
+            var keys = new RedisKey[premises.Count + conclusions.Count];
+            var values = new RedisValue[premises.Count + 3];
+            values[0] = premises.Count;
+            values[1] = conclusions.Count;
+            values[2] = incId.Id;
+
+            var index = 0;
+            foreach(var stampKey in premises) {
+                values[3 + index] = stampKey.IncId.Id;
+                keys[index] = PrefixKey.Append(stampKey.EntId.Id);
+                index++;
+            }
+            foreach (var entId in conclusions) {
+                keys[index++] = PrefixKey.Append(entId.Id);
             }
 
             var result = await Eval(_redis, _logger, _commitScriptDigest, _commitScript, keys, values);
 
-            if (result.IsOk) {
-                if (result.Value!.IsNull) return new Result<Void>(Void.Value);
-                var conflictArr = (string[]) result.Value;
-                var conflictedStamp = inputsArr.FirstOrDefault(stamp => 
-                    string.CompareOrdinal(stamp.EntId.Id, 0, 
-                        conflictArr[0], _prefix.Length, stamp.EntId.Id.Length) == 0);
-                
-                if (conflictedStamp.IsNull) {
-                    return new Result<Void>(new Error.IoError(
-                        $"Cannot find conflicted stamp for {conflictArr[0]}, {conflictArr[1]}"));
+            if (result.IsError) 
+                return new Result<Void>(result.Error);
+
+            if (result.Value!.IsNull) 
+                return new Result<Void>(Void.Value);
+            
+            var conflictArr = (string[]) result.Value;
+            EntityStampKey? conflictedStampKey = null;
+            foreach (var stampKey in premises) {
+                if (string.CompareOrdinal(stampKey.EntId.Id, 0,
+                    conflictArr[0], Prefix.Length, stampKey.EntId.Id.Length) == 0) {
+                    conflictedStampKey = stampKey;
+                    break;
                 }
-                var conflict = new Error.CommitError.Conflict {
-                    EntId = conflictedStamp.EntId,
-                    PremiseIncId = conflictedStamp.IncId,
-                    ActualIncId = new IncrementId(conflictArr[1])
-                };
-                return new Result<Void>(new Error.CommitError(new[] {conflict}));
+            }
+            if (!conflictedStampKey.HasValue) {
+                return new Result<Void>(new Error.IoError(
+                    $"Cannot find conflicted stamp for {conflictArr[0]}, {conflictArr[1]}"));
             }
             
-            return new Result<Void>(result.Error);
+            var conflict = new Error.CommitError.Conflict {
+                EntId = conflictedStampKey.Value.EntId,
+                PremiseIncId = conflictedStampKey.Value.IncId,
+                ActualIncId = new IncrementId(conflictArr[1])
+            };
+            return new Result<Void>(new Error.CommitError(new[] {conflict}));
         }
-        
+
         private static string ComposeCommitScript(int ttl) => @$"
 local n1 = ARGV[1]
 local n2 = ARGV[2]

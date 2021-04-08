@@ -9,10 +9,9 @@ namespace Funes {
         IncrementId ParentId, 
         IncrementStatus Status,
         EntityStampKey Fact, 
-        List<KeyValuePair<EntityStampKey, bool>> Inputs, 
+        KeyValuePair<EntityStampKey, bool>[] Inputs, 
         EntityId[] Outputs,
         EntityId[] DerivedFacts,
-        List<string> SideEffects,
         List<KeyValuePair<string,string>> Constants,
         Dictionary<string, string> Details
         ) {
@@ -25,6 +24,7 @@ namespace Funes {
         public const string DetailsCommitDuration = "CommitDuration";
         public const string DetailsUploadDuration = "UploadDuration";
         public const string DetailsCommitErrors = "CommitErrors";
+        public const string DetailsSideEffects = "SideEffects";
 
         public static EntityId CreateEntId(IncrementId incId) => new (Category, incId.Id);
         public static EntityStamp CreateEntStamp(Increment inc) =>

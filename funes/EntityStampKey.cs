@@ -6,8 +6,6 @@ namespace Funes {
         public IncrementId IncId { get; init; }
         public EntityStampKey(EntityId id, IncrementId incId) => (EntId, IncId) = (id, incId);
         
-        public bool IsNull => EntId.Id is null;
-
         public bool Equals(EntityStampKey other) => EntId.Equals(other.EntId) && IncId.Equals(other.IncId);
         public override bool Equals(object? obj) => obj is EntityStampKey other && Equals(other);
         public override int GetHashCode() => HashCode.Combine(EntId, IncId);

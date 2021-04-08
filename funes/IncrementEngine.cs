@@ -1,34 +1,15 @@
 using System;
-using System.Collections;
+using System.Buffers;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 
 namespace Funes {
-    public class IncrementEngine<TModel,TMsg,TSideEffect> {
-        private readonly int _maxAttempts;
-        private readonly ILogger _logger;
-        private readonly ISerializer _serializer;
-        private readonly ISerializer _systemSerializer = new SystemSerializer();
-        private readonly IDataEngine _dataEngine;
-        private readonly LogicEngine<TModel, TMsg, TSideEffect> _logicEngine;
-        private readonly Behavior<TSideEffect> _behavior;
-
-        public IncrementEngine(
-                LogicEngine<TModel, TMsg, TSideEffect> logicEngine, 
-                Behavior<TSideEffect> behavior,
-                ISerializer serializer,
-                IDataEngine de, 
-                ILogger logger, 
-                int maxAttempts = 3) {
-            (_logicEngine, _behavior, _serializer, _dataEngine, _logger, _maxAttempts) = 
-                (logicEngine, behavior, serializer, de, logger, maxAttempts);
-        }
-        
-        private readonly struct WorkItem {
+    public static class IncrementEngine {
+        private readonly struct WorkItem<TModel,TMsg,TSideEffect> {
             public EntityStamp FactStamp { get; init; }
             public IncrementId? ParentId { get; init; }
             public int Attempt { get; init; }
@@ -36,65 +17,68 @@ namespace Funes {
             public Task<Result<LogicEngine<TModel,TMsg,TSideEffect>.LogicResult>> Task { get; init; }
         }
 
-        public async Task<Result<IncrementId>> Run(Entity fact, CancellationToken ct = default) {
+        public static async Task<Result<IncrementId>> Run<TModel,TMsg,TSideEffect>(
+            IncrementEngineEnv<TModel,TMsg,TSideEffect> env, Entity fact, CancellationToken ct = default) {
             
             var rootIncId = IncrementId.None;
-            var stopWatch = Stopwatch.StartNew();
-            
-            LinkedList<WorkItem> workItems = new ();
+            LinkedList<WorkItem<TModel,TMsg,TSideEffect>> workItems = new ();
+            SemaphoreSlim semaphore = new (0, 1);
 
             try {
                 var factStamp = new EntityStamp(fact, IncrementId.NewFactId());
-                var uploadFactResult = await _dataEngine.Upload(new[] {factStamp}, _serializer, ct, true);
+                var uploadFactResult = await env.DataEngine.Upload(factStamp, env.Serializer, ct, true);
                 if (uploadFactResult.IsError) {
-                    _logger.LogError($"{fact.Id} Upload fact error: {uploadFactResult.Error}");
+                    LogError(factStamp.IncId, "RunIncrement", "UploadFactFailed", uploadFactResult.Error);
                 }
                 
                 RunLogic(factStamp, null, 1);
-
+                
                 while (workItems.First != null) {
-                    await Task.WhenAny(workItems.Select(holder => holder.Task));
-                    ct.ThrowIfCancellationRequested();
-                    await CheckLogicResults();
+                    await semaphore.WaitAsync(ct);
+                    await CheckLogicResults(); 
                 }
 
                 return new Result<IncrementId>(rootIncId);
             }
             catch (Exception x) {
-                _logger.LogCritical(x, "{Lib} {Obj} {Op} {Exn}", "Funes", "IncrementEngine", "Loop", x);
+                env.Logger.LogCritical(x, "{Lib} {Obj} {Op} {Exn}", "Funes", "IncrementEngine", "Loop", x);
                 return Result<IncrementId>.Exception(x);
-            }
-            finally {
-                stopWatch.Stop();
-                await _dataEngine.Flush();
             }
             
             void RunLogic(EntityStamp aFactStamp, IncrementId? parentId, int attempt) {
-                if (attempt <= _maxAttempts) {
-                    var task = _logicEngine.Run(aFactStamp.Entity, null!, ct);
-                    var item = new WorkItem {
+                if (attempt <= env.MaxAttempts) {
+                    var item = new WorkItem<TModel,TMsg,TSideEffect> {
                         FactStamp = aFactStamp, 
                         ParentId = parentId, 
                         Attempt = attempt, 
-                        StartMilliseconds = stopWatch!.ElapsedMilliseconds, 
-                        Task = task
+                        StartMilliseconds = env.ElapsedMilliseconds, 
+                        Task = env.LogicEngine.Run(aFactStamp.Entity, null!, ct)
                     };
                     workItems.AddLast(item);
+                    ReleaseSemaphoreWhenDone(item.Task);
                 }
                 else {
                     LogError(aFactStamp.IncId, "RunLogic", "MaxAttempts");
                 }
             }
 
+            async void ReleaseSemaphoreWhenDone(Task task) {
+                try { 
+                    await task;
+                } 
+                finally {
+                    try { if (semaphore.CurrentCount == 0) semaphore.Release(); } catch (SemaphoreFullException) { }
+                }
+            }
+
             async ValueTask CheckLogicResults() {
                 var node = workItems.First;
                 while (node != null) {
+                    var nextNode = node.Next;
                     if (node.Value.Task.IsCompleted) {
                         workItems.Remove(node);
                         if (node.Value.Task.IsCompletedSuccessfully && node.Value.Task.Result.IsOk) {
-                            var item = node.Value;
-                            await ProcessLogicResult(
-                                item.FactStamp, item.ParentId, item.Attempt, item.StartMilliseconds, item.Task.Result.Value);                            
+                            await ProcessLogicResult(node.Value);                            
                         }
                         else {
                             var ex = node.Value.Task.Exception;
@@ -104,175 +88,263 @@ namespace Funes {
                             RunLogic(node.Value.FactStamp, node.Value.ParentId, node.Value.Attempt + 1);
                         }
                     }
-                    node = node.Next;
+                    node = nextNode;
                 }
             }
 
-            async ValueTask ProcessLogicResult(EntityStamp aFactStamp, IncrementId? parentId, int attempt, 
-                long startMilliseconds, LogicEngine<TModel, TMsg, TSideEffect>.LogicResult result) {
+            async ValueTask ProcessLogicResult(WorkItem<TModel,TMsg,TSideEffect> item) {
 
-                var cognitionResult = await TryIncrement(aFactStamp, parentId, attempt, startMilliseconds, result);
-                
+                var result = item.Task.Result.Value;
+                var parentId = item.ParentId;
+                var cognitionResult = await TryIncrement(item);
+
                 if (cognitionResult.IsOk) {
                     var (increment, derivedFacts) = cognitionResult.Value;
-                    if (parentId is null) rootIncId = increment.Id;
                     
-                    try { 
-                        await Task.WhenAll(result.SideEffects.Select(effect => _behavior(effect, ct)));
-                    }
-                    catch (AggregateException x) {
-                        LogError(increment.Id, "ProcessLogicResult", "SideEffect", null, x);
-                    }
+                    if (item.ParentId is null) rootIncId = increment.Id;
+                    
+                    await PerformSideEffects(increment.Id, result.SideEffects);
 
-                    foreach (var derivedFact in derivedFacts) {
-                        RunLogic(derivedFact, increment.Id, 1);
+                    if (derivedFacts != null) {
+                        foreach (var derivedFact in derivedFacts) {
+                            RunLogic(derivedFact, increment.Id, 1);
+                        }
                     }
                 }
                 else {
-                    switch (cognitionResult.Error) {
-                        case Error.CognitionError x:
-                            if (parentId is null) rootIncId = x.Increment.Id;
-                            parentId = x.Increment.Id;
-                            LogError(x.Increment.Id, "ProcessLogicResult", "TryReflect", x.Error);
-                            break;
-                        default:
-                            LogError(aFactStamp.IncId, "ProcessLogicResult", "TryReflect", cognitionResult.Error);
-                            break;
-                    }
-
-                    RunLogic(aFactStamp, parentId, attempt+1);
-                }
-            }
-
-            async ValueTask<Result<(Increment, IEnumerable<EntityStamp>)>> TryIncrement(
-                EntityStamp aFactStamp, IncrementId? parentId, int attempt, long startMilliseconds,
-                LogicEngine<TModel, TMsg, TSideEffect>.LogicResult output) {
-                
-                try {
-                    var startCommitMilliseconds = stopWatch?.ElapsedMilliseconds;
-                    var reflectTime = DateTime.UtcNow;
-                    var incId = IncrementId.NewId();
-                    var premisesArr = 
-                        output.Inputs
-                            .Where(pair => pair.Value.Item3)
-                            .Select(pair => new EntityStampKey(pair.Key, pair.Value.Item2)).ToArray();
-                    
-                    var outputsArr = 
-                        output.Outputs.Values
-                            // skip output if it is equal to input
-                            .Where(entity => !(output.Inputs.TryGetValue(entity.Id, out var pair) 
-                                                && Equals(entity.Value, pair.Item1.Value)))
-                            .Select(mem => new EntityStamp(mem, incId)).ToArray();
-
-                    var derivedFactsArr = output.DerivedFacts.Select(x => x.ToStamp(incId)).ToArray();
-
-                    var commitResult = await _dataEngine.TryCommit(
-                        premisesArr, outputsArr.Select(x => x.EntId), incId,  ct);
-                    
-                    var endCommitMilliseconds = stopWatch?.ElapsedMilliseconds;
-
-                    var status = IncrementStatus.Unknown;
-                    var detailsDict = new Dictionary<string, string>();
-                    List<Error>? errors = null;
-
-                    // upload outputs only after success commit
-                    if (commitResult.IsOk) {
-                        status = IncrementStatus.Success;
-                        if (outputsArr.Length > 0) {
-                            var uploadOutputsResult =
-                                await _dataEngine.Upload(outputsArr, _serializer, ct, commitResult.IsError);
-                            if (uploadOutputsResult.IsError) {
-                                status = IncrementStatus.Lost;
-                                incId = incId.AsLost();
-                                errors ??= new List<Error>();
-                                errors.Add(uploadOutputsResult.Error);
-                            }
-                        }
-
-                        if (derivedFactsArr.Length > 0) {
-                            var uploadFactsResult = await _dataEngine.Upload(derivedFactsArr, _serializer, ct, true);
-                            if (uploadFactsResult.IsError) {
-                                _logger.LogError($"{incId} Upload derived fact error: {uploadFactsResult.Error}");
-                            }
-                        }
+                    if (cognitionResult.Error is Error.CognitionError x) {
+                        if (parentId is null) rootIncId = x.Increment.Id;
+                        parentId = x.Increment.Id;
+                        LogError(x.Increment.Id, "ProcessLogicResult", "TryReflect", x.Error);
                     }
                     else {
-                        if (commitResult.Error is Error.CommitError err) {
-                            status = IncrementStatus.Fail;
-                            incId = incId.AsFail();
-                            detailsDict[Increment.DetailsCommitErrors] =
-                                string.Join(' ', err.Conflicts.Select(x => x.ToString()));
-                        }
-                        else {
-                            status = IncrementStatus.Lost;
-                            incId = incId.AsLost();
-                        }
-                        errors ??= new List<Error>();
-                        errors.Add(commitResult.Error);
+                        LogError(item.FactStamp.IncId, "ProcessLogicResult", "TryReflect", cognitionResult.Error);
+                    }
+                    RunLogic(item.FactStamp, parentId, item.Attempt + 1);
+                }
+            }
+
+            async ValueTask PerformSideEffects(IncrementId incId, List<TSideEffect> sideEffects) {
+                var behaviorTasks = ArrayPool<Task>.Shared.Rent(sideEffects.Count);
+                try {
+                    for (var i = 0; i < sideEffects.Count; i++)
+                        behaviorTasks[i] = env.Behavior(sideEffects[i], ct);
+                    
+                    // fill rest of the array with Task.CompletedTask
+                    for (var i = sideEffects.Count; i < behaviorTasks.Length; i++)
+                        behaviorTasks[i] = Task.CompletedTask;
+
+                    await Task.WhenAll(behaviorTasks);
+                }
+                catch (AggregateException x) {
+                    LogError(incId, "ProcessLogicResult", "SideEffect", null, x);
+                }
+                finally {
+                    ArrayPool<Task>.Shared.Return(behaviorTasks);
+                }
+            }
+
+            async ValueTask<Result<(Increment, List<EntityStamp>?)>> TryIncrement(
+                WorkItem<TModel,TMsg,TSideEffect> item) {
+
+                var logicResult = item.Task.Result.Value;
+                try {
+                    var builder = new IncrementBuilder(IncrementId.NewId(), item.ParentId, item.FactStamp.Key,
+                        item.StartMilliseconds, item.Attempt, env.ElapsedMilliseconds);
+                    
+                    var commitResult = await TryCommit(builder.IncId, logicResult.Inputs, logicResult.Outputs); 
+                    builder.RegisterCommitResult(commitResult, env.ElapsedMilliseconds);
+
+                    List<EntityStamp>? derivedFacts = logicResult.DerivedFacts.Count > 0 ? new() : null;
+                    foreach (var derivedFact in logicResult.DerivedFacts) {
+                        derivedFacts!.Add(derivedFact.ToStamp(builder.IncId));
                     }
                     
-                    var increment = new Increment(
-                        incId, 
-                        parentId ?? IncrementId.None, 
-                        status,
-                        aFactStamp.Key,
-                        output.Inputs
-                            .ToList()
-                            .Select(pair => new KeyValuePair<EntityStampKey,bool>(
-                                new EntityStampKey(pair.Key, pair.Value.Item2), pair.Value.Item3))
-                            .ToList(),
-                        outputsArr.Select(x => x.Key.EntId).ToArray(),
-                        output.DerivedFacts.Select(x => x.Id).ToArray(),
-                        output.SideEffects.Select(x => x?.ToString() ?? "???").ToList(),
-                        output.Constants,
-                        detailsDict);
-                    
-                    detailsDict[Increment.DetailsIncrementTime] = reflectTime.ToFileTimeUtc().ToString();
-                    detailsDict[Increment.DetailsAttempt] = attempt.ToString();
-                    detailsDict[Increment.DetailsLogicDuration] = (startCommitMilliseconds - startMilliseconds).ToString()!;
-                    detailsDict[Increment.DetailsCommitDuration] = (endCommitMilliseconds - startCommitMilliseconds).ToString()!;
-                    detailsDict[Increment.DetailsUploadDuration] = (stopWatch!.ElapsedMilliseconds - endCommitMilliseconds).ToString()!;
-                    
-                    var sysEntities = parentId.HasValue
-                        ? new [] {Increment.CreateEntStamp(increment), Increment.CreateChildEntStamp(increment.Id, parentId.Value)}
-                        : new [] {Increment.CreateEntStamp(increment)}; 
-                    var uploadSysEntitiesResult = await _dataEngine.Upload(sysEntities, _systemSerializer, ct, true);
-                    if (uploadSysEntitiesResult.IsError) {
-                        errors ??= new List<Error>();
-                        errors.Add(uploadSysEntitiesResult.Error);
-                        _logger.LogError($"{incId} Upload sysEntities error: {uploadSysEntitiesResult.Error}");
-                    }
-                    
-                    if (status != IncrementStatus.Success) {
-                        var error = errors != null
-                            ? errors.Count > 1 
-                                ? new Error.AggregateError(errors.ToArray()) 
-                                : errors[0]
-                            : Error.No; // should not be that
-                        return Result<(Increment, IEnumerable<EntityStamp>)>.CongnitionError(increment, error);
+                    if (commitResult.IsOk) {
+                        foreach (var outputEntity in logicResult.Outputs.Values) {
+                            var outputStamp = outputEntity.ToStamp(builder.IncId);
+                            builder.RegisterResult(await env.DataEngine.Upload(outputStamp, env.Serializer, ct));
+                        }
+                        
+                        // TODO: upload indexes
+
+                        if (derivedFacts != null) {
+                            foreach (var derivedFact in derivedFacts) {
+                                builder.RegisterResult(await env.DataEngine.Upload(derivedFact, env.Serializer, ct, true));
+                            }
+                        }
                     }
 
-                    return new Result<(Increment, IEnumerable<EntityStamp>)>((increment, derivedFactsArr));
+                    if (logicResult.SideEffects.Count > 0)
+                        builder.RegisterSideEffects(DescribeSideEffects(logicResult.SideEffects));
+                    
+                    var increment = builder.Create(logicResult.Inputs, logicResult.Outputs, 
+                        derivedFacts, logicResult.Constants, env.ElapsedMilliseconds); 
+                    
+                    var incrementStamp = Increment.CreateEntStamp(increment);
+                    builder.RegisterResult(await env.DataEngine.Upload(incrementStamp, env.SystemSerializer, ct, true));
+
+                    if (item.ParentId.HasValue) {
+                        var childStamp = Increment.CreateChildEntStamp(increment.Id, item.ParentId.Value);
+                        builder.RegisterResult(await env.DataEngine.Upload(childStamp, env.SystemSerializer, ct, true));
+                    }
+
+                    var error = builder.GetError();
+                    if (error != Error.No) {
+                        return Result<(Increment, List<EntityStamp>?)>.IncrementError(increment, error);
+                    }
+                    
+                    return new Result<(Increment, List<EntityStamp>?)>((increment, derivedFacts));
                 }
                 catch (TaskCanceledException) { throw; }
-                catch (Exception e) { return Result<(Increment, IEnumerable<EntityStamp>)>.Exception(e); }
+                catch (Exception e) { return Result<(Increment, List<EntityStamp>?)>.Exception(e); }
+            }
+
+            async ValueTask<Result<Void>> TryCommit(IncrementId incId, 
+                Dictionary<EntityId, (Entity,IncrementId,bool)> inputs,
+                Dictionary<EntityId, Entity> outputs) {
+
+                var premisesCount = 0;
+                foreach (var tuple in inputs.Values) {
+                    if (tuple.Item3) premisesCount++;
+                }
+
+                var premisesArr = ArrayPool<EntityStampKey>.Shared.Rent(premisesCount);
+                var outputsArr = ArrayPool<EntityId>.Shared.Rent(outputs.Count);
+                
+                try {
+                    var idx = 0;
+                    foreach (var (entity, entityIncId, isPremise) in inputs.Values) {
+                        if (isPremise) {
+                            premisesArr[idx++] = entity.Id.CreateStampKey(entityIncId);
+                        }
+                    }
+                    var premises = new ArraySegment<EntityStampKey>(premisesArr, 0, premisesCount);
+                    
+                    outputs.Keys.CopyTo(outputsArr, 0);
+                    var conclusions = new ArraySegment<EntityId>(outputsArr, 0, outputs.Count);
+                    
+                    return await env.DataEngine.TryCommit(premises, conclusions, incId, ct);
+                }
+                finally {
+                    ArrayPool<EntityStampKey>.Shared.Return(premisesArr);
+                    ArrayPool<EntityId>.Shared.Return(outputsArr);
+                }
+            }
+            
+            string DescribeSideEffects(List<TSideEffect> sideEffects) {
+                var txt = new StringBuilder();
+                foreach (var effect in sideEffects)
+                    if (effect != null) txt.AppendLine(effect.ToString());
+                return txt.ToString();
+            }
+
+            void LogError(IncrementId incId, string op, string kind, Error? err = null, Exception? exn = null) {
+                var msg = "{Lib} {Obj}, {Op} {Kind} {IncId} {Err}";
+                if (exn == null && err is Error.ExceptionError xErr) exn = xErr.Exn;
+        
+                if (exn is null) env.Logger.LogError(msg, "Funes", "IncrementEngine", op, kind, incId, err);
+                else env.Logger.LogError(exn, msg, "Funes", "IncrementEngine",  op, kind, incId, err);
             }
         }
 
-        private void LogError(Entity fact, string op, string kind, Error? err = null, Exception? exn = null) {
-            var msg = "{Lib} {Obj}, {Op} {Kind} {Fact} {Err}";
-            if (exn == null && err is Error.ExceptionError xErr) exn = xErr.Exn;
-        
-            if (exn is null) _logger.LogError(msg, "Funes", "IncrementEngine", op, kind, fact, err);
-            else _logger.LogError(exn,msg, "Funes", "IncrementEngine",  op, kind, fact, err);
-        }
+        private struct IncrementBuilder {
+            private readonly Dictionary<string, string> _detailsDict;
+            private readonly DateTimeOffset _reflectTime;
+            readonly long _startCommitMilliseconds;
+            private long _endCommitMilliseconds;
+            IncrementStatus _status;
+            List<Error>? _errors;
+            private IncrementId _incId;
+            private readonly IncrementId? _parentId;
+            private readonly EntityStampKey _factKey;
+            private readonly int _attempt;
+            private readonly long _startMilliseconds;
 
-        private void LogError(IncrementId incId, string op, string kind, Error? err = null, Exception? exn = null) {
-            var msg = "{Lib} {Obj}, {Op} {Kind} {IncId} {Err}";
-            if (exn == null && err is Error.ExceptionError xErr) exn = xErr.Exn;
-        
-            if (exn is null) _logger.LogError(msg, "Funes", "IncrementEngine", op, kind, incId, err);
-            else _logger.LogError(exn, msg, "Funes", "IncrementEngine",  op, kind, incId, err);
+            public IncrementId IncId => _incId;
+
+            public IncrementBuilder(IncrementId incId, IncrementId? parentId, EntityStampKey factKey, 
+                long startMilliseconds, int attempt, long ms) {
+                _incId = incId;
+                _parentId = parentId;
+                _factKey = factKey;
+                _startMilliseconds = startMilliseconds;
+                _attempt = attempt;
+                _startCommitMilliseconds = ms;
+                _endCommitMilliseconds = 0;
+                _detailsDict = new Dictionary<string, string>(8);
+                _reflectTime = DateTimeOffset.UtcNow;
+                _status = IncrementStatus.Unknown;
+                _errors = null;
+            }
+
+            public void RegisterCommitResult(Result<Void> result, long ms) {
+                _endCommitMilliseconds = ms;
+
+                if (result.IsOk) {
+                    _status = IncrementStatus.Success;
+                }
+                else {
+                    if (result.Error is Error.CommitError err) {
+                        _status = IncrementStatus.Fail;
+                        _incId = IncId.AsFail();
+                        _detailsDict[Increment.DetailsCommitErrors] =
+                            string.Join(' ', err.Conflicts.Select(x => x.ToString()));
+                    }
+                    else {
+                        _status = IncrementStatus.Lost;
+                        _incId = _incId.AsLost();
+                    }
+                    _errors ??= new List<Error>();
+                    _errors.Add(result.Error);
+                }
+            }
+
+            public void RegisterResult(Result<Void> result) {
+                if (result.IsError) {
+                    _errors ??= new List<Error>();
+                    _errors.Add(result.Error);
+                }
+            }
+
+            public void RegisterSideEffects(string txt) =>
+                _detailsDict[Increment.DetailsSideEffects] = txt;
+            
+            public Error GetError() {
+                if (_errors is null) return Error.No;
+                if (_errors!.Count == 1) return _errors[0];
+                return new Error.AggregateError(_errors!);
+            }
+
+            public Increment Create(Dictionary<EntityId, (Entity,IncrementId,bool)> inputs, Dictionary<EntityId, Entity> outputs, 
+                List<EntityStamp>? derivedFacts, List<KeyValuePair<string,string>> constants, long ms) {
+
+                var inputsArr = new KeyValuePair<EntityStampKey, bool>[inputs.Count];
+                var idx = 0;
+                foreach (var pair in inputs) {
+                    inputsArr[idx++] = new KeyValuePair<EntityStampKey, bool>(
+                        new EntityStampKey(pair.Key, pair.Value.Item2), pair.Value.Item3);
+                }
+
+                var derivedFactsArr = derivedFacts != null 
+                    ? new EntityId[derivedFacts.Count] 
+                    : Array.Empty<EntityId>();
+                
+                if (derivedFacts != null) {
+                    idx = 0;
+                    foreach (var derivedFact in derivedFacts)
+                        derivedFactsArr[idx++] = derivedFact.EntId;
+                }
+
+                _detailsDict[Increment.DetailsIncrementTime] = _reflectTime.ToString();
+                _detailsDict[Increment.DetailsAttempt] = _attempt.ToString();
+                _detailsDict[Increment.DetailsLogicDuration] = (_startCommitMilliseconds - _startMilliseconds).ToString()!;
+                _detailsDict[Increment.DetailsCommitDuration] = (_endCommitMilliseconds - _startCommitMilliseconds).ToString()!;
+                _detailsDict[Increment.DetailsUploadDuration] = (ms - _endCommitMilliseconds).ToString()!;
+
+                return new Increment(_incId, _parentId ?? IncrementId.None, _status, _factKey,
+                    inputsArr, outputs .Keys.ToArray(), derivedFactsArr, constants, _detailsDict);
+            }
         }
     }
 }

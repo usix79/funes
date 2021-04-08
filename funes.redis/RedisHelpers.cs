@@ -17,7 +17,7 @@ namespace Funes.Redis {
             RedisResult? result = null;
             try {
                 var db = redis.GetDatabase();
-                result = await db.ScriptEvaluateAsync(digest, keys, values);
+                result = await db.ScriptEvaluateAsync (digest, keys, values);
                 
             }
             catch (Exception x ) {
