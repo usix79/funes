@@ -3,7 +3,7 @@ using System.IO;
 using System.Text.Json;
 using System.Threading.Tasks;
 
-namespace Funes {
+namespace Funes.Impl {
     public class SystemSerializer : ISerializer {
 
         public async ValueTask<Result<string>> Encode(Stream output, EntityId eid, object content) {

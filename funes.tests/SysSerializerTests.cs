@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Funes.Impl;
 using Xunit;
 using Xunit.Abstractions;
 using static Funes.Tests.TestHelpers;

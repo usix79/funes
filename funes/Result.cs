@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 
 namespace Funes {
     
@@ -11,6 +12,7 @@ namespace Funes {
         public Result(T val) => (Value, Error) = (val, Error.No);
         public Result(Error err) => (Value, Error) = (default!, err);
 
+        public static Task<Result<T>> CompletedTask = Task.FromResult(new Result<T>(default(T)!)); 
         public static Result<T> NotFound => new (Error.NotFound);
         public static Result<T> Exception(Exception exn) => new (new Error.ExceptionError(exn));
         public static Result<T> NotSupportedEncoding(string encoding) => new (new Error.NotSupportedEncodingError(encoding));

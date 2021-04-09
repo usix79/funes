@@ -25,7 +25,7 @@ namespace Funes {
             SemaphoreSlim semaphore = new (0, 1);
 
             try {
-                var factStamp = new EntityStamp(fact, IncrementId.NewFactId());
+                var factStamp = new EntityStamp(fact, IncrementId. NewFactId());
                 var uploadFactResult = await env.DataEngine.Upload(factStamp, env.Serializer, ct, true);
                 if (uploadFactResult.IsError) {
                     LogError(factStamp.IncId, "RunIncrement", "UploadFactFailed", uploadFactResult.Error);
@@ -67,7 +67,9 @@ namespace Funes {
                     await task;
                 } 
                 finally {
-                    try { if (semaphore.CurrentCount == 0) semaphore.Release(); } catch (SemaphoreFullException) { }
+                    try {
+                        if (semaphore.CurrentCount == 0) semaphore.Release();
+                    } catch (SemaphoreFullException) { }
                 }
             }
 
@@ -82,8 +84,13 @@ namespace Funes {
                         }
                         else {
                             var ex = node.Value.Task.Exception;
-                            if (ex is null) LogError(node.Value.FactStamp.IncId, "CheckLogic", "LogicFailed", node.Value.Task.Result.Error);
-                            else LogError(node.Value.FactStamp.IncId, "CheckLogic", "LogicException", null, ex);
+                            if (ex is null) {
+                                LogError(node.Value.FactStamp.IncId, "CheckLogic", "LogicFailed", node.Value.Task.Result.Error);
+                                
+                            }
+                            else {
+                                LogError(node.Value.FactStamp.IncId, "CheckLogic", "LogicException", null, ex);
+                            }
                             
                             RunLogic(node.Value.FactStamp, node.Value.ParentId, node.Value.Attempt + 1);
                         }
@@ -100,7 +107,7 @@ namespace Funes {
                 if (incrementResult.IsOk) {
                     var (increment, derivedFacts) = incrementResult.Value;
                     
-                    if (item.ParentId is null) rootIncId = increment.Id;
+                    if (parentId is null) rootIncId = increment.Id;
                     
                     await PerformSideEffects(increment.Id, result.SideEffects);
 
@@ -128,6 +135,8 @@ namespace Funes {
             }
 
             async ValueTask PerformSideEffects(IncrementId incId, List<TSideEffect> sideEffects) {
+                if (sideEffects.Count == 0) return;
+                
                 var behaviorTasks = ArrayPool<Task>.Shared.Rent(sideEffects.Count);
                 try {
                     for (var i = 0; i < sideEffects.Count; i++)
@@ -163,9 +172,8 @@ namespace Funes {
                         derivedFacts!.Add(derivedFact.ToStamp(builder.IncId));
                     
                     if (commitResult.IsOk) {
-                        foreach (var outputEntity in logicResult.Outputs.Values) {
-                            var outputStamp = outputEntity.ToStamp(builder.IncId);
-                            builder.RegisterResult(await env.DataEngine.Upload(outputStamp, env.Serializer, ct));
+                        if (logicResult.Outputs.Count > 0) {
+                            builder.RegisterResults(await UploadOutputs(builder.IncId, logicResult.Outputs));
                         }
                         
                         // TODO: upload indexes
@@ -234,21 +242,47 @@ namespace Funes {
                 }
             }
             
+            Task<Result<Void>[]> UploadOutputs(IncrementId incId, Dictionary<EntityId,Entity> outputs) {
+                var uploadTasks = ArrayPool<Task<Result<Void>>>.Shared.Rent(outputs.Count);
+                try {
+                    var idx = 0;
+                    foreach (var outputEntity in outputs.Values) {
+                        var outputStamp = outputEntity.ToStamp(incId);
+                        uploadTasks[idx++] = env.DataEngine.Upload(outputStamp, env.Serializer, ct).AsTask();
+                    }
+
+                    // fill rest of the array with Task.CompletedTask
+                    for (var i = outputs.Count; i < uploadTasks.Length; i++)
+                        uploadTasks[i] = Result<Void>.CompletedTask;
+
+                    return Task.WhenAll(uploadTasks);
+                }
+                catch (AggregateException x) {
+                    LogError(incId, "ProcessLogicResult", "Upload Outputs", null, x);
+                    return Task.FromResult(new []{Result<Void>.Exception(x)});
+                }
+                finally {
+                    ArrayPool<Task<Result<Void>>>.Shared.Return(uploadTasks);
+                }
+            }
+            
             string DescribeSideEffects(List<TSideEffect> sideEffects) {
                 var txt = new StringBuilder();
                 foreach (var effect in sideEffects)
                     if (effect != null) txt.AppendLine(effect.ToString());
                 return txt.ToString();
             }
-
+            
             void LogError(IncrementId incId, string op, string kind, Error? err = null, Exception? exn = null) {
-                var msg = "{Lib} {Obj}, {Op} {Kind} {IncId} {Err}";
                 if (exn == null && err is Error.ExceptionError xErr) exn = xErr.Exn;
         
-                if (exn is null) env.Logger.LogError(msg, "Funes", "IncrementEngine", op, kind, incId, err);
-                else env.Logger.LogError(exn, msg, "Funes", "IncrementEngine",  op, kind, incId, err);
+                if (exn is null) env.Logger.LogError(ErrorTemplate, "Funes", "IncrementEngine", op, kind, incId, err);
+                else env.Logger.LogError(exn, ErrorTemplate, "Funes", "IncrementEngine",  op, kind, incId, err);
             }
+
         }
+
+        const string ErrorTemplate = "{Lib} {Obj}, {Op} {Kind} {IncId} {Err}";
 
         private struct IncrementBuilder {
             private readonly Dictionary<string, string> _detailsDict;
@@ -306,6 +340,15 @@ namespace Funes {
                 if (result.IsError) {
                     _errors ??= new List<Error>();
                     _errors.Add(result.Error);
+                }
+            }
+
+            public void RegisterResults(Result<Void>[] results) {
+                foreach (var result in results) {
+                    if (result.IsError) {
+                        _errors ??= new List<Error>();
+                        _errors.Add(result.Error);
+                    }
                 }
             }
 

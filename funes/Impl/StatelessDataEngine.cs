@@ -14,6 +14,9 @@ namespace Funes.Impl {
         private readonly ITransactionEngine _tre;
         private readonly ConcurrentQueue<Task> _tasksQueue = new ();
 
+        private readonly ObjectPool<StreamSerializer> _ssPool =
+            new (() => new StreamSerializer(), 21);
+
         public StatelessDataEngine(IRepository repo, ICache cache, ITransactionEngine tre, ILogger logger) =>
             (_logger, _repo, _cache, _tre) = (logger, repo, cache, tre);
 
@@ -22,33 +25,39 @@ namespace Funes.Impl {
 
             if (cacheResult.IsOk) return cacheResult;
 
-            var ss = new StreamSerializer();
-        
-            // cache miss, look in the repo
-            if (_logger.IsEnabled(LogLevel.Debug)) _logger.LogDebug($"Retrieve {eid}, cache miss");
+            var ss = _ssPool.Rent()!;
+
+            try {
+                // cache miss, look in the repo
+                if (_logger.IsEnabled(LogLevel.Debug)) _logger.LogDebug($"Retrieve {eid}, cache miss");
             
-            var repoResult = await LoadActualStamp(eid, IncrementId.Singularity, ss, ct);
+                var repoResult = await LoadActualStamp(eid, IncrementId.Singularity, ss, ct);
 
-            if (repoResult.IsError && repoResult.Error != Error.NotFound)
-                return new Result<EntityEntry>(repoResult.Error);
+                if (repoResult.IsError && repoResult.Error != Error.NotFound)
+                    return new Result<EntityEntry>(repoResult.Error);
 
-            var entry = repoResult.IsOk 
-                ? repoResult.Value.ToEntry() 
-                : EntityEntry.NotExist(eid);
+                var entry = repoResult.IsOk 
+                    ? repoResult.Value.ToEntry() 
+                    : EntityEntry.NotExist(eid);
             
-            // try set cache item
-            var trySetResult = await _cache.UpdateIfNewer(entry, ss, ct);
+                // try set cache item
+                var trySetResult = await _cache.UpdateIfNewer(entry, ss, ct);
 
-            if (trySetResult.IsError)
-                _logger.LogError($"Retrieve {eid}, cache update error {trySetResult.Error}");
+                if (trySetResult.IsError)
+                    _logger.LogError($"Retrieve {eid}, cache update error {trySetResult.Error}");
 
-            if (entry.IsOk) {
-                var realDecodeResult = await ss.DecodeForReal(eid, ser);
-                if (realDecodeResult.IsError) return new Result<EntityEntry>(realDecodeResult.Error);
-                entry = entry.MapValue(realDecodeResult.Value);
+                if (entry.IsOk) {
+                    var realDecodeResult = await ss.DecodeForReal(eid, ser);
+                    if (realDecodeResult.IsError) return new Result<EntityEntry>(realDecodeResult.Error);
+                    entry = entry.MapValue(realDecodeResult.Value);
+                }
+
+                return new Result<EntityEntry>(entry);
             }
-
-            return new Result<EntityEntry>(entry);
+            finally{
+                ss.Reset();
+                _ssPool.Return(ss);
+            }
         }
         
         public async ValueTask<Result<Void>> Upload(EntityStamp stamp, ISerializer ser, CancellationToken ct, bool skipCache = false) {
@@ -57,15 +66,21 @@ namespace Funes.Impl {
                 _tasksQueue.Enqueue(SaveStamp(stamp, ser, ct));
             }
             else {
-                var ss = new StreamSerializer();
-            
-                var encodeResult = await ss.EncodeForReal(stamp.Entity.Id, stamp.Entity.Value, ser);
-                if (encodeResult.IsError) return new Result<Void>(encodeResult.Error);
-                
-                var cacheResult = await _cache.UpdateIfNewer(stamp.ToEntry(), ss, ct);
-                _tasksQueue.Enqueue(SaveStamp(stamp, ss, ct));
+                var ss = _ssPool.Rent()!;
 
-                if (cacheResult.IsError) return new Result<Void>(cacheResult.Error);
+                try {
+                    var encodeResult = await ss.EncodeForReal(stamp.Entity.Id, stamp.Entity.Value, ser);
+                    if (encodeResult.IsError) return new Result<Void>(encodeResult.Error);
+                
+                    var cacheResult = await _cache.UpdateIfNewer(stamp.ToEntry(), ss, ct);
+                    _tasksQueue.Enqueue(SaveStamp(stamp, ss, ct));
+
+                    if (cacheResult.IsError) return new Result<Void>(cacheResult.Error);
+                }
+                finally {
+                    ss.Reset();
+                    _ssPool.Return(ss);
+                }
             }
             
             return new Result<Void>(Void.Value);
@@ -135,37 +150,44 @@ namespace Funes.Impl {
         
         private async Task CheckConflict(Error.CommitError.Conflict conflict, CancellationToken ct) {
             ct.ThrowIfCancellationRequested();
-            var ss = new StreamSerializer();
-            var cacheGetResult = await _cache.Get(conflict.EntId, ss, ct);
+            var ss = _ssPool.Rent()!;
 
-            if (cacheGetResult.IsOk && cacheGetResult.Value.IsOk && cacheGetResult.Value.IncId == conflict.ActualIncId) {
-                // cache == actualIncId, all ok
-                return;
-            }
+            try {
+                var cacheGetResult = await _cache.Get(conflict.EntId, ss, ct);
 
-            _logger.LogError($"PiSec confirmed in {nameof(StatelessDataEngine)}, {conflict}, stamp in cache {cacheGetResult.Value.IncId}");
-            var repoResult = await LoadActualStamp(conflict.EntId, IncrementId.Singularity, ss, ct);
-            if (repoResult.IsError) {
-                _logger.LogError($"{nameof(StatelessDataEngine)} Unable to resolve piSec, LoadActualStamp error {repoResult.Error}");
-                return;
-            }
+                if (cacheGetResult.IsOk && cacheGetResult.Value.IsOk && cacheGetResult.Value.IncId == conflict.ActualIncId) {
+                    // cache == actualIncId, all ok
+                    return;
+                }
 
-            var commitResult = await _tre.TryCommit(
-                new[] {conflict.EntId.CreateStampKey(conflict.ActualIncId)}, 
-                new[] {conflict.EntId}, repoResult.Value.IncId,
-                ct);
+                _logger.LogError($"PiSec confirmed in {nameof(StatelessDataEngine)}, {conflict}, stamp in cache {cacheGetResult.Value.IncId}");
+                var repoResult = await LoadActualStamp(conflict.EntId, IncrementId.Singularity, ss, ct);
+                if (repoResult.IsError) {
+                    _logger.LogError($"{nameof(StatelessDataEngine)} Unable to resolve piSec, LoadActualStamp error {repoResult.Error}");
+                    return;
+                }
 
-            if (commitResult.IsOk) {
-                var cacheSetResult = await _cache.Set(repoResult.Value.ToEntry(), ss, ct);
-                if (cacheSetResult.IsError) {
-                    _logger.LogError($"{nameof(StatelessDataEngine)} Unable to resolve piSec, Cache Set error {cacheSetResult.Error}");
+                var commitResult = await _tre.TryCommit(
+                    new[] {conflict.EntId.CreateStampKey(conflict.ActualIncId)}, 
+                    new[] {conflict.EntId}, repoResult.Value.IncId,
+                    ct);
+
+                if (commitResult.IsOk) {
+                    var cacheSetResult = await _cache.Set(repoResult.Value.ToEntry(), ss, ct);
+                    if (cacheSetResult.IsError) {
+                        _logger.LogError($"{nameof(StatelessDataEngine)} Unable to resolve piSec, Cache Set error {cacheSetResult.Error}");
+                    }
+                    else {
+                        _logger.LogWarning($"PiSec resolved in {nameof(StatelessDataEngine)}, {conflict}, with {repoResult.Value.IncId}");
+                    }
                 }
                 else {
-                    _logger.LogWarning($"PiSec resolved in {nameof(StatelessDataEngine)}, {conflict}, with {repoResult.Value.IncId}");
+                    _logger.LogError($"{nameof(StatelessDataEngine)} Unable to resolve piSec, TryCommit error {commitResult.Error}");
                 }
             }
-            else {
-                _logger.LogError($"{nameof(StatelessDataEngine)} Unable to resolve piSec, TryCommit error {commitResult.Error}");
+            finally {
+                ss.Reset();
+                _ssPool.Return(ss);
             }
         }
     }
