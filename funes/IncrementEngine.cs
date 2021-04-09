@@ -18,19 +18,13 @@ namespace Funes {
         }
 
         public static async Task<Result<IncrementId>> Run<TModel,TMsg,TSideEffect>(
-            IncrementEngineEnv<TModel,TMsg,TSideEffect> env, Entity fact, CancellationToken ct = default) {
+            IncrementEngineEnv<TModel,TMsg,TSideEffect> env, EntityStamp factStamp, CancellationToken ct = default) {
             
             var rootIncId = IncrementId.None;
             LinkedList<WorkItem<TModel,TMsg,TSideEffect>> workItems = new ();
             SemaphoreSlim semaphore = new (0, 1);
 
             try {
-                var factStamp = new EntityStamp(fact, IncrementId. NewFactId());
-                var uploadFactResult = await env.DataEngine.Upload(factStamp, env.Serializer, ct, true);
-                if (uploadFactResult.IsError) {
-                    LogError(factStamp.IncId, "RunIncrement", "UploadFactFailed", uploadFactResult.Error);
-                }
-                
                 RunLogic(factStamp, null, 1);
                 
                 while (workItems.First != null) {

@@ -46,7 +46,8 @@ namespace Funes.Tests {
 
             var env = CreateIncrementEngineEnv(logic, Behavior, repo);
             var fact = CreateSimpleFact(0, "");
-            var result = await IncrementEngine.Run(env, fact, default);
+            var factStamp = new EntityStamp(fact, IncrementId. NewFactId());
+            var result = await IncrementEngine.Run(env, factStamp, default);
             await env.DataEngine.Flush();
             Assert.True(result.IsOk, result.Error.ToString());
             var repoResult = await repo.Load(Increment.CreateStampKey(result.Value), sysSer, default);
@@ -95,8 +96,9 @@ namespace Funes.Tests {
 
             var env = CreateIncrementEngineEnv(logic, Behavior, repo);
             var fact = CreateSimpleFact(1, "fact");
+            var factStamp = new EntityStamp(fact, IncrementId. NewFactId());
 
-            var result = await IncrementEngine.Run(env, fact, default);
+            var result = await IncrementEngine.Run(env, factStamp, default);
             await env.DataEngine.Flush();
             Assert.True(result.IsOk, result.Error.ToString());
             Assert.Equal(fact, initEntity);
@@ -151,10 +153,11 @@ namespace Funes.Tests {
             var env1 = CreateIncrementEngineEnv(logic, Behavior, repo, cache, tre);
             var env2 = CreateIncrementEngineEnv(logicWithWaiting, Behavior, repo, cache, tre);
             var fact = CreateSimpleFact(0, "");
+            var factStamp = new EntityStamp(fact, IncrementId. NewFactId());
 
-            var waitingTask = Task.Factory.StartNew(() => IncrementEngine.Run(env2, fact)).Unwrap();
+            var waitingTask = Task.Factory.StartNew(() => IncrementEngine.Run(env2, factStamp)).Unwrap();
             
-            var result1 = await IncrementEngine.Run(env1, fact);
+            var result1 = await IncrementEngine.Run(env1, factStamp);
             Assert.True(result1.IsOk, result1.Error.ToString());
             evt.Set();
 
@@ -221,8 +224,9 @@ namespace Funes.Tests {
 
             var env = CreateIncrementEngineEnv(logic, Behavior, repo);
             var fact = CreateSimpleFact(1, "fact");
+            var factStamp = new EntityStamp(fact, IncrementId. NewFactId());
 
-            var result = await IncrementEngine.Run(env, fact);
+            var result = await IncrementEngine.Run(env, factStamp);
             await env.DataEngine.Flush();
             Assert.True(result.IsOk, result.Error.ToString());
             
