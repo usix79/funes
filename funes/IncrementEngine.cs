@@ -5,11 +5,12 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Funes.Impl;
 using Microsoft.Extensions.Logging;
 
 namespace Funes {
-    public static class IncrementEngine {
-        private readonly struct WorkItem<TModel,TMsg,TSideEffect> {
+    public static class IncrementEngine<TModel,TMsg,TSideEffect> {
+        private readonly struct WorkItem {
             public EntityStamp FactStamp { get; init; }
             public IncrementId? ParentId { get; init; }
             public int Attempt { get; init; }
@@ -17,38 +18,60 @@ namespace Funes {
             public Task<Result<LogicEngine<TModel,TMsg,TSideEffect>.LogicResult>> Task { get; init; }
         }
 
-        public static async Task<Result<IncrementId>> Run<TModel,TMsg,TSideEffect>(
+        private class WorkSet {
+            public LinkedList<WorkItem> WorkItems { get; }
+            public SemaphoreSlim Semaphore { get; }
+            public IncrementId RootIncId { get; set; }
+
+            public WorkSet() {
+                WorkItems = new LinkedList<WorkItem>();
+                Semaphore = new(0, 1);
+                RootIncId = IncrementId.None;
+            }
+
+            public void Reset() {
+                WorkItems.Clear();
+                RootIncId = IncrementId.None;
+            }
+        }
+
+        private static readonly ObjectPool<WorkSet> WorkSetsPool = 
+            new (() => new WorkSet(), 7);
+
+        public static async Task<Result<IncrementId>> Run(
             IncrementEngineEnv<TModel,TMsg,TSideEffect> env, EntityStamp factStamp, CancellationToken ct = default) {
             
-            var rootIncId = IncrementId.None;
-            LinkedList<WorkItem<TModel,TMsg,TSideEffect>> workItems = new ();
-            SemaphoreSlim semaphore = new (0, 1);
+            var workSet = WorkSetsPool.Rent();
 
             try {
                 RunLogic(factStamp, null, 1);
-                
-                while (workItems.First != null) {
-                    await semaphore.WaitAsync(ct);
-                    await CheckLogicResults(); 
+
+                while (workSet.WorkItems.First != null) {
+                    await workSet.Semaphore.WaitAsync(ct);
+                    await CheckLogicResults();
                 }
 
-                return new Result<IncrementId>(rootIncId);
+                return new Result<IncrementId>(workSet.RootIncId);
             }
             catch (Exception x) {
                 env.Logger.LogCritical(x, "{Lib} {Obj} {Op} {Exn}", "Funes", "IncrementEngine", "Loop", x);
                 return Result<IncrementId>.Exception(x);
             }
+            finally {
+                workSet.Reset();
+                WorkSetsPool.Return(workSet);
+            }
             
             void RunLogic(EntityStamp aFactStamp, IncrementId? parentId, int attempt) {
                 if (attempt <= env.MaxAttempts) {
-                    var item = new WorkItem<TModel,TMsg,TSideEffect> {
+                    var item = new WorkItem {
                         FactStamp = aFactStamp, 
                         ParentId = parentId, 
                         Attempt = attempt, 
                         StartMilliseconds = env.ElapsedMilliseconds, 
                         Task = env.LogicEngine.Run(aFactStamp.Entity, null!, ct)
                     };
-                    workItems.AddLast(item);
+                    workSet!.WorkItems.AddLast(item);
                     ReleaseSemaphoreWhenDone(item.Task);
                 }
                 else {
@@ -62,17 +85,17 @@ namespace Funes {
                 } 
                 finally {
                     try {
-                        if (semaphore.CurrentCount == 0) semaphore.Release();
+                        if (workSet.Semaphore.CurrentCount == 0) workSet.Semaphore.Release();
                     } catch (SemaphoreFullException) { }
                 }
             }
 
             async ValueTask CheckLogicResults() {
-                var node = workItems.First;
+                var node = workSet.WorkItems.First;
                 while (node != null) {
                     var nextNode = node.Next;
                     if (node.Value.Task.IsCompleted) {
-                        workItems.Remove(node);
+                        workSet.WorkItems.Remove(node);
                         if (node.Value.Task.IsCompletedSuccessfully && node.Value.Task.Result.IsOk) {
                             await ProcessLogicResult(node.Value);                            
                         }
@@ -93,7 +116,7 @@ namespace Funes {
                 }
             }
 
-            async ValueTask ProcessLogicResult(WorkItem<TModel,TMsg,TSideEffect> item) {
+            async ValueTask ProcessLogicResult(WorkItem item) {
                 var result = item.Task.Result.Value;
                 var parentId = item.ParentId;
                 var incrementResult = await TryIncrement(item);
@@ -101,7 +124,7 @@ namespace Funes {
                 if (incrementResult.IsOk) {
                     var (increment, derivedFacts) = incrementResult.Value;
                     
-                    if (parentId is null) rootIncId = increment.Id;
+                    if (parentId is null) workSet.RootIncId = increment.Id;
                     
                     await PerformSideEffects(increment.Id, result.SideEffects);
 
@@ -117,7 +140,7 @@ namespace Funes {
 
                         if (x.Error is Error.CommitError) {
                             // new attempt if transaction failed
-                            if (parentId is null) rootIncId = x.Increment.Id;
+                            if (parentId is null) workSet.RootIncId = x.Increment.Id;
                             parentId = x.Increment.Id;
                             RunLogic(item.FactStamp, parentId, item.Attempt + 1);
                         }
@@ -150,8 +173,7 @@ namespace Funes {
                 }
             }
 
-            async ValueTask<Result<(Increment, List<EntityStamp>?)>> TryIncrement(
-                WorkItem<TModel,TMsg,TSideEffect> item) {
+            async ValueTask<Result<(Increment, List<EntityStamp>?)>> TryIncrement(WorkItem item) {
 
                 var logicResult = item.Task.Result.Value;
                 try {
