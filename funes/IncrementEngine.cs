@@ -19,6 +19,7 @@ namespace Funes {
         }
 
         private class WorkSet {
+            // TODO: consider replace linked list with custom collection, based on array
             public LinkedList<WorkItem> WorkItems { get; }
             public SemaphoreSlim Semaphore { get; }
             public IncrementId RootIncId { get; set; }
