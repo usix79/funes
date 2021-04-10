@@ -6,14 +6,11 @@ using System.Threading.Tasks;
 namespace Funes {
     public record Increment(
         IncrementId Id, 
-        IncrementId ParentId, 
-        IncrementStatus Status,
-        EntityStampKey Fact, 
+        EntityStampKey FactKey, 
         KeyValuePair<EntityStampKey, bool>[] Inputs, 
         EntityId[] Outputs,
-        EntityId[] DerivedFacts,
         List<KeyValuePair<string,string>> Constants,
-        Dictionary<string, string> Details
+        List<KeyValuePair<string,string>> Details
         ) {
         
         public const string Category = "funes/increments";
@@ -25,13 +22,14 @@ namespace Funes {
         public const string DetailsUploadDuration = "UploadDuration";
         public const string DetailsCommitErrors = "CommitErrors";
         public const string DetailsSideEffects = "SideEffects";
+        public const string DetailsError = "Error";
 
         public static EntityId CreateEntId(IncrementId incId) => new (Category, incId.Id);
-        public static EntityStamp CreateEntStamp(Increment inc) =>
+        public static EntityStamp CreateStamp(Increment inc) =>
             new (new Entity(Increment.CreateEntId(inc.Id), inc), inc.Id);
         public static EntityId CreateChildEntId(IncrementId parentId) => new (ChildrenCategory, parentId.Id);
 
-        public static EntityStamp CreateChildEntStamp(IncrementId incId, IncrementId parentId) =>
+        public static EntityStamp CreateChildStamp(IncrementId incId, IncrementId parentId) =>
             new(new Entity(Increment.CreateChildEntId(parentId), null!), incId);        
         public static EntityStampKey CreateStampKey(IncrementId incId) => new (CreateEntId(incId), incId);
 
@@ -40,6 +38,14 @@ namespace Funes {
             return getResult.IsOk
                 ? new Result<Increment>((Increment) getResult.Value.Value)
                 : new Result<Increment>(getResult.Error);
+        }
+
+        public string FindDetail(string key) {
+            foreach(var pair in Details)
+                if (pair.Key == key)
+                    return pair.Value;
+
+            return "";
         }
 
         public struct Conflict {

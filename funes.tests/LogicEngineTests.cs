@@ -68,8 +68,7 @@ namespace Funes.Tests {
                 };
             public Cmd<string, string>.OutputCmd End(string model) =>
                 new Cmd<string, string>.BatchOutputCmd(new Cmd<string, string>.OutputCmd[] {
-                    new Cmd<string, string>.SideEffectCmd("Publish: " + model),
-                    new Cmd<string, string>.DerivedFactCmd(new Entity(new EntityId("/tests/advanced"), "42"))
+                    new Cmd<string, string>.SideEffectCmd("Publish: " + model)
                 });
         }
         
@@ -81,7 +80,6 @@ namespace Funes.Tests {
             var result = await logicEngine.Run(fact, null!, default);
             Assert.True(result.IsOk);
             Assert.Equal("Publish: FlipFlop", result.Value.SideEffects.First());
-            Assert.Equal("42", result.Value.DerivedFacts.First().Value.ToString());
         }
         
         public class RetrieveLogic : ILogic<string, string, string> {
@@ -130,7 +128,7 @@ namespace Funes.Tests {
             var fact = new Entity(new EntityId("/tests/fact"), "!");
             var result = await logicEngine.Run(fact, null!, default);
             Assert.True(result.IsOk);
-            Assert.True(result.Value.IndexOps.TryGetValue(idxName, out var idxRecord));
+            Assert.True(result.Value.IndexRecords.TryGetValue(idxName, out var idxRecord));
             Assert.True(idxRecord!.Count == 1);
             var op = idxRecord[0];
             Assert.Equal(IndexOp.Kind.AddTag, op.OpKind);

@@ -26,7 +26,7 @@ namespace Funes.Impl {
                 }
 
                 if (conflicts is not null) {
-                    return Task.FromResult(Result<Void>.TransactionError(conflicts.ToArray()));
+                    return Task.FromResult(Result<Void>.CommitError(conflicts.ToArray()));
                 }
 
                 foreach (var entId in conclusions) {

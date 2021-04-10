@@ -29,13 +29,12 @@ namespace Funes {
         public class LogicResult {
             public Dictionary<EntityId, (Entity,IncrementId,bool)> Inputs { get; } = new ();
             public Dictionary<EntityId, Entity> Outputs { get; } = new ();
-            public Dictionary<string, IndexRecord> IndexOps { get; } = new();
-            public List<Entity> DerivedFacts { get; } = new ();
+            public Dictionary<string, IndexRecord> IndexRecords { get; } = new();
             public List<TSideEffect> SideEffects { get; } = new ();
             public List<KeyValuePair<string, string>> Constants { get; } = new ();
         }
 
-        public async Task<Result<LogicResult>> Run(Entity fact, IConstants constants, CancellationToken ct = default) {
+        public async Task<Result<LogicResult>> Run(Entity fact, IConstants constants, CancellationToken ct) {
             var entities = new Dictionary<EntityId, EntityEntry>{[fact.Id] = EntityEntry.Ok(fact)};
             var pendingMessages = new Queue<TMsg>();
             var pendingCommands = new LinkedList<Cmd<TMsg, TSideEffect>>();
@@ -94,14 +93,11 @@ namespace Funes {
                         entities[x.Entity.Id] = EntityEntry.Ok(x.Entity);
                         break;
                     case Cmd<TMsg, TSideEffect>.TagEntityCmd x:
-                        if (!output.IndexOps.TryGetValue(x.IdxName, out var idxRecord)) {
+                        if (!output.IndexRecords.TryGetValue(x.IdxName, out var idxRecord)) {
                             idxRecord = new IndexRecord();
-                            output.IndexOps[x.IdxName] = idxRecord;
+                            output.IndexRecords[x.IdxName] = idxRecord;
                         }
                         idxRecord.Add(new IndexOp(IndexOp.Kind.AddTag, x.EntId.Id, x.Tag));
-                        break;
-                    case Cmd<TMsg, TSideEffect>.DerivedFactCmd x:
-                        output.DerivedFacts.Add(x.Entity);
                         break;
                     case Cmd<TMsg, TSideEffect>.SideEffectCmd x:
                         output.SideEffects.Add(x.SideEffect);
@@ -137,7 +133,7 @@ namespace Funes {
                     pendingMessages!.Enqueue(aCmd.Action(entry));
                 }
                 catch (Exception x) {
-                    _logger.LogError(x, "Failed retrieve action for {EntityId}", aCmd.EntityId);
+                    _logger.LogError(x, "Failed retrieve action for {EntityId}", aCmd.EntityId.Id);
                 }
                 return true;
             }

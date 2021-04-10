@@ -11,6 +11,7 @@ namespace Funes {
         public record SerdeError(string Msg) : Error;
         public record IoError(string Msg) : Error;
         public record IncrementError(Increment Increment, Error Error) : Error;
+        public record MaxAttemptsError : Error;
 
         public record CommitError(CommitError.Conflict[] Conflicts) : Error {
             public readonly struct Conflict {
@@ -39,5 +40,6 @@ namespace Funes {
 
         public static readonly Error No = new NoError();
         public static readonly Error NotFound = new NotFoundError();
+        public static readonly Error MaxAttempts = new MaxAttemptsError();
     }
 }

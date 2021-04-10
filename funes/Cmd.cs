@@ -23,7 +23,6 @@ namespace Funes {
         public record NoneCmd : OutputCmd;
         public static readonly NoneCmd None = new NoneCmd();
         public record UploadCmd(Entity Entity) : OutputCmd;
-        public record DerivedFactCmd(Entity Entity) : OutputCmd;
         public record SideEffectCmd(TSideEffect SideEffect) : OutputCmd;
         public record ConstantCmd(string Name, string Value) : OutputCmd;
 

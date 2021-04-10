@@ -31,14 +31,14 @@ namespace Funes {
         private const int TailLenght = 6;
         private const string FailTag = "-fail";
         private const string LostTag = "-lost";
-        private const string FactTag = "-fact";
+        private const string StimulusTag = "-stimulus";
 
         private static readonly ThreadLocal<Random> Rand = new (() => new Random(DateTime.Now.Millisecond));
         
-        public static IncrementId ComposeId(DateTimeOffset dt, Random? rand, bool forFact = false) {
+        public static IncrementId ComposeId(DateTimeOffset dt, Random? rand, bool forStimulus = false) {
             Debug.Assert(rand != null, nameof(rand) + " != null");
 
-            var length = DigitsLength + 1 + TailLenght + (forFact ? FactTag.Length : 0);
+            var length = DigitsLength + 1 + TailLenght + (forStimulus ? StimulusTag.Length : 0);
 
             var id = string.Create(length, MillisecondsBeforeFryReawakening(dt), 
                 (span, num) => {
@@ -49,9 +49,9 @@ namespace Funes {
                     for (var i = 0; i < TailLenght; i++) {
                         span[DigitsLength + i + 1] = (char) ('a' + rand.Next(25));
                     }
-                    if (forFact) {
-                        for (var i = 0; i < FactTag.Length; i++) {
-                            span[ DigitsLength + 1 + TailLenght + i] = FactTag[i];
+                    if (forStimulus) {
+                        for (var i = 0; i < StimulusTag.Length; i++) {
+                            span[ DigitsLength + 1 + TailLenght + i] = StimulusTag[i];
                         }
                     }
                 });
@@ -60,7 +60,7 @@ namespace Funes {
         }
 
         public static IncrementId ComposeId(DateTimeOffset dt, string tail, bool forFact = false) {
-            var length = DigitsLength + 1 + tail.Length + (forFact ? FactTag.Length : 0);
+            var length = DigitsLength + 1 + tail.Length + (forFact ? StimulusTag.Length : 0);
             var id = string.Create(length, MillisecondsBeforeFryReawakening(dt), 
                 (span, num) => {
                     for (var i = 0; i < DigitsLength; i++, num /= 10) {
@@ -71,8 +71,8 @@ namespace Funes {
                         span[DigitsLength + i + 1] = tail[i];
                     }
                     if (forFact) {
-                        for (var i = 0; i < FactTag.Length; i++) {
-                            span[ DigitsLength + 1 + tail.Length + i] = FactTag[i];
+                        for (var i = 0; i < StimulusTag.Length; i++) {
+                            span[ DigitsLength + 1 + tail.Length + i] = StimulusTag[i];
                         }
                     }
                 });
@@ -81,7 +81,7 @@ namespace Funes {
         }
 
         public static IncrementId NewId() => ComposeId(DateTimeOffset.UtcNow, Rand.Value, false);
-        public static IncrementId NewFactId() => ComposeId(DateTimeOffset.UtcNow, Rand.Value, true);
+        public static IncrementId NewStimulusId() => ComposeId(DateTimeOffset.UtcNow, Rand.Value, true);
 
         public bool IsOlderThan(IncrementId other) => CompareTo(other) > 0;
 
