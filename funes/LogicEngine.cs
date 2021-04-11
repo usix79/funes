@@ -50,7 +50,6 @@ namespace Funes {
                 while (pendingMessages.Count > 0 || pendingCommands.First != null) {
                     ct.ThrowIfCancellationRequested();
                     
-                    // TODO: consider simultaneous execution 
                     // TODO: consider continue work after exception in update()
                     while (pendingMessages.TryDequeue(out var msg)) {
                         if (iteration++ > _iterationsLimit) ThrowIterationsLimitException();

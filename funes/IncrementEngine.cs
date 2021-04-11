@@ -32,7 +32,7 @@ namespace Funes {
                                 continue;
                             case Error.IncrementError x:
                                 LogError(x.Increment.Id, "TryIncrement", incrementResult.Error);
-                                return new Result<IncrementId>(incrementResult.Error);
+                                return new Result<IncrementId>(x);
                             default:
                                 LogError(factStamp.IncId, "TryIncrementGeneral", incrementResult.Error);
                                 return new Result<IncrementId>(incrementResult.Error);
