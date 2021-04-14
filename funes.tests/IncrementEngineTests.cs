@@ -3,6 +3,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Funes.Impl;
+using Funes.Indexes;
 using Xunit;
 using Xunit.Abstractions;
 using static Funes.Tests.TestHelpers;
@@ -34,7 +35,7 @@ namespace Funes.Tests {
         }
         
         [Fact]
-        public async void EmptyCognition() {
+        public async void EmptyIncrement() {
             var sysSer = new SystemSerializer();
             var repo = new SimpleRepository();
             var logic = new CallbackLogic<string,string,string>(
@@ -63,7 +64,7 @@ namespace Funes.Tests {
         }
         
         [Fact]
-        public async void BaseCognition() {
+        public async void BaseIncrement() {
             var sysSer = new SystemSerializer();
             var repo = new SimpleRepository();
 
@@ -108,19 +109,19 @@ namespace Funes.Tests {
             var repoResult = await repo.Load(Increment.CreateStampKey(result.Value), sysSer, default);
             Assert.True(repoResult.IsOk, repoResult.Error.ToString());
             Assert.True(repoResult.Value.Value is Increment);
-            if (repoResult.Value.Value is Increment cognition) {
-                Assert.Equal(result.Value, cognition.Id);
-                Assert.Equal(fact.Id, cognition.FactKey.EntId);
-                Assert.Empty(cognition.Inputs);
-                Assert.Empty(cognition.Outputs);
-                Assert.Empty(cognition.Constants);
+            if (repoResult.Value.Value is Increment increment) {
+                Assert.Equal(result.Value, increment.Id);
+                Assert.Equal(fact.Id, increment.FactKey.EntId);
+                Assert.Empty(increment.Inputs);
+                Assert.Empty(increment.Outputs);
+                Assert.Empty(increment.Constants);
                 Assert.Equal("effect\n", 
-                    cognition.Details.FirstOrDefault(pair => pair.Key == Increment.DetailsSideEffects).Value);
+                    increment.Details.FirstOrDefault(pair => pair.Key == Increment.DetailsSideEffects).Value);
             }
         }
 
         [Fact]
-        public async void CognitionWithConcurrency() {
+        public async void IncrementWithConcurrency() {
             var sysSer = new SystemSerializer();
             var ser = new SimpleSerializer<Simple>();
             var repo = new SimpleRepository();
@@ -178,24 +179,77 @@ namespace Funes.Tests {
                 Assert.Equal("2", increment.FindDetail(Increment.DetailsAttempt));
             }
 
-            var childrenHistoryResult = await repo.History(Increment.CreateChildEntId(fact2Stamp.IncId),
+            var childrenHistoryResult = await repo.HistoryBefore(Increment.CreateChildEntId(fact2Stamp.IncId),
                 IncrementId.Singularity, 42, default);
             Assert.True(childrenHistoryResult.IsOk, childrenHistoryResult.Error.ToString());
             Assert.Equal(2, childrenHistoryResult.Value.Count());
             var childIncId = childrenHistoryResult.Value.First(x => !x.IsSuccess());
 
-            var repoCognitionResult = await repo.Load(Increment.CreateStampKey(childIncId), sysSer, default);
-            Assert.True(repoCognitionResult.IsOk, repoCognitionResult.Error.ToString());
-            Assert.True(repoCognitionResult.Value.Value is Increment);
-            if (repoCognitionResult.Value.Value is Increment childCognition) {
-                Assert.Equal(childIncId, childCognition.Id);
-                Assert.Equal(fact.Id, childCognition.FactKey.EntId);
+            var repoIncrementResult = await repo.Load(Increment.CreateStampKey(childIncId), sysSer, default);
+            Assert.True(repoIncrementResult.IsOk, repoIncrementResult.Error.ToString());
+            Assert.True(repoIncrementResult.Value.Value is Increment);
+            if (repoIncrementResult.Value.Value is Increment childIncrement) {
+                Assert.Equal(childIncId, childIncrement.Id);
+                Assert.Equal(fact.Id, childIncrement.FactKey.EntId);
                 Assert.Equal(new List<KeyValuePair<EntityStampKey, bool>>
-                    {new (stamp.Key, true)}, childCognition.Inputs);
-                Assert.Equal(new EntityId[]{eid}, childCognition.Outputs);
-                Assert.Empty(childCognition.Constants);
-                Assert.Equal("1", childCognition.FindDetail(Increment.DetailsAttempt));
+                    {new (stamp.Key, true)}, childIncrement.Inputs);
+                Assert.Equal(new EntityId[]{eid}, childIncrement.Outputs);
+                Assert.Empty(childIncrement.Constants);
+                Assert.Equal("1", childIncrement.FindDetail(Increment.DetailsAttempt));
             }
         }
+        [Fact]
+        public async void IncrementWithIndex() {
+            var sysSer = new SystemSerializer();
+            var repo = new SimpleRepository();
+            var cache = new SimpleCache();
+
+            var entId = CreateRandomEntId();
+            var idxName = "testIdx";
+            var tag = "top";
+            
+            var logic = new CallbackLogic<string,string,string>(
+                entity => ("", new Cmd<string, string>.TagCmd(idxName, entId.Id, tag )),
+                (model, msg) => ("", Cmd<string, string>.None),
+                model => Cmd<string, string>.None);
+
+
+            Task Behavior(IncrementId incId, string se, CancellationToken ct) => Task.CompletedTask;
+
+            var env = CreateIncrementEngineEnv(logic, Behavior, repo, cache);
+            var fact = CreateSimpleFact(1, "fact");
+            var factStamp = new EntityStamp(fact, IncrementId. NewStimulusId());
+
+            var result = await IncrementEngine<string, string, string>.Run(env, factStamp, default);
+            var incId = result.Value;
+            await env.DataEngine.Flush();
+            Assert.True(result.IsOk, result.Error.ToString());
+
+            var indexRecordId = IndexHelpers.GetRecordId(idxName);
+            var expectedOp = new IndexOp(IndexOp.Kind.AddTag, entId.Id, tag);
+
+            var cacheResult = await cache.GetEvents(indexRecordId, default);
+            Assert.True(cacheResult.IsOk, cacheResult.Error.ToString());
+            Assert.Equal(incId, cacheResult.Value.First);
+            Assert.Equal(incId, cacheResult.Value.Last);
+            var reader = new IndexRecordReader(cacheResult.Value.Data);
+            Assert.True(reader.MoveNext());
+            Assert.Equal(expectedOp, reader.Current);
+            Assert.False(reader.MoveNext());
+            
+            var repoResult = await repo.LoadEvent(indexRecordId.CreateStampKey(incId), default);
+            Assert.True(repoResult.IsOk, repoResult.Error.ToString());
+            reader = new IndexRecordReader(repoResult.Value.Data);
+            Assert.True(reader.MoveNext());
+            Assert.Equal(expectedOp, reader.Current);
+            
+            var repoResultInc = await repo.Load(Increment.CreateStampKey(incId), sysSer, default);
+            Assert.True(repoResultInc.IsOk, repoResultInc.Error.ToString());
+            Assert.True(repoResultInc.Value.Value is Increment);
+            if (repoResultInc.Value.Value is Increment increment) {
+                Assert.Equal(new EntityId[]{indexRecordId}, increment.Outputs);
+            }
+        }
+        
     }
 }

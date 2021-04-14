@@ -1,10 +1,10 @@
 using System;
 using System.Buffers;
 using System.Collections.Generic;
-using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Funes.Indexes;
 using Microsoft.Extensions.Logging;
 
 namespace Funes {
@@ -83,15 +83,21 @@ namespace Funes {
                     if (logicResult.Outputs.Count > 0) {
                         builder.RegisterResults(await UploadOutputs(builder.IncId, logicResult.Outputs));
                     }
+
+                    if (logicResult.IndexRecords.Count > 0) {
+                        var indexesResults = await UploadIndexes(builder.IncId, logicResult.IndexRecords, env.MaxIndexRecords);
+                        builder.RegisterResults(indexesResults);
+                        
+                        // TODO: rebuild indexes
+                    }
                     
-                    // TODO: upload indexes
                 }
 
                 if (logicResult.SideEffects.Count > 0)
                     builder.DescribeSideEffects(DescribeSideEffects(logicResult.SideEffects));
                 
                 var increment = builder.Create(logicResult.Inputs, 
-                    logicResult.Outputs, logicResult.Constants, env.ElapsedMilliseconds); 
+                    logicResult.Outputs, logicResult.IndexRecords, logicResult.Constants, env.ElapsedMilliseconds); 
                 
                 builder.RegisterResult(await env.DataEngine.Upload(
                     Increment.CreateStamp(increment), env.SystemSerializer, ct, true));
@@ -156,7 +162,44 @@ namespace Funes {
                     ArrayPool<Task<Result<Void>>>.Shared.Return(uploadTasks);
                 }
             }
-            
+
+            Task<Result<string>[]> UploadIndexes(IncrementId incId, Dictionary<string,IndexRecord> records, int max) {
+                var uploadTasks = ArrayPool<Task<Result<string>>>.Shared.Rent(records.Count);
+                try {
+                    var idx = 0;
+                    foreach (var pair in records) {
+                        uploadTasks[idx++] = UploadIdx(incId, pair.Key, pair.Value, max).AsTask();
+                    }
+
+                    // fill rest of the array with Task.CompletedTask
+                    for (var i = records.Count; i < uploadTasks.Length; i++)
+                        uploadTasks[i] = Result<string>.CompletedTask;
+
+                    return Task.WhenAll(uploadTasks);
+                }
+                catch (AggregateException x) {
+                    LogError(incId, "Upload Index Records", null, x);
+                    return Task.FromResult(new []{Result<string>.Exception(x)});
+                }
+                finally {
+                    ArrayPool<Task<Result<string>>>.Shared.Return(uploadTasks);
+                }
+            }
+
+            // return index name if it needs rebuild
+            async ValueTask<Result<string>> UploadIdx(IncrementId incId, string idxName, IndexRecord record, int max) {
+                var arr = new byte[IndexHelpers.CalcSize(record)];
+                IndexHelpers.Serialize(record, arr);
+                var evt = new Event(incId, arr);
+                
+                var result = await env.DataEngine.AppendEvent(
+                    IndexHelpers.GetRecordId(idxName), evt, IndexHelpers.GetOffsetId(idxName), ct);
+                
+                return result.IsOk
+                    ? new Result<string>(result.Value > max ? idxName : "") 
+                    : new Result<string>(result.Error); 
+            }
+
             string DescribeSideEffects(List<TSideEffect> sideEffects) {
                 var txt = new StringBuilder();
                 foreach (var effect in sideEffects)
@@ -231,6 +274,15 @@ namespace Funes {
                 }
             }
 
+            public void RegisterResults(Result<string>[] results) {
+                foreach (var result in results) {
+                    if (result.IsError) {
+                        _errors ??= new List<Error>();
+                        _errors.Add(result.Error);
+                    }
+                }
+            }
+
             public void DescribeSideEffects(string txt) => AppendDetails(Increment.DetailsSideEffects, txt);
             
             public Error GetError() {
@@ -240,7 +292,8 @@ namespace Funes {
             }
 
             public Increment Create(Dictionary<EntityId, (Entity,IncrementId,bool)> inputs, 
-                Dictionary<EntityId, Entity> outputs, List<KeyValuePair<string,string>> constants, long ms) {
+                Dictionary<EntityId, Entity> outputs, Dictionary<string, IndexRecord> indexes,
+                List<KeyValuePair<string,string>> constants, long ms) {
 
                 var inputsArr = new KeyValuePair<EntityStampKey, bool>[inputs.Count];
                 var idx = 0;
@@ -259,10 +312,18 @@ namespace Funes {
                     foreach (var error in _errors) AppendDetails(Increment.DetailsError, error.ToString());
                 }
 
-                return new Increment(_incId, _factKey, inputsArr, outputs .Keys.ToArray(), constants, _details);
+                var outputsArr = new EntityId[outputs.Count + indexes.Count];
+                outputs.Keys.CopyTo(outputsArr, 0);
+                var i = 0;
+                foreach (var idxName in indexes.Keys) {
+                    outputsArr[outputs.Count + i] = IndexHelpers.GetRecordId(idxName);
+                    i++;
+                }
+
+                return new Increment(_incId, _factKey, inputsArr, outputsArr, constants, _details);
             }
 
-            public void AppendDetails(string key, string value) {
+            private void AppendDetails(string key, string value) {
                 _details.Add(new KeyValuePair<string, string>(key, value));
             }
         }

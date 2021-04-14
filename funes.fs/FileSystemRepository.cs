@@ -13,26 +13,30 @@ namespace Funes.Fs {
         
         public FileSystemRepository(string root) => Root = root;
 
-        public async ValueTask<Result<bool>> Save(EntityStamp entityStamp, ISerializer ser, CancellationToken ct) {
+        public async ValueTask<Result<Void>> Save(EntityStamp entityStamp, ISerializer ser, CancellationToken ct) {
             await using MemoryStream stream = new();
             var encoderResult = await ser.Encode(stream, entityStamp.Entity.Id, entityStamp.Value);
-            if (encoderResult.IsError) return new Result<bool>(encoderResult.Error);
+            if (encoderResult.IsError) return new Result<Void>(encoderResult.Error);
             return await Write(entityStamp.Key, stream.GetBuffer(), encoderResult.Value, ct);
         }
-
-        private async ValueTask<Result<bool>> Write(EntityStampKey key, 
-                        ReadOnlyMemory<byte> value, string encoding, CancellationToken ct) {
+        
+        public async ValueTask<Result<Void>> SaveEvent(EntityId eid, Event evt, CancellationToken ct) {
+            return await Write(eid.CreateStampKey(evt.IncId), evt.Data, "evt", ct);
+        }
+        
+        private async ValueTask<Result<Void>> Write(EntityStampKey key, 
+                        ReadOnlyMemory<byte> data, string encoding, CancellationToken ct) {
             try {
                 Directory.CreateDirectory(GetMemPath(key.EntId));
                 var fileName = GetMemFileName(key, encoding);
                 await using FileStream fs = File.OpenWrite(fileName);
-                await fs.WriteAsync(value, ct);
-                return new Result<bool>(true);
+                await fs.WriteAsync(data, ct);
+                return new Result<Void>(Void.Value);
             }
             catch (TaskCanceledException) { throw; }
-            catch (Exception e) { return Result<bool>.Exception(e); }
+            catch (Exception e) { return Result<Void>.Exception(e); }
         }
-
+        
         public async ValueTask<Result<EntityStamp>> Load(EntityStampKey key, ISerializer ser, CancellationToken ct) {
             try {
                 var memDirectory = GetMemDirectory(key);
@@ -54,24 +58,67 @@ namespace Funes.Fs {
             catch (TaskCanceledException) { throw; }
             catch (Exception x) { return Result<EntityStamp>.Exception(x); }
         }
+
+        public async ValueTask<Result<Event>> LoadEvent(EntityStampKey key, CancellationToken ct) {
+            try {
+                var memDirectory = GetMemDirectory(key);
+                if (Directory.Exists(memDirectory)) {
+                    var fileName = GetEventFileName(key);
+                    var fullFileName = Path.Combine(memDirectory, fileName);
+                    if (File.Exists(fullFileName)) {
+                        var data = await File.ReadAllBytesAsync(fullFileName, ct);
+                        return new Result<Event>(new Event(key.IncId, data));
+                    }
+                }
+                return Result<Event>.NotFound;
+            }
+            catch (TaskCanceledException) { throw; }
+            catch (Exception x) { return Result<Event>.Exception(x); }
+        }
         
-        public ValueTask<Result<IEnumerable<IncrementId>>> History(EntityId id, 
+        public ValueTask<Result<IncrementId[]>> HistoryBefore(EntityId eid, 
                     IncrementId before, int maxCount = 1, CancellationToken ct = default) {
             try {
-                var path = GetMemPath(id);
+                ct.ThrowIfCancellationRequested();
+                
+                var path = GetMemPath(eid);
 
                 var incIds =
                     Directory.GetFiles(path)
                         .Select(name => ParseFileName(Path.GetFileName(name)).Item1)
+                        .Where(before.IsNewerThan)
                         .OrderBy(x => x)
-                        .SkipWhile(incId => before.CompareTo(incId) >= 0)
-                        .Take(maxCount);
+                        .Take(maxCount)
+                        .ToArray();
 
-                return ValueTask.FromResult(new Result<IEnumerable<IncrementId>>(incIds));
+                return ValueTask.FromResult(new Result<IncrementId[]>(incIds));
             }
             catch (TaskCanceledException) { throw; }
             catch (Exception e) {
-                return ValueTask.FromResult(Result<IEnumerable<IncrementId>>.Exception(e));
+                return ValueTask.FromResult(Result<IncrementId[]>.Exception(e));
+            }
+        }
+
+        public ValueTask<Result<IncrementId[]>> HistoryAfter(EntityId eid, 
+            IncrementId after, CancellationToken ct = default) {
+
+            try {
+                ct.ThrowIfCancellationRequested();
+                
+                var path = GetMemPath(eid);
+
+                var incIds =
+                    Directory.GetFiles(path)
+                        .Select(name => ParseFileName(Path.GetFileName(name)).Item1)
+                        .Where(after.IsOlderThan)
+                        .OrderByDescending(x => x)
+                        .ToArray();
+
+                return ValueTask.FromResult(new Result<IncrementId[]>(incIds));
+            }
+            catch (TaskCanceledException) { throw; }
+            catch (Exception e) {
+                return ValueTask.FromResult(Result<IncrementId[]>.Exception(e));
             }
         }
 
@@ -81,6 +128,9 @@ namespace Funes.Fs {
 
         private string GetMemFileMask(EntityStampKey key) =>
             key.IncId.Id + ".*";
+
+        private string GetEventFileName(EntityStampKey key) =>
+            key.IncId.Id + ".evt";
 
         private (IncrementId, string) ParseFileName(string fullFileName) {
             var fileName = Path.GetFileName(fullFileName);

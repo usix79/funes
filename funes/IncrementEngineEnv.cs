@@ -7,6 +7,7 @@ namespace Funes {
     public class IncrementEngineEnv<TModel, TMsg, TSideEffect> {
         
         public int MaxAttempts { get; }
+        public int MaxIndexRecords { get; }
         public ILogger Logger { get; }
         public ISerializer Serializer { get; }
         public IDataEngine DataEngine { get; }
@@ -25,9 +26,10 @@ namespace Funes {
             ISerializer serializer,
             IDataEngine de, 
             ILogger logger, 
-            int maxAttempts = 3) {
-            (LogicEngine, Behavior, Serializer, DataEngine, Logger, MaxAttempts) = 
-                (logicEngine, behavior, serializer, de, logger, maxAttempts);
+            int maxAttempts = 3,
+            int maxIndexRecords = 42) {
+            (LogicEngine, Behavior, Serializer, DataEngine, Logger, MaxAttempts, MaxIndexRecords) = 
+                (logicEngine, behavior, serializer, de, logger, maxAttempts, maxIndexRecords);
 
             _stopwatch = new Stopwatch();
             _stopwatch.Start();

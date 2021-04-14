@@ -1,5 +1,7 @@
+using System.Linq;
 using System.Threading.Tasks;
 using Funes.Impl;
+using Funes.Indexes;
 using Xunit;
 using static Funes.Tests.TestHelpers;
 
@@ -135,6 +137,147 @@ namespace Funes.Tests {
             await UpdateIfNewer(cache, otherEntry);
             Assert.Equal(entry1, await Get(cache, entry1.EntId));
             Assert.Equal(otherEntry, await Get(cache, otherEntry.EntId));
+        }
+
+        private Event CreateEvent(string incIdStr, IndexOp.Kind kind, string key, string tag) {
+            var incId = new IncrementId(incIdStr);
+            var rec = new IndexRecord {new(kind, key, tag)};
+            var arr = new byte[IndexHelpers.CalcSize(rec)];
+            IndexHelpers.Serialize(rec, arr);
+            return new Event(incId, arr);
+        }
+        
+        [Fact]
+        public async void UpdateEvents() {
+            var cache = CreateCache();
+            var entId = CreateRandomEntId("indexes");
+            var events = new[] {
+                CreateEvent("100", IndexOp.Kind.AddTag, "key1", "tag1"),
+                CreateEvent("101", IndexOp.Kind.ClearTags, "key1", ""),
+                CreateEvent("102", IndexOp.Kind.AddTag, "key2", "tag2")
+            };
+            var updateResult = await cache.UpdateEventsIfNotExists(entId, events, default);
+            Assert.True(updateResult.IsOk, updateResult.Error.ToString());
+
+            var getResult = await cache.GetEvents(entId, default);
+            Assert.True(getResult.IsOk, getResult.Error.ToString());
+            
+            Assert.Equal(events[0].IncId, getResult.Value.First); 
+            Assert.Equal(events[^1].IncId, getResult.Value.Last);
+
+            var reader = new IndexRecordReader(getResult.Value.Data);
+            foreach (var evt in events) {
+                Assert.True(reader.MoveNext());
+                var singleReader = new IndexRecordReader(evt.Data);
+                Assert.True(singleReader.MoveNext());
+                Assert.Equal(reader.Current, singleReader.Current);
+            }
+        }
+
+        [Fact]
+        public async void UpdateEventsIfExists() {
+            var cache = CreateCache();
+            var entId = CreateRandomEntId("indexes");
+            var events1 = new[] {
+                CreateEvent("100", IndexOp.Kind.AddTag, "key1", "tag1"),
+                CreateEvent("101", IndexOp.Kind.ClearTags, "key1", ""),
+                CreateEvent("102", IndexOp.Kind.AddTag, "key2", "tag2")
+            };
+            var events2 = new[] {
+                CreateEvent("103", IndexOp.Kind.AddTag, "key3", "tag3"),
+                CreateEvent("104", IndexOp.Kind.ClearTags, "key3", ""),
+                CreateEvent("105", IndexOp.Kind.AddTag, "key1", "tag23")
+            };
+            var updateResult1 = await cache.UpdateEventsIfNotExists(entId, events1, default);
+            Assert.True(updateResult1.IsOk, updateResult1.Error.ToString());
+
+            var updateResult2 = await cache.UpdateEventsIfNotExists(entId, events2, default);
+            Assert.True(updateResult2.IsOk, updateResult2.Error.ToString());
+
+            var getResult = await cache.GetEvents(entId, default);
+            Assert.True(getResult.IsOk, getResult.Error.ToString());
+            
+            Assert.Equal(events1[0].IncId, getResult.Value.First); 
+            Assert.Equal(events1[^1].IncId, getResult.Value.Last);
+
+            var reader = new IndexRecordReader(getResult.Value.Data);
+            foreach (var evt in events1) {
+                Assert.True(reader.MoveNext());
+                var singleReader = new IndexRecordReader(evt.Data);
+                Assert.True(singleReader.MoveNext());
+                Assert.Equal(reader.Current, singleReader.Current);
+            }
+        }
+
+        [Fact]
+        public async void AppendEventToEmptyCache() {
+            var cache = CreateCache();
+            var entId = CreateRandomEntId("indexes");
+            var evt = CreateEvent("100", IndexOp.Kind.AddTag, "key1", "tag1");
+            var appendResult = await cache.AppendEvent(entId, evt, default);
+            Assert.Equal(Error.NotFound, appendResult.Error);
+        }
+
+        [Fact]
+        public async void AppendEvent() {
+            var cache = CreateCache();
+            var entId = CreateRandomEntId("indexes");
+            var events = new[] {
+                CreateEvent("100", IndexOp.Kind.AddTag, "key1", "tag1"),
+                CreateEvent("101", IndexOp.Kind.ClearTags, "key1", ""),
+                CreateEvent("102", IndexOp.Kind.AddTag, "key2", "tag2")
+            };
+            var updateResult = await cache.UpdateEventsIfNotExists(entId, events, default);
+            Assert.True(updateResult.IsOk, updateResult.Error.ToString());
+            
+            var evt1 = CreateEvent("104", IndexOp.Kind.AddTag, "key3", "tag42");
+            var appendResult1 = await cache.AppendEvent(entId, evt1, default);
+            Assert.True(appendResult1.IsOk, appendResult1.Error.ToString());
+
+            var evt2 = CreateEvent("103", IndexOp.Kind.ReplaceTags, "key1", "tag007");
+            var appendResult2 = await cache.AppendEvent(entId, evt2, default);
+            Assert.True(appendResult2.IsOk, appendResult2.Error.ToString());
+
+            var getResult = await cache.GetEvents(entId, default);
+            Assert.True(getResult.IsOk, getResult.Error.ToString());
+            Assert.Equal(events[0].IncId, getResult.Value.First); 
+            Assert.Equal(evt2.IncId, getResult.Value.Last);
+
+            var reader = new IndexRecordReader(getResult.Value.Data);
+            foreach (var evt in events.Append(evt1).Append(evt2)) {
+                Assert.True(reader.MoveNext());
+                var singleReader = new IndexRecordReader(evt.Data);
+                Assert.True(singleReader.MoveNext());
+                Assert.Equal(reader.Current, singleReader.Current);
+            }
+        }
+
+        [Fact]
+        public async void TruncateEvents() {
+            var cache = CreateCache();
+            var entId = CreateRandomEntId("indexes");
+            var events = new[] {
+                CreateEvent("100", IndexOp.Kind.AddTag, "key1", "tag1"),
+                CreateEvent("101", IndexOp.Kind.ClearTags, "key1", ""),
+                CreateEvent("102", IndexOp.Kind.AddTag, "key2", "tag2")
+            };
+            var updateResult = await cache.UpdateEventsIfNotExists(entId, events, default);
+            Assert.True(updateResult.IsOk, updateResult.Error.ToString());
+
+            var truncResult = await cache.TruncateEvents(entId, events[^2].IncId, default);
+            Assert.True(truncResult.IsOk, truncResult.Error.ToString());
+            
+            var getResult = await cache.GetEvents(entId, default);
+            Assert.True(getResult.IsOk, getResult.Error.ToString());
+            
+            Assert.Equal(events[^1].IncId, getResult.Value.First); 
+            Assert.Equal(events[^1].IncId, getResult.Value.Last);
+
+            var reader = new IndexRecordReader(getResult.Value.Data);
+            Assert.True(reader.MoveNext());
+            var singleReader = new IndexRecordReader(events[^1].Data);
+            Assert.True(singleReader.MoveNext());
+            Assert.Equal(reader.Current, singleReader.Current);
         }
     }
 }

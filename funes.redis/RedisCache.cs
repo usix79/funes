@@ -69,7 +69,8 @@ namespace Funes.Redis {
                         return new Result<EntityEntry>(EntityEntry.NotAvailable(eid));
                     }
 
-                    await using (var stream = new MemoryStream((byte[]) values[3])) {
+                    var buffer = (byte[]) values[3];
+                    await using (var stream = new MemoryStream(buffer, 0, buffer.Length, false, true)) {
                         var decodingResult = await ser.Decode(stream, eid, values[2]);
                         if (decodingResult.IsError) {
                             return new Result<EntityEntry>(decodingResult.Error);
@@ -171,5 +172,14 @@ end";
                 ? new Result<Void>(Void.Value)
                 : new Result<Void>(result2.Error);
         }
+
+        public Task<Result<EventLog>> GetEvents(EntityId eid, CancellationToken ct) => throw new NotImplementedException();
+
+        public Task<Result<Void>> UpdateEventsIfNotExists(EntityId eid, Event[] events, CancellationToken ct) => throw new NotImplementedException();
+
+        public Task<Result<int>> AppendEvent(EntityId eid, Event evt, CancellationToken ct) => throw new NotImplementedException();
+
+        public Task<Result<Void>> TruncateEvents(EntityId eid, IncrementId since, CancellationToken ct) => throw new NotImplementedException();
+
     }
 }

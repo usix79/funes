@@ -12,6 +12,7 @@ namespace Funes {
         public string Id { get; init; }
 
         public static readonly IncrementId Singularity = new ("");
+        public static readonly IncrementId BigBang = new ("BigBang");
         public static readonly IncrementId None = new ("");
         private static readonly DateTimeOffset FryReawakening = 
             new (3000, 1, 1, 0, 0, 0, TimeSpan.Zero);

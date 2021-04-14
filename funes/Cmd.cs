@@ -26,7 +26,7 @@ namespace Funes {
         public record SideEffectCmd(TSideEffect SideEffect) : OutputCmd;
         public record ConstantCmd(string Name, string Value) : OutputCmd;
 
-        public record TagEntityCmd(string IdxName, EntityId EntId, string Tag) : OutputCmd;
+        public record TagCmd(string IdxName, string Key, string Tag) : OutputCmd;
 
         public record BatchOutputCmd(IEnumerable<OutputCmd> Items) : OutputCmd {
             public override string ToString() {

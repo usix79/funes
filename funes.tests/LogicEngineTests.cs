@@ -119,7 +119,7 @@ namespace Funes.Tests {
             var tag = "top";
             
             var logic = new CallbackLogic<string,string,string>(
-                entity => ("", new Cmd<string, string>.TagEntityCmd(idxName, entId, tag )),
+                entity => ("", new Cmd<string, string>.TagCmd(idxName, entId.Id, tag )),
                 (model, msg) => ("", Cmd<string, string>.None),
                 model => Cmd<string, string>.None);
             

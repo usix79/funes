@@ -30,10 +30,50 @@ namespace Funes.Tests {
 
         public static EntityStamp CreateSimpleEntityStamp(IncrementId incId, EntityId? eid = null) =>
             new EntityStamp (new Entity(eid??CreateRandomEntId(), CreateRandomValue()), incId);
-        
+
+        public static Event CreateEvent(IncrementId incId) {
+            var arr = new byte[256];
+            Rand.NextBytes(arr);
+            return new Event(incId, arr);
+        }
+
         public static void AssertEntitiesEqual(EntityStamp expected, EntityStamp actual) {
             Assert.Equal(expected.Key, actual.Key);
             Assert.Equal(expected.Value, actual.Value);
+        }
+
+        public static void AssertEventsEqual(Event expected, Event actual) {
+            Assert.Equal(expected.IncId, actual.IncId);
+            Assert.Equal(expected.Data.Length, actual.Data.Length);
+            var expectedSpan = expected.Data.Span;
+            var actualSpan = expected.Data.Span;
+            for (var i = 0; i < expected.Data.Length; i++) {
+                Assert.Equal(expectedSpan[i], actualSpan[i]);
+            }
+        }
+
+        public static void AssertEventsEqual(Event[] events, EventLog evtLog) {
+            if (events.Length == 0) {
+                Assert.Equal(0, evtLog.Data.Length);
+                Assert.Equal(IncrementId.None, evtLog.First);
+                Assert.Equal(IncrementId.None, evtLog.Last);
+                Assert.True(evtLog.IsEmpty);
+                return;
+            }
+            
+            Assert.Equal(events[0].IncId, evtLog.First);
+            Assert.Equal(events[^1].IncId, evtLog.Last);
+
+            var offset = 0;
+            var actualSpan = evtLog.Data.Span;
+            foreach (var evt in events) {
+                var expectedSpan = evt.Data.Span;
+                for (var i = 0; i < evt.Data.Length; i++) {
+                    Assert.Equal(expectedSpan[i], actualSpan[offset + i]);
+                }
+
+                offset += expectedSpan.Length;
+            }
         }
 
         public static Entity CreateSimpleFact(int id, string value) =>
@@ -45,9 +85,8 @@ namespace Funes.Tests {
         public static EntityStampKey[] Keys(params (EntityId, IncrementId)[] keys) => 
             keys.Select(x => new EntityStampKey(x.Item1, x.Item2)).ToArray();
         
-        public static EntityStampKey[] EmptyKeys = Array.Empty<EntityStampKey>(); 
+        public static readonly EntityStampKey[] EmptyKeys = Array.Empty<EntityStampKey>(); 
 
-        public static EntityId[] EntIds(params EntityId[] entIds) => entIds; 
-        
+        public static EntityId[] EntIds(params EntityId[] entIds) => entIds;
     }
 }

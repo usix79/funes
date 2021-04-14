@@ -25,9 +25,11 @@ namespace Funes {
         public const string DetailsError = "Error";
 
         public static EntityId CreateEntId(IncrementId incId) => new (Category, incId.Id);
+        public static bool IsIncrement(EntityId entId) => entId.Id.StartsWith(Category);
         public static EntityStamp CreateStamp(Increment inc) =>
             new (new Entity(Increment.CreateEntId(inc.Id), inc), inc.Id);
         public static EntityId CreateChildEntId(IncrementId parentId) => new (ChildrenCategory, parentId.Id);
+        public static bool IsChild(EntityId entId) => entId.Id.StartsWith(ChildrenCategory);
 
         public static EntityStamp CreateChildStamp(IncrementId incId, IncrementId parentId) =>
             new(new Entity(Increment.CreateChildEntId(parentId), null!), incId);        
@@ -62,7 +64,7 @@ namespace Funes {
             var increment = loadResult.Value;
             
             var historyTasks = increment.Inputs.Select(pair => pair.Key)
-                .Select(premiseKey => repo.History(premiseKey.EntId, increment.Id, 1).AsTask());
+                .Select(premiseKey => repo.HistoryBefore(premiseKey.EntId, increment.Id, 1).AsTask());
             
             var historyItems = await Task.WhenAll(historyTasks);
 

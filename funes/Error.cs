@@ -12,7 +12,7 @@ namespace Funes {
         public record IoError(string Msg) : Error;
         public record IncrementError(Increment Increment, Error Error) : Error;
         public record MaxAttemptsError : Error;
-
+        
         public record CommitError(CommitError.Conflict[] Conflicts) : Error {
             public readonly struct Conflict {
                 public EntityId EntId { get; init; }

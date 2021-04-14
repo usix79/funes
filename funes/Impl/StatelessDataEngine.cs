@@ -60,34 +60,32 @@ namespace Funes.Impl {
             }
         }
         
-        public async ValueTask<Result<Void>> Upload(EntityStamp stamp, ISerializer ser, CancellationToken ct, bool skipCache = false) {
+        public async ValueTask<Result<Void>> Upload(EntityStamp stamp, 
+            ISerializer ser, CancellationToken ct, bool skipCache = false) {
 
             if (skipCache) {
                 _tasksQueue.Enqueue(SaveStamp(stamp, ser, ct));
+                return new Result<Void>(Void.Value);
             }
-            else {
-                var ss = _ssPool.Rent()!;
+            
+            var ss = _ssPool.Rent()!;
+            try {
+                var encodeResult = await ss.EncodeForReal(stamp.Entity.Id, stamp.Entity.Value, ser);
+                if (encodeResult.IsError) return new Result<Void>(encodeResult.Error);
+            
+                var cacheResult = await _cache.UpdateIfNewer(stamp.ToEntry(), ss, ct);
+                _tasksQueue.Enqueue(SaveStamp(stamp, ss, ct));
 
-                try {
-                    var encodeResult = await ss.EncodeForReal(stamp.Entity.Id, stamp.Entity.Value, ser);
-                    if (encodeResult.IsError) return new Result<Void>(encodeResult.Error);
-                
-                    var cacheResult = await _cache.UpdateIfNewer(stamp.ToEntry(), ss, ct);
-                    _tasksQueue.Enqueue(SaveStamp(stamp, ss, ct));
-
-                    if (cacheResult.IsError) return new Result<Void>(cacheResult.Error);
-                }
-                finally {
-                    ss.Reset();
-                    _ssPool.Return(ss);
-                }
+                if (cacheResult.IsError) return new Result<Void>(cacheResult.Error);
+            }
+            finally {
+                ss.Reset();
+                _ssPool.Return(ss);
             }
             
             return new Result<Void>(Void.Value);
         }
-
-        public ValueTask<Result<int>> UploadEvents(IEnumerable<(EntityStamp, EntityId)> events, ISerializer ser, CancellationToken ct, bool skipCache = false) => throw new NotImplementedException();
-
+        
         public async ValueTask<Result<Void>> TryCommit(ArraySegment<EntityStampKey> premises,
             ArraySegment<EntityId> outputs, IncrementId incId, CancellationToken ct) {
 
@@ -105,6 +103,43 @@ namespace Funes.Impl {
             return commitResult;
         }
         
+        public async ValueTask<Result<int>> AppendEvent(EntityId entId, Event evt, EntityId offsetEntId, 
+            CancellationToken ct, bool skipCache = false) {
+            if (skipCache) {
+                _tasksQueue.Enqueue(SaveEvent(entId, evt, ct));
+                return new Result<int>(0);
+            }
+
+            var appendResult = await _cache.AppendEvent(entId, evt, ct);
+            if (appendResult.Error == Error.NotFound) {
+                // load offset
+                var offsetResult = await Retrieve(offsetEntId, StringSerializer.Instance, ct);
+                if (offsetResult.IsError) return new Result<int>(offsetResult.Error);
+                var after = offsetResult.IsOk 
+                    ?  new IncrementId((string) offsetResult.Value.Value)
+                    : IncrementId.BigBang;
+                
+                var historyResult = await _repo.HistoryAfter(entId, after, ct);
+                if (historyResult.IsError) return new Result<int>(historyResult.Error);
+                var arr = new Event[historyResult.Value.Length];
+                for(var i = 0; i < arr.Length; i++) {
+                    var incId = historyResult.Value[i];
+                    var loadResult = await _repo.LoadEvent(entId.CreateStampKey(incId), ct);
+                    if (loadResult.IsError) return new Result<int>(loadResult.Error);
+                    arr[i] = loadResult.Value;
+                }
+                
+                var updateResult = await _cache.UpdateEventsIfNotExists(entId, arr, ct);
+                if (updateResult.IsError) return new Result<int>(updateResult.Error);
+
+                // snd try
+                appendResult = await _cache.AppendEvent(entId, evt, ct);
+            }
+            
+            _tasksQueue.Enqueue(SaveEvent(entId, evt, ct));
+            return appendResult;
+        }
+
         public Task Flush() {
             if (_tasksQueue.IsEmpty) return Task.CompletedTask;
 
@@ -129,7 +164,7 @@ namespace Funes.Impl {
             while (true) {
                 ct.ThrowIfCancellationRequested();
                 
-                var historyResult = await _repo.History(eid, before, 42, ct);
+                var historyResult = await _repo.HistoryBefore(eid, before, 42, ct);
                 if (historyResult.IsError) return new Result<EntityStamp>(historyResult.Error);
 
                 var incId = historyResult.Value.FirstOrDefault(x => x.IsSuccess());
@@ -144,6 +179,9 @@ namespace Funes.Impl {
 
         private Task SaveStamp(EntityStamp stamp, ISerializer ser, CancellationToken ct) =>
             _repo.Save(stamp, ser, ct).AsTask();
+
+        private Task SaveEvent(EntityId entId, Event evt, CancellationToken ct) =>
+            _repo.SaveEvent(entId, evt, ct).AsTask();
 
         private Task CheckCollisions(IEnumerable<Error.CommitError.Conflict> conflicts, CancellationToken ct) =>
             Task.WhenAll(conflicts.Select(x => CheckConflict(x, ct)));

@@ -91,12 +91,12 @@ namespace Funes {
                         output.Outputs[x.Entity.Id] = x.Entity;
                         entities[x.Entity.Id] = EntityEntry.Ok(x.Entity);
                         break;
-                    case Cmd<TMsg, TSideEffect>.TagEntityCmd x:
+                    case Cmd<TMsg, TSideEffect>.TagCmd x:
                         if (!output.IndexRecords.TryGetValue(x.IdxName, out var idxRecord)) {
                             idxRecord = new IndexRecord();
                             output.IndexRecords[x.IdxName] = idxRecord;
                         }
-                        idxRecord.Add(new IndexOp(IndexOp.Kind.AddTag, x.EntId.Id, x.Tag));
+                        idxRecord.Add(new IndexOp(IndexOp.Kind.AddTag, x.Key, x.Tag));
                         break;
                     case Cmd<TMsg, TSideEffect>.SideEffectCmd x:
                         output.SideEffects.Add(x.SideEffect);

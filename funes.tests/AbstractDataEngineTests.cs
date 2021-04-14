@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Funes.Impl;
 using Microsoft.Extensions.Logging;
@@ -324,6 +325,125 @@ namespace Funes.Tests {
             
             // now next incId may be committed
             await AssertCommit(de, true, Keys((eid, retrieveResultAfterPiSec.Value.IncId)),EntIds(eid), nextIncId);
+        }
+        
+        [Fact]
+        public async void AppendNewEventTest() {
+            var repo = new SimpleRepository();
+            var cache = new SimpleCache();
+            var tre = new SimpleTransactionEngine();
+
+            var de = CreateEngine(repo, cache, tre, Logger());
+
+            var incId = new IncrementId("100");
+            var evt = CreateEvent(incId);
+            var entId = CreateRandomEntId();
+            var offsetId = CreateRandomEntId();
+            
+            var appendResult = await de.AppendEvent(entId, evt, offsetId, default);
+            Assert.True(appendResult.IsOk, appendResult.Error.ToString());
+            Assert.Equal(1, appendResult.Value);
+
+            var cacheResult = await cache.GetEvents(entId, default);
+            Assert.True(cacheResult.IsOk, cacheResult.Error.ToString());
+            AssertEventsEqual(new[] {evt}, cacheResult.Value);
+
+            await de.Flush();
+
+            var repoResult = await repo.LoadEvent(entId.CreateStampKey(incId), default);
+            Assert.True(repoResult.IsOk, repoResult.Error.ToString());
+            AssertEventsEqual(evt, repoResult.Value);
+            
+            var incId2 = new IncrementId("099");
+            var evt2 = CreateEvent(incId2);
+            var appendResult2 = await de.AppendEvent(entId, evt2, offsetId, default);
+            Assert.True(appendResult2.IsOk, appendResult2.Error.ToString());
+            Assert.Equal(2, appendResult2.Value);
+            
+            var cacheResult2 = await cache.GetEvents(entId, default);
+            Assert.True(cacheResult2.IsOk, cacheResult2.Error.ToString());
+            AssertEventsEqual(new[] {evt, evt2}, cacheResult2.Value);
+
+            await de.Flush();
+
+            var repoResult2 = await repo.LoadEvent(entId.CreateStampKey(incId2), default);
+            Assert.True(repoResult2.IsOk, repoResult2.Error.ToString());
+            AssertEventsEqual(evt2, repoResult2.Value);
+        }
+
+        [Fact]
+        public async void AppendEventWithEntriesInRepo() {
+            var repo = new SimpleRepository();
+            var cache = new SimpleCache();
+            var tre = new SimpleTransactionEngine();
+            
+            var de = CreateEngine(repo, cache, tre, Logger());
+            var entId = CreateRandomEntId();
+            var offsetId = CreateRandomEntId();
+
+            var events = new Event[5];
+            for (var i = 0; i < events.Length; i++) {
+                var incId = new IncrementId((100 - i).ToString("d4"));
+                events[i] = CreateEvent(incId);
+                var saveResult = await repo.SaveEvent(entId, events[i], default);
+                Assert.True(saveResult.IsOk, saveResult.Error.ToString());
+            }
+
+            var newIncId = new IncrementId((100 - events.Length).ToString("d4"));
+            var newEvt = CreateEvent(newIncId);
+            var appendResult = await de.AppendEvent(entId, newEvt, offsetId, default);
+            Assert.True(appendResult.IsOk, appendResult.Error.ToString());
+            Assert.Equal(events.Length + 1, appendResult.Value);
+
+            var cacheResult = await cache.GetEvents(entId, default);
+            Assert.True(cacheResult.IsOk, cacheResult.Error.ToString());
+            AssertEventsEqual(events.Append(newEvt).ToArray(), cacheResult.Value);
+
+            await de.Flush();
+
+            var repoResult = await repo.LoadEvent(entId.CreateStampKey(newIncId), default);
+            Assert.True(repoResult.IsOk, repoResult.Error.ToString());
+            AssertEventsEqual(newEvt, repoResult.Value);
+        }
+
+        [Fact]
+        public async void AppendEventWithEntriesAndOffsetInRepo() {
+            var repo = new SimpleRepository();
+            var cache = new SimpleCache();
+            var tre = new SimpleTransactionEngine();
+            
+            var de = CreateEngine(repo, cache, tre, Logger());
+            var entId = CreateRandomEntId();
+            var offsetId = CreateRandomEntId();
+
+            var events = new Event[5];
+            for (var i = 0; i < events.Length; i++) {
+                var incId = new IncrementId((100 - i).ToString("d4"));
+                events[i] = CreateEvent(incId);
+                var saveResult = await repo.SaveEvent(entId, events[i], default);
+                Assert.True(saveResult.IsOk, saveResult.Error.ToString());
+            }
+
+            var offsetEntity = new Entity(offsetId, events[2].IncId.Id);
+            var saveOffsetResult =
+                await repo.Save(offsetEntity.ToStamp(events[2].IncId), StringSerializer.Instance, default);
+            Assert.True(saveOffsetResult.IsOk, saveOffsetResult.Error.ToString());
+
+            var newIncId = new IncrementId((100 - events.Length).ToString("d4"));
+            var newEvt = CreateEvent(newIncId);
+            var appendResult = await de.AppendEvent(entId, newEvt, offsetId, default);
+            Assert.True(appendResult.IsOk, appendResult.Error.ToString());
+            Assert.Equal(events.Length - 3 + 1, appendResult.Value);
+
+            var cacheResult = await cache.GetEvents(entId, default);
+            Assert.True(cacheResult.IsOk, cacheResult.Error.ToString());
+            AssertEventsEqual(events.Skip(3).Append(newEvt).ToArray(), cacheResult.Value);
+
+            await de.Flush();
+
+            var repoResult = await repo.LoadEvent(entId.CreateStampKey(newIncId), default);
+            Assert.True(repoResult.IsOk, repoResult.Error.ToString());
+            AssertEventsEqual(newEvt, repoResult.Value);
         }
 
     }
