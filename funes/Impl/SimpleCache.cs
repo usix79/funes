@@ -104,7 +104,7 @@ namespace Funes.Impl {
             }
         }
 
-        public Task<Result<EventLog>> GetEvents(EntityId eid, CancellationToken ct) {
+        public Task<Result<EventLog>> GetEventLog(EntityId eid, CancellationToken ct) {
             lock (_eventLogs) {
                 if (!_eventLogs.TryGetValue(eid, out var entry))
                     return Task.FromResult(new Result<EventLog>(Error.NotFound));

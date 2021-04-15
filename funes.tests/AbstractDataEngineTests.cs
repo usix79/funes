@@ -344,7 +344,7 @@ namespace Funes.Tests {
             Assert.True(appendResult.IsOk, appendResult.Error.ToString());
             Assert.Equal(1, appendResult.Value);
 
-            var cacheResult = await cache.GetEvents(entId, default);
+            var cacheResult = await cache.GetEventLog(entId, default);
             Assert.True(cacheResult.IsOk, cacheResult.Error.ToString());
             AssertEventsEqual(new[] {evt}, cacheResult.Value);
 
@@ -360,7 +360,7 @@ namespace Funes.Tests {
             Assert.True(appendResult2.IsOk, appendResult2.Error.ToString());
             Assert.Equal(2, appendResult2.Value);
             
-            var cacheResult2 = await cache.GetEvents(entId, default);
+            var cacheResult2 = await cache.GetEventLog(entId, default);
             Assert.True(cacheResult2.IsOk, cacheResult2.Error.ToString());
             AssertEventsEqual(new[] {evt, evt2}, cacheResult2.Value);
 
@@ -395,7 +395,7 @@ namespace Funes.Tests {
             Assert.True(appendResult.IsOk, appendResult.Error.ToString());
             Assert.Equal(events.Length + 1, appendResult.Value);
 
-            var cacheResult = await cache.GetEvents(entId, default);
+            var cacheResult = await cache.GetEventLog(entId, default);
             Assert.True(cacheResult.IsOk, cacheResult.Error.ToString());
             AssertEventsEqual(events.Append(newEvt).ToArray(), cacheResult.Value);
 
@@ -435,7 +435,7 @@ namespace Funes.Tests {
             Assert.True(appendResult.IsOk, appendResult.Error.ToString());
             Assert.Equal(events.Length - 3 + 1, appendResult.Value);
 
-            var cacheResult = await cache.GetEvents(entId, default);
+            var cacheResult = await cache.GetEventLog(entId, default);
             Assert.True(cacheResult.IsOk, cacheResult.Error.ToString());
             AssertEventsEqual(events.Skip(3).Append(newEvt).ToArray(), cacheResult.Value);
 

@@ -154,12 +154,12 @@ namespace Funes.Tests {
             var events = new[] {
                 CreateEvent("100", IndexOp.Kind.AddTag, "key1", "tag1"),
                 CreateEvent("101", IndexOp.Kind.ClearTags, "key1", ""),
-                CreateEvent("102", IndexOp.Kind.AddTag, "key2", "tag2")
+                CreateEvent("102-Ы", IndexOp.Kind.AddTag, "key2", "Фраг")
             };
             var updateResult = await cache.UpdateEventsIfNotExists(entId, events, default);
             Assert.True(updateResult.IsOk, updateResult.Error.ToString());
 
-            var getResult = await cache.GetEvents(entId, default);
+            var getResult = await cache.GetEventLog(entId, default);
             Assert.True(getResult.IsOk, getResult.Error.ToString());
             
             Assert.Equal(events[0].IncId, getResult.Value.First); 
@@ -194,7 +194,7 @@ namespace Funes.Tests {
             var updateResult2 = await cache.UpdateEventsIfNotExists(entId, events2, default);
             Assert.True(updateResult2.IsOk, updateResult2.Error.ToString());
 
-            var getResult = await cache.GetEvents(entId, default);
+            var getResult = await cache.GetEventLog(entId, default);
             Assert.True(getResult.IsOk, getResult.Error.ToString());
             
             Assert.Equal(events1[0].IncId, getResult.Value.First); 
@@ -238,7 +238,7 @@ namespace Funes.Tests {
             var appendResult2 = await cache.AppendEvent(entId, evt2, default);
             Assert.True(appendResult2.IsOk, appendResult2.Error.ToString());
 
-            var getResult = await cache.GetEvents(entId, default);
+            var getResult = await cache.GetEventLog(entId, default);
             Assert.True(getResult.IsOk, getResult.Error.ToString());
             Assert.Equal(events[0].IncId, getResult.Value.First); 
             Assert.Equal(evt2.IncId, getResult.Value.Last);
@@ -267,7 +267,7 @@ namespace Funes.Tests {
             var truncResult = await cache.TruncateEvents(entId, events[^2].IncId, default);
             Assert.True(truncResult.IsOk, truncResult.Error.ToString());
             
-            var getResult = await cache.GetEvents(entId, default);
+            var getResult = await cache.GetEventLog(entId, default);
             Assert.True(getResult.IsOk, getResult.Error.ToString());
             
             Assert.Equal(events[^1].IncId, getResult.Value.First); 

@@ -11,14 +11,12 @@ namespace Funes.Redis {
         private static readonly RedisKey PrefixKey = Prefix; 
         private readonly ILogger _logger;
         private readonly ConnectionMultiplexer _redis;
-        private readonly string _commitScript;
-        private readonly byte[] _commitScriptDigest;
+        private readonly Script _commitScript;
 
         public RedisTransactionEngine(string connectionString, ILogger logger, int ttl = 3600) {
             _logger = logger;
             _redis = ConnectionMultiplexer.Connect(connectionString);
-            _commitScript = ComposeCommitScript(ttl);
-            _commitScriptDigest = Digest(_commitScript);
+            _commitScript = new Script(ComposeCommitScript(ttl));
         }
 
         public async Task<Result<Void>> TryCommit(ArraySegment<EntityStampKey> premises,
@@ -43,7 +41,7 @@ namespace Funes.Redis {
                 keys[index++] = PrefixKey.Append(entId.Id);
             }
 
-            var result = await Eval(_redis, _logger, _commitScriptDigest, _commitScript, keys, values);
+            var result = await Eval(_redis, _logger, _commitScript, keys, values);
 
             if (result.IsError) 
                 return new Result<Void>(result.Error);

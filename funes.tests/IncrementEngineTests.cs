@@ -228,7 +228,7 @@ namespace Funes.Tests {
             var indexRecordId = IndexHelpers.GetRecordId(idxName);
             var expectedOp = new IndexOp(IndexOp.Kind.AddTag, entId.Id, tag);
 
-            var cacheResult = await cache.GetEvents(indexRecordId, default);
+            var cacheResult = await cache.GetEventLog(indexRecordId, default);
             Assert.True(cacheResult.IsOk, cacheResult.Error.ToString());
             Assert.Equal(incId, cacheResult.Value.First);
             Assert.Equal(incId, cacheResult.Value.Last);

@@ -14,5 +14,7 @@ namespace Funes {
             (First, Last, Data) = (first, last, data);
 
         public bool IsEmpty => Data.Length == 0;
+
+        public static EventLog Empty = new EventLog(IncrementId.None, IncrementId.None, ReadOnlyMemory<byte>.Empty);
     }
 }
