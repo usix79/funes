@@ -69,12 +69,12 @@ namespace Funes.Tests {
             var testIncId = IncrementId.NewId();
             var testEvent = TestHelpers.CreateEvent(testIncId);
             
-            var saveResult = await repo.SaveEvent(testEid, testEvent, default);
+            var saveResult = await repo.SaveBinary(testEid.CreateStampKey(testIncId), testEvent.Data, default);
             Assert.True(saveResult.IsOk, saveResult.Error.ToString());
             
-            var loadResult = await repo.LoadEvent(testEid.CreateStampKey(testIncId), default);
+            var loadResult = await repo.LoadBinary(testEid.CreateStampKey(testIncId), default);
             Assert.True(loadResult.IsOk, loadResult.Error.ToString());
-            TestHelpers.AssertEventsEqual(testEvent, loadResult.Value);
+            TestHelpers.AssertEventsEqual(testEvent, new Event(testIncId, loadResult.Value));
         }
 
         [Fact]

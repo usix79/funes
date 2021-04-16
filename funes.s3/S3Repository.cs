@@ -31,7 +31,7 @@ namespace Funes.S3 {
         public async ValueTask<Result<Void>> Save(EntityStamp entityStamp, ISerializer ser, CancellationToken ct) {
             try {
                 await using var stream = new MemoryStream();
-                var encodeResult = await ser.Encode(stream, entityStamp.Entity.Id,  entityStamp.Value);
+                var encodeResult = await ser.Encode(stream, entityStamp.Entity.Id,  entityStamp.Value, ct);
                 if (encodeResult.IsError) return new Result<Void>(encodeResult.Error);
 
                 var encoding = encodeResult.Value;
@@ -60,13 +60,13 @@ namespace Funes.S3 {
             catch (Exception e) { return Result<Void>.Exception(e); }
         }
         
-        public async ValueTask<Result<Void>> SaveEvent(EntityId eid, Event evt, CancellationToken ct) {
+        public async ValueTask<Result<Void>> SaveBinary(EntityStampKey key, ReadOnlyMemory<byte> data, CancellationToken ct) {
             try {
                 var req = new PutObjectRequest {
                     BucketName = BucketName,
-                    Key = CreateMemS3Key(eid.CreateStampKey(evt.IncId)),
+                    Key = CreateMemS3Key(key),
                     ContentType = "application/octet-stream",
-                    InputStream = evt.Data.AsStream(),
+                    InputStream = data.AsStream(),
                     Headers = {[EncodingKey] = "evt"}
                 };
                 
@@ -85,7 +85,7 @@ namespace Funes.S3 {
                 
                 var encoding = resp.Metadata[EncodingKey];
 
-                var decodeResult = await ser.Decode(resp.ResponseStream, key.EntId, encoding);
+                var decodeResult = await ser.Decode(resp.ResponseStream, key.EntId, encoding, ct);
                 return decodeResult.IsOk
                     ? new Result<EntityStamp>(new EntityStamp(key, decodeResult.Value))
                     : new Result<EntityStamp>(decodeResult.Error);
@@ -96,18 +96,18 @@ namespace Funes.S3 {
             catch (Exception e) { return Result<EntityStamp>.Exception(e); }
         }
         
-        public async ValueTask<Result<Event>> LoadEvent(EntityStampKey key, CancellationToken ct) {
+        public async ValueTask<Result<ReadOnlyMemory<byte>>> LoadBinary(EntityStampKey key, CancellationToken ct) {
             try {
                 var resp = await _client.GetObjectAsync(BucketName, CreateMemS3Key(key), ct);
                 await using var stream = new MemoryStream();
                 await resp.ResponseStream.CopyToAsync(stream, ct);
                 if (!stream.TryGetBuffer(out var buffer)) buffer = stream.ToArray();
-                return new Result<Event>(new Event(key.IncId, buffer));
+                return new Result<ReadOnlyMemory<byte>>(buffer);
             }
             catch (TaskCanceledException) { throw; }
-            catch (AmazonS3Exception e) when (e.StatusCode == HttpStatusCode.NotFound) { return Result<Event>.NotFound; }
-            catch (AmazonS3Exception e) { return Result<Event>.IoError(e.ToString()); }
-            catch (Exception e) { return Result<Event>.Exception(e); }
+            catch (AmazonS3Exception e) when (e.StatusCode == HttpStatusCode.NotFound) { return Result<ReadOnlyMemory<byte>>.NotFound; }
+            catch (AmazonS3Exception e) { return Result<ReadOnlyMemory<byte>>.IoError(e.ToString()); }
+            catch (Exception e) { return Result<ReadOnlyMemory<byte>>.Exception(e); }
         }
 
         public async ValueTask<Result<IncrementId[]>> HistoryBefore(EntityId eid, 

@@ -1,14 +1,15 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
+using System.IO;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 namespace Funes {
     public record Increment(
         IncrementId Id, 
-        EntityStampKey FactKey, 
-        KeyValuePair<EntityStampKey, bool>[] Inputs, 
-        EntityId[] Outputs,
+        EntityStampKey FactKey,
+        IncrementArgs Args,
+        List<EntityId> Outputs,
         List<KeyValuePair<string,string>> Constants,
         List<KeyValuePair<string,string>> Details
         ) {
@@ -35,13 +36,36 @@ namespace Funes {
             new(new Entity(Increment.CreateChildEntId(parentId), null!), incId);        
         public static EntityStampKey CreateStampKey(IncrementId incId) => new (CreateEntId(incId), incId);
 
-        private static async ValueTask<Result<Increment>> Load(IRepository repo, ISerializer serializer, IncrementId incId) {
-            var getResult = await repo.Load(CreateStampKey(incId), serializer, default);
-            return getResult.IsOk
-                ? new Result<Increment>((Increment) getResult.Value.Value)
-                : new Result<Increment>(getResult.Error);
+        // private static async ValueTask<Result<Increment>> Load(IRepository repo, ISerializer serializer, IncrementId incId) {
+        //     var getResult = await repo.Load(CreateStampKey(incId), serializer, default);
+        //     return getResult.IsOk
+        //         ? new Result<Increment>((Increment) getResult.Value.Value)
+        //         : new Result<Increment>(getResult.Error);
+        // }
+        
+        public static async ValueTask<Result<string>> Encode(Stream output, Increment increment) {
+            try {
+                await JsonSerializer.SerializeAsync(output, increment);
+                return new Result<string>("json");
+            }
+            catch (Exception e) {
+                return Result<string>.SerdeError(e.Message);
+            }
         }
 
+        public static async ValueTask<Result<object>> Decode(Stream input, string encoding) {
+            if ("json" != encoding) return Result<object>.NotSupportedEncoding(encoding);
+            try {
+                var reflectionOrNull = await JsonSerializer.DeserializeAsync<Increment>(input);
+                return reflectionOrNull != null
+                    ? new Result<object>(reflectionOrNull)
+                    : Result<object>.SerdeError("null");
+            }
+            catch (Exception e) {
+                return Result<object>.SerdeError(e.Message);
+            }
+        }
+        
         public string FindDetail(string key) {
             foreach(var pair in Details)
                 if (pair.Key == key)
@@ -50,44 +74,44 @@ namespace Funes {
             return "";
         }
 
-        public struct Conflict {
-            public EntityStampKey PremiseKey { get;}
-            public IncrementId ActualIncId { get;}
-            public Conflict(EntityStampKey premise, IncrementId actualIncId) => 
-                (PremiseKey, ActualIncId) = (premise, actualIncId);
-        }
+        // public struct Conflict {
+        //     public EntityStampKey PremiseKey { get;}
+        //     public IncrementId ActualIncId { get;}
+        //     public Conflict(EntityStampKey premise, IncrementId actualIncId) => 
+        //         (PremiseKey, ActualIncId) = (premise, actualIncId);
+        // }
         
-        public static async ValueTask<Result<Conflict[]>> Check (IRepository repo, ISerializer serializer, IncrementId incId) {
-            var loadResult = await Load(repo, serializer, incId);
-            if (loadResult.IsError) return new Result<Conflict[]>(loadResult.Error);
+        // public static async ValueTask<Result<Conflict[]>> Check (IRepository repo, ISerializer serializer, IncrementId incId) {
+        //     var loadResult = await Load(repo, serializer, incId);
+        //     if (loadResult.IsError) return new Result<Conflict[]>(loadResult.Error);
+        //
+        //     var increment = loadResult.Value;
+        //     
+        //     var historyTasks = increment.Inputs.Select(pair => pair.Key)
+        //         .Select(premiseKey => repo.HistoryBefore(premiseKey.EntId, increment.Id, 1).AsTask());
+        //     
+        //     var historyItems = await Task.WhenAll(historyTasks);
+        //
+        //     var errors = historyItems.Where(x => x.IsError).Select(x => x.Error).ToArray();
+        //     if (errors.Length > 0) return Result<Conflict[]>.AggregateError(errors);
+        //     
+        //     var conflicts =
+        //         increment.Inputs.Select(pair => pair.Key)
+        //             .Zip(historyItems, (premiseKey, historyResult) => (premiseKey, historyResult.Value.FirstOrDefault()))
+        //             .Where(x => x.Item1.IncId.CompareTo(x.Item2) > 0)
+        //             .Select(x => new Conflict(x.Item1, x.Item2));
+        //     
+        //     return new (conflicts.ToArray());
+        // }
 
-            var increment = loadResult.Value;
-            
-            var historyTasks = increment.Inputs.Select(pair => pair.Key)
-                .Select(premiseKey => repo.HistoryBefore(premiseKey.EntId, increment.Id, 1).AsTask());
-            
-            var historyItems = await Task.WhenAll(historyTasks);
-
-            var errors = historyItems.Where(x => x.IsError).Select(x => x.Error).ToArray();
-            if (errors.Length > 0) return Result<Conflict[]>.AggregateError(errors);
-            
-            var conflicts =
-                increment.Inputs.Select(pair => pair.Key)
-                    .Zip(historyItems, (premiseKey, historyResult) => (premiseKey, historyResult.Value.FirstOrDefault()))
-                    .Where(x => x.Item1.IncId.CompareTo(x.Item2) > 0)
-                    .Select(x => new Conflict(x.Item1, x.Item2));
-            
-            return new (conflicts.ToArray());
-        }
-
-        public readonly struct Collision {
-            public EntityId EntId { get;}
-            public IncrementId[] Heads { get;}
-            public Collision(EntityId entityId, IncrementId[] heads) => (EntId, Heads) = (entityId, heads);
-        }
-
-        public static ValueTask<Result<Collision[]>> FindForks(IRepository repo, IncrementId since) {
-            throw new NotImplementedException();
-        }
+        // public readonly struct Collision {
+        //     public EntityId EntId { get;}
+        //     public IncrementId[] Heads { get;}
+        //     public Collision(EntityId entityId, IncrementId[] heads) => (EntId, Heads) = (entityId, heads);
+        // }
+        //
+        // public static ValueTask<Result<Collision[]>> FindForks(IRepository repo, IncrementId since) {
+        //     throw new NotImplementedException();
+        // }
     }
 }

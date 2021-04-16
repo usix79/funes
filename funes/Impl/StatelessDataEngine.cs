@@ -47,7 +47,7 @@ namespace Funes.Impl {
                     _logger.LogError($"Retrieve {eid}, cache update error {trySetResult.Error}");
 
                 if (entry.IsOk) {
-                    var realDecodeResult = await ss.DecodeForReal(eid, ser);
+                    var realDecodeResult = await ss.DecodeForReal(eid, ser, ct);
                     if (realDecodeResult.IsError) return new Result<EntityEntry>(realDecodeResult.Error);
                     entry = entry.MapValue(realDecodeResult.Value);
                 }
@@ -70,7 +70,7 @@ namespace Funes.Impl {
             
             var ss = _ssPool.Rent()!;
             try {
-                var encodeResult = await ss.EncodeForReal(stamp.Entity.Id, stamp.Entity.Value, ser);
+                var encodeResult = await ss.EncodeForReal(stamp.Entity.Id, stamp.Entity.Value, ser, ct);
                 if (encodeResult.IsError) return new Result<Void>(encodeResult.Error);
             
                 var cacheResult = await _cache.UpdateIfNewer(stamp.ToEntry(), ss, ct);
@@ -103,42 +103,76 @@ namespace Funes.Impl {
             return commitResult;
         }
         
-        public async ValueTask<Result<int>> AppendEvent(EntityId entId, Event evt, EntityId offsetEntId, 
+        public async ValueTask<Result<int>> AppendEvent(EntityId recordsId, Event evt, EntityId offsetId, 
             CancellationToken ct, bool skipCache = false) {
             if (skipCache) {
-                _tasksQueue.Enqueue(SaveEvent(entId, evt, ct));
+                _tasksQueue.Enqueue(SaveEvent(recordsId, evt, ct));
                 return new Result<int>(0);
             }
 
-            var appendResult = await _cache.AppendEvent(entId, evt, ct);
+            var appendResult = await _cache.AppendEvent(recordsId, evt, ct);
             if (appendResult.Error == Error.NotFound) {
-                // load offset
-                var offsetResult = await Retrieve(offsetEntId, StringSerializer.Instance, ct);
-                if (offsetResult.IsError) return new Result<int>(offsetResult.Error);
-                var after = offsetResult.IsOk 
-                    ?  new IncrementId((string) offsetResult.Value.Value)
-                    : IncrementId.BigBang;
-                
-                var historyResult = await _repo.HistoryAfter(entId, after, ct);
-                if (historyResult.IsError) return new Result<int>(historyResult.Error);
-                var arr = new Event[historyResult.Value.Length];
-                for(var i = 0; i < arr.Length; i++) {
-                    var incId = historyResult.Value[i];
-                    var loadResult = await _repo.LoadEvent(entId.CreateStampKey(incId), ct);
-                    if (loadResult.IsError) return new Result<int>(loadResult.Error);
-                    arr[i] = loadResult.Value;
-                }
-                
-                var updateResult = await _cache.UpdateEventsIfNotExists(entId, arr, ct);
+                var updateResult = await UpdateEventLogInCache(recordsId, offsetId, ct);
                 if (updateResult.IsError) return new Result<int>(updateResult.Error);
 
                 // snd try
-                appendResult = await _cache.AppendEvent(entId, evt, ct);
+                appendResult = await _cache.AppendEvent(recordsId, evt, ct);
             }
             
-            _tasksQueue.Enqueue(SaveEvent(entId, evt, ct));
+            _tasksQueue.Enqueue(SaveEvent(recordsId, evt, ct));
             return appendResult;
         }
+
+        public async ValueTask<Result<EventLog>> RetrieveEventLog(
+            EntityId recordsId, EntityId offsetId, CancellationToken ct) {
+
+            var getEventLogResult = await _cache.GetEventLog(recordsId, ct);
+
+            if (getEventLogResult.Error == Error.NotFound) {
+                var updateResult = await UpdateEventLogInCache(recordsId, offsetId, ct);
+                if (updateResult.IsError) return new Result<EventLog>(updateResult.Error);
+                getEventLogResult = await _cache.GetEventLog(recordsId, ct);
+            }
+
+            return getEventLogResult.IsOk
+                ? new Result<EventLog>(getEventLogResult.Value)
+                : new Result<EventLog>(getEventLogResult.Error);
+        }
+
+        private async ValueTask<Result<Void>> UpdateEventLogInCache(
+            EntityId eventLogId, EntityId offsetId, CancellationToken ct) {
+            
+            var offsetResult = await Retrieve(offsetId, StringSerializer.Instance, ct);
+            if (offsetResult.IsError) return new Result<Void>(offsetResult.Error);
+            var after = offsetResult.Value.IsOk 
+                ?  new IncrementId((string) offsetResult.Value.Value)
+                : IncrementId.BigBang;
+                
+            var historyResult = await _repo.HistoryAfter(eventLogId, after, ct);
+            if (historyResult.IsError) return new Result<Void>(historyResult.Error);
+            var arr = new Event[historyResult.Value.Length];
+            for(var i = 0; i < arr.Length; i++) {
+                var incId = historyResult.Value[i];
+                var loadResult = await _repo.LoadBinary(eventLogId.CreateStampKey(incId), ct);
+                if (loadResult.IsError) return new Result<Void>(loadResult.Error);
+                arr[i] = new Event(incId, loadResult.Value);
+            }
+                
+            var updateResult = await _cache.UpdateEventsIfNotExists(eventLogId, arr, ct);
+            if (updateResult.IsError) return new Result<Void>(updateResult.Error);
+
+            return new Result<Void>(Void.Value);
+        }
+
+        public async ValueTask<Result<Void>> TruncateEvents(
+            EntityId recordId, EntityStampKey offsetKey, IncrementId lastToTruncate, CancellationToken ct) {
+
+            var offsetStamp = new EntityStamp(offsetKey, lastToTruncate.Id);
+            var uploadOffsetResult = await Upload(offsetStamp, StringSerializer.Instance, ct);
+            if (uploadOffsetResult.IsError) return new Result<Void>(uploadOffsetResult.Error);
+
+            return await _cache.TruncateEvents(recordId, lastToTruncate, ct);
+        }        
 
         public Task Flush() {
             if (_tasksQueue.IsEmpty) return Task.CompletedTask;
@@ -181,7 +215,7 @@ namespace Funes.Impl {
             _repo.Save(stamp, ser, ct).AsTask();
 
         private Task SaveEvent(EntityId entId, Event evt, CancellationToken ct) =>
-            _repo.SaveEvent(entId, evt, ct).AsTask();
+            _repo.SaveBinary(entId.CreateStampKey(evt.IncId), evt.Data, ct).AsTask();
 
         private Task CheckCollisions(IEnumerable<Error.CommitError.Conflict> conflicts, CancellationToken ct) =>
             Task.WhenAll(conflicts.Select(x => CheckConflict(x, ct)));

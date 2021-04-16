@@ -25,7 +25,7 @@ namespace Funes.Impl {
             if (triple.Item2 == null) return new Result<EntityEntry>(EntityEntry.NotExist(eid));
             
             triple.Item2.Position = 0;
-            var serResult = await ser.Decode(triple.Item2, eid, triple.Item3);
+            var serResult = await ser.Decode(triple.Item2, eid, triple.Item3, ct);
             if (serResult.IsError) return new Result<EntityEntry>(serResult.Error);
 
             return new Result<EntityEntry>(EntityEntry.Ok(new Entity(eid, serResult.Value), triple.Item1));
@@ -38,7 +38,7 @@ namespace Funes.Impl {
 
             if (entry.IsOk) {
                 stream = new MemoryStream();
-                var serResult = await ser.Encode(stream, entry.EntId, entry.Value);
+                var serResult = await ser.Encode(stream, entry.EntId, entry.Value, ct);
                 if (serResult.IsError) return new Result<Void>(serResult.Error);
                 encoding = serResult.Value;
             }
@@ -59,7 +59,7 @@ namespace Funes.Impl {
             (MemoryStream? stream, string encoding) = (null, "");
             if (entry.IsOk) {
                 stream = new MemoryStream();
-                var serResult = await ser.Encode(stream, entry.EntId, entry.Value);
+                var serResult = await ser.Encode(stream, entry.EntId, entry.Value, ct);
                 if (serResult.IsError) return new Result<Void>(serResult.Error);
                 encoding = serResult.Value;
             }

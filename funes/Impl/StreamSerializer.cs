@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.IO;
 
@@ -12,7 +13,7 @@ namespace Funes.Impl {
         private RecyclableMemoryStream? _stream = null;
         private string _encoding = "";
         
-        public async ValueTask<Result<string>> Encode(Stream output, EntityId eid, object content) {
+        public async ValueTask<Result<string>> Encode(Stream output, EntityId eid, object content, CancellationToken ct) {
             if (_targetEntId == eid && _stream != null) {
                 foreach (var memory in _stream.GetReadOnlySequence()) {
                     await output.WriteAsync(memory);
@@ -23,7 +24,7 @@ namespace Funes.Impl {
             return Result<string>.SerdeError($"Entity was not decoded before {eid}");
         }
 
-        public async ValueTask<Result<object>> Decode(Stream input, EntityId eid, string encoding) {
+        public async ValueTask<Result<object>> Decode(Stream input, EntityId eid, string encoding, CancellationToken ct) {
             var stream = (RecyclableMemoryStream)StreamManager.GetStream();
             await input.CopyToAsync(stream);
 
@@ -32,9 +33,9 @@ namespace Funes.Impl {
             return new Result<object>(stream);
         }
 
-        public async ValueTask<Result<string>> EncodeForReal(EntityId eid, object content, ISerializer ser) {
+        public async ValueTask<Result<string>> EncodeForReal(EntityId eid, object content, ISerializer ser, CancellationToken ct) {
             var stream = (RecyclableMemoryStream)StreamManager.GetStream();
-            var encodingResult = await ser.Encode(stream, eid, content);
+            var encodingResult = await ser.Encode(stream, eid, content, ct);
 
             if (encodingResult.IsOk) {
                 (_targetEntId, _encoding, _stream) = (eid, encodingResult.Value, stream);
@@ -43,10 +44,10 @@ namespace Funes.Impl {
             return encodingResult;
         }
 
-        public async ValueTask<Result<object>> DecodeForReal(EntityId eid, ISerializer ser) {
+        public async ValueTask<Result<object>> DecodeForReal(EntityId eid, ISerializer ser, CancellationToken ct) {
             if (_targetEntId == eid && _stream != null) {
                 _stream.Position = 0;
-                return await ser.Decode(_stream, eid, _encoding);
+                return await ser.Decode(_stream, eid, _encoding, ct);
             } 
             
             return Result<object>.SerdeError($"Entity was not decoded before {eid}");

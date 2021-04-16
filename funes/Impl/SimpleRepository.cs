@@ -15,7 +15,7 @@ namespace Funes.Impl {
         public async ValueTask<Result<Void>> Save(EntityStamp stamp, ISerializer ser, CancellationToken ct) {
             ct.ThrowIfCancellationRequested();
             var stream = new MemoryStream();
-            var serResult = await ser.Encode(stream, stamp.EntId, stamp.Value);
+            var serResult = await ser.Encode(stream, stamp.EntId, stamp.Value, ct);
             if (serResult.IsError) return new Result<Void>(serResult.Error);
 
             if (!stream.TryGetBuffer(out var buffer)) buffer = stream.ToArray();
@@ -30,26 +30,25 @@ namespace Funes.Impl {
             if (!_data.TryGetValue(key, out var pair)) return Result<EntityStamp>.NotFound;
 
             var stream =  pair.Item2.AsStream();
-            var serResult = await ser.Decode(stream, key.EntId, pair.Item1);
+            var serResult = await ser.Decode(stream, key.EntId, pair.Item1, ct);
             if (serResult.IsError) return new Result<EntityStamp>(serResult.Error);
 
             return new Result<EntityStamp>(new EntityStamp(key, serResult.Value));
         }
 
-        public ValueTask<Result<Void>> SaveEvent(EntityId eid, Event evt, CancellationToken ct) {
+        public ValueTask<Result<Void>> SaveBinary(EntityStampKey key, ReadOnlyMemory<byte> data, CancellationToken ct) {
             ct.ThrowIfCancellationRequested();
-            _data[eid.CreateStampKey(evt.IncId)] = ("", evt.Data);
+            _data[key] = ("", data);
             return ValueTask.FromResult(new Result<Void>(Void.Value));
         }
 
-        public ValueTask<Result<Event>> LoadEvent(EntityStampKey key, CancellationToken ct) {
+        public ValueTask<Result<ReadOnlyMemory<byte>>> LoadBinary(EntityStampKey key, CancellationToken ct) {
             ct.ThrowIfCancellationRequested();
 
             if (!_data.TryGetValue(key, out var pair)) 
-                return ValueTask.FromResult(Result<Event>.NotFound);
+                return ValueTask.FromResult(Result<ReadOnlyMemory<byte>>.NotFound);
 
-            var evt = new Event(key.IncId, pair.Item2);
-            return ValueTask.FromResult(new Result<Event>(evt));
+            return ValueTask.FromResult(new Result<ReadOnlyMemory<byte>>(pair.Item2));
         }
 
         public ValueTask<Result<IncrementId[]>> HistoryBefore(EntityId entId, 

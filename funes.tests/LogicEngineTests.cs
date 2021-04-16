@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using Funes.Impl;
-using Funes.Indexes;
+using Funes.Sets;
 using Xunit;
 using Xunit.Abstractions;
 using static Funes.Tests.TestHelpers;
@@ -47,7 +47,8 @@ namespace Funes.Tests {
             var logicEngine = CreateLogicEngine(new BasicLogic());
 
             var fact = new Entity(new EntityId("/tests/fact"), "World");
-            var result = await logicEngine.Run(fact, null!, default);
+            var args = new IncrementArgs();
+            var result = await logicEngine.Run(fact, null!, args,default);
             Assert.True(result.IsOk);
             Assert.Equal("Publish: Hello, World", result.Value.SideEffects.First());
         }
@@ -77,7 +78,8 @@ namespace Funes.Tests {
             var logicEngine = CreateLogicEngine(new AdvanceLogic());
 
             var fact = new Entity(new EntityId("/tests/fact"), 6);
-            var result = await logicEngine.Run(fact, null!, default);
+            var args = new IncrementArgs();
+            var result = await logicEngine.Run(fact, null!, args, default);
             Assert.True(result.IsOk);
             Assert.Equal("Publish: FlipFlop", result.Value.SideEffects.First());
         }
@@ -106,33 +108,33 @@ namespace Funes.Tests {
             var logicEngine = CreateLogicEngine(new RetrieveLogic(), repo);
 
             var fact = new Entity(new EntityId("/tests/fact"), "Answer:");
-            var result = await logicEngine.Run(fact, null!, default);
+            var args = new IncrementArgs();
+            var result = await logicEngine.Run(fact, null!, args, default);
             Assert.True(result.IsOk);
-            var output = (Simple)result.Value.Outputs.First().Value.Value;
+            var output = (Simple)result.Value.Entities.First().Value.Value;
             Assert.Equal("Answer:42", output.Value);
         }
 
         [Fact]
         public async void AddTagLogicTest() {
-            var entId = CreateRandomEntId();
-            var idxName = "testIdx";
+            var setName = CreateRandomEntId().GetName();
             var tag = "top";
             
             var logic = new CallbackLogic<string,string,string>(
-                entity => ("", new Cmd<string, string>.TagCmd(idxName, entId.Id, tag )),
+                entity => ("", new Cmd<string, string>.SetCmd(setName, SetOp.Kind.Add, tag )),
                 (model, msg) => ("", Cmd<string, string>.None),
                 model => Cmd<string, string>.None);
             
             var logicEngine = CreateLogicEngine(logic);
 
             var fact = new Entity(new EntityId("/tests/fact"), "!");
-            var result = await logicEngine.Run(fact, null!, default);
+            var args = new IncrementArgs();
+            var result = await logicEngine.Run(fact, null!, args, default);
             Assert.True(result.IsOk);
-            Assert.True(result.Value.IndexRecords.TryGetValue(idxName, out var idxRecord));
+            Assert.True(result.Value.SetRecords.TryGetValue(setName, out var idxRecord));
             Assert.True(idxRecord!.Count == 1);
             var op = idxRecord[0];
-            Assert.Equal(IndexOp.Kind.AddTag, op.OpKind);
-            Assert.Equal(entId.Id, op.Key);
+            Assert.Equal(SetOp.Kind.Add, op.OpKind);
             Assert.Equal(tag, op.Tag);
         }
 

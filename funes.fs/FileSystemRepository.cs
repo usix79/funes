@@ -15,13 +15,13 @@ namespace Funes.Fs {
 
         public async ValueTask<Result<Void>> Save(EntityStamp entityStamp, ISerializer ser, CancellationToken ct) {
             await using MemoryStream stream = new();
-            var encoderResult = await ser.Encode(stream, entityStamp.Entity.Id, entityStamp.Value);
+            var encoderResult = await ser.Encode(stream, entityStamp.Entity.Id, entityStamp.Value, ct);
             if (encoderResult.IsError) return new Result<Void>(encoderResult.Error);
             return await Write(entityStamp.Key, stream.GetBuffer(), encoderResult.Value, ct);
         }
         
-        public async ValueTask<Result<Void>> SaveEvent(EntityId eid, Event evt, CancellationToken ct) {
-            return await Write(eid.CreateStampKey(evt.IncId), evt.Data, "evt", ct);
+        public async ValueTask<Result<Void>> SaveBinary(EntityStampKey key, ReadOnlyMemory<byte> data, CancellationToken ct) {
+            return await Write(key, data, "evt", ct);
         }
         
         private async ValueTask<Result<Void>> Write(EntityStampKey key, 
@@ -44,7 +44,7 @@ namespace Funes.Fs {
                     foreach (var fileName in Directory.GetFiles(memDirectory, GetMemFileMask(key))) {
                         ct.ThrowIfCancellationRequested();
                         var (incId, encoding) = ParseFileName(fileName);
-                        var decodeResult = await ser.Decode(File.OpenRead(fileName), key.EntId, encoding);
+                        var decodeResult = await ser.Decode(File.OpenRead(fileName), key.EntId, encoding, ct);
 
                         if (decodeResult.IsOk) 
                             return new Result<EntityStamp>(new EntityStamp(key, decodeResult.Value));
@@ -59,7 +59,7 @@ namespace Funes.Fs {
             catch (Exception x) { return Result<EntityStamp>.Exception(x); }
         }
 
-        public async ValueTask<Result<Event>> LoadEvent(EntityStampKey key, CancellationToken ct) {
+        public async ValueTask<Result<ReadOnlyMemory<byte>>> LoadBinary(EntityStampKey key, CancellationToken ct) {
             try {
                 var memDirectory = GetMemDirectory(key);
                 if (Directory.Exists(memDirectory)) {
@@ -67,13 +67,13 @@ namespace Funes.Fs {
                     var fullFileName = Path.Combine(memDirectory, fileName);
                     if (File.Exists(fullFileName)) {
                         var data = await File.ReadAllBytesAsync(fullFileName, ct);
-                        return new Result<Event>(new Event(key.IncId, data));
+                        return new Result<ReadOnlyMemory<byte>>(data);
                     }
                 }
-                return Result<Event>.NotFound;
+                return Result<ReadOnlyMemory<byte>>.NotFound;
             }
             catch (TaskCanceledException) { throw; }
-            catch (Exception x) { return Result<Event>.Exception(x); }
+            catch (Exception x) { return Result<ReadOnlyMemory<byte>>.Exception(x); }
         }
         
         public ValueTask<Result<IncrementId[]>> HistoryBefore(EntityId eid, 

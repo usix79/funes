@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.IO;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Funes.Impl {
@@ -8,7 +9,7 @@ namespace Funes.Impl {
     public class StringSerializer : ISerializer {
 
         public static readonly StringSerializer Instance = new StringSerializer();
-        public ValueTask<Result<string>> Encode(Stream output, EntityId eid, object content) {
+        public ValueTask<Result<string>> Encode(Stream output, EntityId eid, object content, CancellationToken ct) {
             var str = (string) content;
             foreach (var ch in str) {
                 var loByte = (byte) ch;
@@ -19,7 +20,7 @@ namespace Funes.Impl {
             return ValueTask.FromResult(new Result<string>("utf16"));
         }
 
-        public ValueTask<Result<object>> Decode(Stream input, EntityId eid, string encoding) {
+        public ValueTask<Result<object>> Decode(Stream input, EntityId eid, string encoding, CancellationToken ct) {
             var arr = ArrayPool<byte>.Shared.Rent(256);
 
             var offset = 0;

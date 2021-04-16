@@ -350,9 +350,9 @@ namespace Funes.Tests {
 
             await de.Flush();
 
-            var repoResult = await repo.LoadEvent(entId.CreateStampKey(incId), default);
+            var repoResult = await repo.LoadBinary(entId.CreateStampKey(incId), default);
             Assert.True(repoResult.IsOk, repoResult.Error.ToString());
-            AssertEventsEqual(evt, repoResult.Value);
+            AssertEventsEqual(evt, new Event(incId, repoResult.Value));
             
             var incId2 = new IncrementId("099");
             var evt2 = CreateEvent(incId2);
@@ -366,9 +366,9 @@ namespace Funes.Tests {
 
             await de.Flush();
 
-            var repoResult2 = await repo.LoadEvent(entId.CreateStampKey(incId2), default);
+            var repoResult2 = await repo.LoadBinary(entId.CreateStampKey(incId2), default);
             Assert.True(repoResult2.IsOk, repoResult2.Error.ToString());
-            AssertEventsEqual(evt2, repoResult2.Value);
+            AssertEventsEqual(evt2, new Event(incId2, repoResult2.Value));
         }
 
         [Fact]
@@ -385,7 +385,7 @@ namespace Funes.Tests {
             for (var i = 0; i < events.Length; i++) {
                 var incId = new IncrementId((100 - i).ToString("d4"));
                 events[i] = CreateEvent(incId);
-                var saveResult = await repo.SaveEvent(entId, events[i], default);
+                var saveResult = await repo.SaveBinary(entId.CreateStampKey(incId), events[i].Data, default);
                 Assert.True(saveResult.IsOk, saveResult.Error.ToString());
             }
 
@@ -401,9 +401,9 @@ namespace Funes.Tests {
 
             await de.Flush();
 
-            var repoResult = await repo.LoadEvent(entId.CreateStampKey(newIncId), default);
+            var repoResult = await repo.LoadBinary(entId.CreateStampKey(newIncId), default);
             Assert.True(repoResult.IsOk, repoResult.Error.ToString());
-            AssertEventsEqual(newEvt, repoResult.Value);
+            AssertEventsEqual(newEvt, new Event(newIncId, repoResult.Value));
         }
 
         [Fact]
@@ -420,7 +420,7 @@ namespace Funes.Tests {
             for (var i = 0; i < events.Length; i++) {
                 var incId = new IncrementId((100 - i).ToString("d4"));
                 events[i] = CreateEvent(incId);
-                var saveResult = await repo.SaveEvent(entId, events[i], default);
+                var saveResult = await repo.SaveBinary(entId.CreateStampKey(incId), events[i].Data, default);
                 Assert.True(saveResult.IsOk, saveResult.Error.ToString());
             }
 
@@ -441,9 +441,9 @@ namespace Funes.Tests {
 
             await de.Flush();
 
-            var repoResult = await repo.LoadEvent(entId.CreateStampKey(newIncId), default);
+            var repoResult = await repo.LoadBinary(entId.CreateStampKey(newIncId), default);
             Assert.True(repoResult.IsOk, repoResult.Error.ToString());
-            AssertEventsEqual(newEvt, repoResult.Value);
+            AssertEventsEqual(newEvt, new Event(newIncId, repoResult.Value));
         }
 
     }

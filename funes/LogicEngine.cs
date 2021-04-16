@@ -1,9 +1,11 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Funes.Indexes;
+using Funes.Impl;
+using Funes.Sets;
 using Microsoft.Extensions.Logging;
 
 namespace Funes {
@@ -13,6 +15,7 @@ namespace Funes {
         private readonly ILogger _logger;
         private readonly ITracer<TModel,TMsg,TSideEffect> _tracer;
         private readonly ISerializer _serializer;
+        private readonly ISerializer _sysSerializer = new SystemSerializer();
         private readonly IDataSource _ds;
         private readonly ILogic<TModel,TMsg,TSideEffect> _logic;
 
@@ -27,18 +30,22 @@ namespace Funes {
         }
         
         public class LogicResult {
-            public Dictionary<EntityId, (Entity,IncrementId,bool)> Inputs { get; } = new ();
-            public Dictionary<EntityId, Entity> Outputs { get; } = new ();
-            public Dictionary<string, IndexRecord> IndexRecords { get; } = new();
+            public Dictionary<EntityId, Entity> Entities { get; } = new ();
+            public Dictionary<string, SetRecord> SetRecords { get; } = new();
             public List<TSideEffect> SideEffects { get; } = new ();
             public List<KeyValuePair<string, string>> Constants { get; } = new ();
         }
 
-        public async Task<Result<LogicResult>> Run(Entity fact, IConstants constants, CancellationToken ct) {
+        public async Task<Result<LogicResult>> Run(Entity fact, 
+            IConstants constants, IIncrementArgsCollector argsCollector, CancellationToken ct) {
             var entities = new Dictionary<EntityId, EntityEntry>{[fact.Id] = EntityEntry.Ok(fact)};
+            var sets = new Dictionary<string, SetSnapshot>();
+
             var pendingMessages = new Queue<TMsg>();
             var pendingCommands = new LinkedList<Cmd<TMsg, TSideEffect>>();
             var retrievingTasks = new Dictionary<EntityId, ValueTask<Result<EntityEntry>>>();
+            var retrievingSetTasks = new Dictionary<string, Task<Result<SetSnapshot>>>();
+            
             var output = new LogicResult();
             var iteration = 0;
 
@@ -60,7 +67,20 @@ namespace Funes {
 
                     ProcessPendingCommands();
                     if (pendingMessages.Count == 0 && pendingCommands.First != null) {
-                        await Task.WhenAny(retrievingTasks.Values.Select(x => x.AsTask()));
+                        var tasksArr = ArrayPool<Task>.Shared.Rent(
+                            retrievingTasks.Count + retrievingSetTasks.Count);
+
+                        try {
+                            var idx = 0;
+                            foreach (var task in retrievingTasks.Values) tasksArr[idx++] = task.AsTask();
+                            foreach (var task in retrievingSetTasks.Values) tasksArr[idx++] = task;
+                            while (idx < tasksArr.Length) tasksArr[idx++] = Task.CompletedTask;
+
+                            await Task.WhenAny(tasksArr);
+                        }
+                        finally {
+                            ArrayPool<Task>.Shared.Return(tasksArr);
+                        }
                         ProcessPendingCommands();
                     }
                 }
@@ -88,15 +108,15 @@ namespace Funes {
                         foreach (var item in x.Items) ProcessCommand(item);
                         break;
                     case Cmd<TMsg, TSideEffect>.UploadCmd x:
-                        output.Outputs[x.Entity.Id] = x.Entity;
+                        output.Entities[x.Entity.Id] = x.Entity;
                         entities[x.Entity.Id] = EntityEntry.Ok(x.Entity);
                         break;
-                    case Cmd<TMsg, TSideEffect>.TagCmd x:
-                        if (!output.IndexRecords.TryGetValue(x.IdxName, out var idxRecord)) {
-                            idxRecord = new IndexRecord();
-                            output.IndexRecords[x.IdxName] = idxRecord;
+                    case Cmd<TMsg, TSideEffect>.SetCmd x:
+                        if (!output.SetRecords.TryGetValue(x.SetName, out var setRecord)) {
+                            setRecord = new SetRecord();
+                            output.SetRecords[x.SetName] = setRecord;
                         }
-                        idxRecord.Add(new IndexOp(IndexOp.Kind.AddTag, x.Key, x.Tag));
+                        setRecord.Add(new SetOp(x.Op, x.Tag));
                         break;
                     case Cmd<TMsg, TSideEffect>.SideEffectCmd x:
                         output.SideEffects.Add(x.SideEffect);
@@ -115,6 +135,12 @@ namespace Funes {
                             pendingCommands.AddLast(x);
                             foreach (var memId in x.EntityIds)
                                 StartRetrievingTask(memId);
+                        }
+                        break;
+                    case Cmd<TMsg, TSideEffect>.RetrieveSetCmd x:
+                        if (!TryCompleteRetrieveSet(x)) {
+                            pendingCommands.AddLast(x);
+                            StartRetrievingSetTask(x.SetName, argsCollector);
                         }
                         break;
                     case Cmd<TMsg, TSideEffect>.LogCmd x:
@@ -155,12 +181,7 @@ namespace Funes {
 
             void AddInput(EntityEntry entry, bool asPremise) {
                 if (entry.IsOk) {
-                    if (output!.Inputs.TryGetValue(entry.Entity.Id, out var tuple)) {
-                        output.Inputs[entry.Entity.Id] = (tuple.Item1, tuple.Item2,  tuple.Item3 || asPremise);
-                    }
-                    else {
-                        output.Inputs[entry.Entity.Id] = (entry.Entity, entry.IncId, asPremise);
-                    }
+                    argsCollector.RegisterEntity(entry.Key, asPremise);
                 }
             }
 
@@ -183,8 +204,43 @@ namespace Funes {
                 }
             }
 
+            bool TryCompleteRetrieveSet(Cmd<TMsg, TSideEffect>.RetrieveSetCmd aCmd) {
+                if (!sets!.TryGetValue(aCmd.SetName, out var snapshot)) return false;
+                
+                try {
+                    pendingMessages!.Enqueue(aCmd.Action(snapshot));
+                }
+                catch (Exception x) {
+                    _logger.FunesException("LogicEngine", "Action", IncrementId.None, x);
+                }
+                return true;
+            }
+
+            void StartRetrievingSetTask(string setName, IIncrementArgsCollector argsCollector) {
+                if (!retrievingSetTasks!.ContainsKey(setName)) 
+                    retrievingSetTasks[setName] = SetsHelpers.RetrieveSnapshot(_ds, _sysSerializer, setName, argsCollector, ct);
+            }
+            
+            void ProcessRetrievingSetTasks() {
+                if (retrievingSetTasks!.Values.Any(x => x.IsCompleted)) {
+                    foreach (var setName in retrievingSetTasks.Keys.ToArray()) {
+                        var task = retrievingSetTasks[setName];
+                        if (task.IsCompleted) {
+                            retrievingSetTasks.Remove(setName);
+                            if (task.IsCompletedSuccessfully && task.Result.IsOk) {
+                                sets![setName] = task.Result.Value;
+                            }
+                            else {
+                                sets![setName] = SetSnapshot.Empty;
+                            }
+                        }
+                    }
+                }
+            }
+            
             void ProcessPendingCommands() {
                 ProcessRetrievingTasks();
+                ProcessRetrievingSetTasks();
                 
                 var node = pendingCommands.First;
                 while (node != null) {
@@ -192,6 +248,7 @@ namespace Funes {
                     if (node.Value switch {
                         Cmd<TMsg, TSideEffect>.RetrieveCmd x => TryCompleteRetrieve(x),
                         Cmd<TMsg, TSideEffect>.RetrieveManyCmd x => TryCompleteRetrieveMany(x),
+                        Cmd<TMsg, TSideEffect>.RetrieveSetCmd x => TryCompleteRetrieveSet(x),
                         _ => true}) {
                         pendingCommands.Remove(node);
                     }

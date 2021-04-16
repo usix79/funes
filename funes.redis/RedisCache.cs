@@ -85,7 +85,7 @@ namespace Funes.Redis {
 
                     var buffer = (byte[]) values[3];
                     await using (var stream = new MemoryStream(buffer, 0, buffer.Length, false, true)) {
-                        var decodingResult = await ser.Decode(stream, eid, values[2]);
+                        var decodingResult = await ser.Decode(stream, eid, values[2], ct);
                         if (decodingResult.IsError) {
                             return new Result<EntityEntry>(decodingResult.Error);
                         }
@@ -111,7 +111,7 @@ namespace Funes.Redis {
 
             if (entry.Status == EntityEntry.EntryStatus.IsOk) {
                 await using var stream = new MemoryStream();
-                var encodeResult = await ser.Encode(stream, entry.EntId, entry.Value);
+                var encodeResult = await ser.Encode(stream, entry.EntId, entry.Value, ct);
                 if (encodeResult.IsError) {
                     return new Result<Void>(encodeResult.Error);
                 }
@@ -165,7 +165,7 @@ end";
         public async Task<Result<Void>> UpdateIfNewer(EntityEntry entry, ISerializer ser, CancellationToken ct) {
             if (entry.IsOk) {
                 await using var stream = new MemoryStream();
-                var encodeResult = await ser.Encode(stream, entry.EntId, entry.Value);
+                var encodeResult = await ser.Encode(stream, entry.EntId, entry.Value, ct);
                 if (encodeResult.IsError) {
                     return new Result<Void>(encodeResult.Error);
                 }
