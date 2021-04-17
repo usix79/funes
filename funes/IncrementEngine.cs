@@ -51,22 +51,22 @@ namespace Funes {
             async ValueTask PerformSideEffects(IncrementId incId, List<TSideEffect> sideEffects) {
                 if (sideEffects.Count == 0) return;
                 
-                var behaviorTasks = ArrayPool<Task>.Shared.Rent(sideEffects.Count);
+                var behaviorTasksArr = ArrayPool<ValueTask<Result<Void>>>.Shared.Rent(sideEffects.Count);
+                var behaviorTasks = new ArraySegment<ValueTask<Result<Void>>>(behaviorTasksArr, 0, sideEffects.Count);
+                var resultsArr = ArrayPool<Result<Void>>.Shared.Rent(sideEffects.Count);
+                var results = new ArraySegment<Result<Void>>(resultsArr, 0, sideEffects.Count);
                 try {
                     for (var i = 0; i < sideEffects.Count; i++)
                         behaviorTasks[i] = env.Behavior(incId, sideEffects[i], ct);
                     
-                    // fill rest of the array with Task.CompletedTask
-                    for (var i = sideEffects.Count; i < behaviorTasks.Length; i++)
-                        behaviorTasks[i] = Task.CompletedTask;
+                    await Utils.WhenAll(behaviorTasks, results, ct);
 
-                    await Task.WhenAll(behaviorTasks);
-                }
-                catch (AggregateException x) {
-                    LogException(incId, "PerformSideEffects", x);
+                    foreach (var result in results)
+                        if (result.IsError) LogError(incId, "SideEffect", result.Error);
                 }
                 finally {
-                    ArrayPool<Task>.Shared.Return(behaviorTasks);
+                    ArrayPool<ValueTask<Result<Void>>>.Shared.Return(behaviorTasksArr);
+                    ArrayPool<Result<Void>>.Shared.Return(resultsArr);
                 }
             }
 
@@ -81,21 +81,37 @@ namespace Funes {
                 var outputs = new List<EntityId>(lg.Entities.Keys);
                 if (commitResult.IsOk) {
                     if (lg.Entities.Count > 0) {
-                        builder.RegisterResults(await UploadOutputs(builder.IncId, lg.Entities));
+                        var uploadResultsArr = ArrayPool<Result<Void>>.Shared.Rent(lg.Entities.Count);
+                        try {
+                            var uploadResults = new ArraySegment<Result<Void>>(uploadResultsArr, 0, lg.Entities.Count);
+                            await UploadOutputs(builder.IncId, lg.Entities, uploadResults);
+                            builder.RegisterResults(uploadResults);
+                        }
+                        finally {
+                            ArrayPool<Result<Void>>.Shared.Return(uploadResultsArr);
+                        }
                     }
 
                     if (lg.SetRecords.Count > 0) {
-                        var setsResults = await SetsHelpers.UploadSetRecords(env.Logger, env.DataEngine, 
-                            env.MaxEventLogSize, builder.IncId, lg.SetRecords, outputs, ct);
-                        builder.RegisterResults(setsResults);
+                        var uploadResultsArr = ArrayPool<Result<string>>.Shared.Rent(lg.SetRecords.Count);
+                        var uploadResults = new ArraySegment<Result<string>>(uploadResultsArr, 0, lg.SetRecords.Count);
+                        try {
+                            await SetsHelpers.UploadSetRecords(env.Logger, env.DataEngine, 
+                                env.MaxEventLogSize, builder.IncId, lg.SetRecords, outputs, uploadResults, ct);
+                            
+                            builder.RegisterResults(uploadResults);
 
-                        foreach (var res in setsResults) {
-                            if (res.IsOk && !String.IsNullOrEmpty(res.Value)) {
-                                // TODO: consider updating snapshots in parallel
-                                var snapshotResult = await SetsHelpers.UpdateSnapshot(
-                                    env.DataEngine, env.SystemSerializer, builder.IncId, res.Value, args, outputs, ct);
-                                builder.RegisterResult(snapshotResult);
+                            foreach (var res in uploadResults) {
+                                if (res.IsOk && !string.IsNullOrEmpty(res.Value)) {
+                                    // TODO: consider updating snapshots in parallel
+                                    var snapshotResult = await SetsHelpers.UpdateSnapshot(
+                                        env.DataEngine, env.SystemSerializer, builder.IncId, res.Value, args, outputs, ct);
+                                    builder.RegisterResult(snapshotResult);
+                                }
                             }
+                        }
+                        finally {
+                            ArrayPool<Result<string>>.Shared.Return(uploadResultsArr);
                         }
                     }
                     
@@ -125,51 +141,44 @@ namespace Funes {
                 var premisesCount = args.PremisesCount();
 
                 var premisesArr = ArrayPool<EntityStampKey>.Shared.Rent(premisesCount);
-                var outputsArr = ArrayPool<EntityId>.Shared.Rent(outputs.Count);
+                var premises = new ArraySegment<EntityStampKey>(premisesArr, 0, premisesCount);
+                var conclusionsArr = ArrayPool<EntityId>.Shared.Rent(outputs.Count);
+                var conclusions = new ArraySegment<EntityId>(conclusionsArr, 0, outputs.Count);
                 try {
                     var idx = 0;
-                    foreach (var link in args.Entities) {
-                        if (link.IsPremise) premisesArr[idx++] = link.Key;
-                    }
-                    var premises = new ArraySegment<EntityStampKey>(premisesArr, 0, premisesCount);
+                    foreach (var link in args.Entities)
+                        if (link.IsPremise) premises[idx++] = link.Key;
                     
-                    outputs.Keys.CopyTo(outputsArr, 0);
-                    var conclusions = new ArraySegment<EntityId>(outputsArr, 0, outputs.Count);
+                    outputs.Keys.CopyTo(conclusionsArr, 0);
                     
                     return await env.DataEngine.TryCommit(premises, conclusions, incId, ct);
                 }
                 finally {
                     ArrayPool<EntityStampKey>.Shared.Return(premisesArr);
-                    ArrayPool<EntityId>.Shared.Return(outputsArr);
+                    ArrayPool<EntityId>.Shared.Return(conclusionsArr);
                 }
             }
             
-            Task<Result<Void>[]> UploadOutputs(IncrementId incId, Dictionary<EntityId,Entity> outputs) {
-                var uploadTasks = ArrayPool<Task<Result<Void>>>.Shared.Rent(outputs.Count);
+            async ValueTask<Void> UploadOutputs(
+                IncrementId incId, Dictionary<EntityId,Entity> outputs, ArraySegment<Result<Void>> results) {
+                
+                var uploadTasksArr = ArrayPool<ValueTask<Result<Void>>>.Shared.Rent(outputs.Count);
+                var uploadTasks = new ArraySegment<ValueTask<Result<Void>>>(uploadTasksArr, 0, outputs.Count);
                 try {
                     var idx = 0;
-                    foreach (var outputEntity in outputs.Values) {
-                        var outputStamp = outputEntity.ToStamp(incId);
-                        uploadTasks[idx++] = env.DataEngine.Upload(outputStamp, env.Serializer, ct).AsTask();
-                    }
+                    foreach (var outputEntity in outputs.Values)
+                        uploadTasks[idx++] = env.DataEngine.Upload(outputEntity.ToStamp(incId), env.Serializer, ct);
 
-                    // fill rest of the array with Task.CompletedTask
-                    for (var i = outputs.Count; i < uploadTasks.Length; i++)
-                        uploadTasks[i] = Result<Void>.CompletedTask;
-
-                    return Task.WhenAll(uploadTasks);
-                }
-                catch (AggregateException x) {
-                    LogException(incId, "Upload Outputs", x);
-                    return Task.FromResult(new []{Result<Void>.Exception(x)});
+                    await Utils.WhenAll(uploadTasks, results, ct);
                 }
                 finally {
-                    ArrayPool<Task<Result<Void>>>.Shared.Return(uploadTasks);
+                    ArrayPool<ValueTask<Result<Void>>>.Shared.Return(uploadTasksArr);
                 }
+
+                return Void.Value;
             }
 
-
-            string DescribeSideEffects(List<TSideEffect> sideEffects) {
+            static string DescribeSideEffects(List<TSideEffect> sideEffects) {
                 var txt = new StringBuilder();
                 foreach (var effect in sideEffects)
                     if (effect != null) txt.AppendLine(effect.ToString());
@@ -181,102 +190,6 @@ namespace Funes {
 
             void LogException(IncrementId incId, string kind, Exception exn) =>
                 env.Logger.FunesException("IncrementEngine", kind, incId, exn);
-
-        }
-
-
-        private struct IncrementBuilder {
-            private readonly EntityStampKey _factKey;
-            private readonly long _startMilliseconds;
-            private readonly int _attempt;
-            private readonly long _startCommitMilliseconds;
-            private readonly DateTimeOffset _incrementTime;
-            private IncrementId _incId;
-            private readonly List<KeyValuePair<string,string>> _details;
-            private long _endCommitMilliseconds;
-            List<Error>? _errors;
-
-            public IncrementId IncId => _incId;
-
-            public IncrementBuilder(EntityStampKey factKey, long startMilliseconds, int attempt, long ms) {
-                _incId = IncrementId.NewId();
-                _factKey = factKey;
-                _startMilliseconds = startMilliseconds;
-                _attempt = attempt;
-                _startCommitMilliseconds = ms;
-                _endCommitMilliseconds = 0;
-                _details = new List<KeyValuePair<string,string>>(8);
-                _incrementTime = DateTimeOffset.UtcNow;
-                _errors = null;
-            }
-
-            public void RegisterCommitResult(Result<Void> result, long ms) {
-                _endCommitMilliseconds = ms;
-                if (result.IsError) {
-                    if (result.Error is Error.CommitError err) {
-                        _incId = IncId.AsFail();
-                        AppendDetails(Increment.DetailsCommitErrors, err.ToString());
-                    }
-                    else {
-                        _incId = _incId.AsLost();
-                    }
-                    _errors ??= new List<Error>();
-                    _errors.Add(result.Error);
-                }
-            }
-
-            public void RegisterResult(Result<Void> result) {
-                if (result.IsError) {
-                    _errors ??= new List<Error>();
-                    _errors.Add(result.Error);
-                }
-            }
-
-            public void RegisterResults(Result<Void>[] results) {
-                foreach (var result in results) {
-                    if (result.IsError) {
-                        _errors ??= new List<Error>();
-                        _errors.Add(result.Error);
-                    }
-                }
-            }
-
-            public void RegisterResults(Result<string>[] results) {
-                foreach (var result in results) {
-                    if (result.IsError) {
-                        _errors ??= new List<Error>();
-                        _errors.Add(result.Error);
-                    }
-                }
-            }
-
-            public void DescribeSideEffects(string txt) => AppendDetails(Increment.DetailsSideEffects, txt);
-            
-            public Error GetError() {
-                if (_errors is null) return Error.No;
-                if (_errors!.Count == 1) return _errors[0];
-                return new Error.AggregateError(_errors!);
-            }
-
-            public Increment Create(IncrementArgs args, List<EntityId> outputs, 
-                List<KeyValuePair<string,string>> constants, long ms) {
-                
-                AppendDetails(Increment.DetailsIncrementTime, _incrementTime.ToString());
-                AppendDetails(Increment.DetailsAttempt, _attempt.ToString());
-                AppendDetails(Increment.DetailsLogicDuration, (_startCommitMilliseconds - _startMilliseconds).ToString()!);
-                AppendDetails(Increment.DetailsCommitDuration, (_endCommitMilliseconds - _startCommitMilliseconds).ToString()!);
-                AppendDetails(Increment.DetailsUploadDuration, (ms - _endCommitMilliseconds).ToString()!);
-
-                if (_errors != null) {
-                    foreach (var error in _errors) AppendDetails(Increment.DetailsError, error.ToString());
-                }
-
-                return new Increment(_incId, _factKey, args, outputs, constants, _details);
-            }
-
-            private void AppendDetails(string key, string value) {
-                _details.Add(new KeyValuePair<string, string>(key, value));
-            }
         }
     }
 }

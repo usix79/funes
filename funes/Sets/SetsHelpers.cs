@@ -63,14 +63,12 @@ namespace Funes.Sets {
             void WriteString(string str) {
                 var strSpan = memory.Span;
                 foreach (var ch in str) {
-                    var (loByte, hiByte) = CharToUtf16Bytes(ch);
+                    var (loByte, hiByte) = Utils.CharToUtf16Bytes(ch);
                     strSpan[idx++] = loByte;
                     strSpan[idx++] = hiByte; // little endian
                 }
             }
         }
-
-        private static (byte, byte) CharToUtf16Bytes(char ch) => ((byte) ch, (byte) ((uint) ch >> 8));
         
         public static async ValueTask<Result<string>> EncodeJson(Stream output, SetSnapshot snapshot) {
             try {
@@ -106,7 +104,7 @@ namespace Funes.Sets {
                 foreach (var tag in snapshot) {
                     output.WriteByte((byte)tag.Length);
                     foreach (var ch in tag) {
-                        var (loByte, hiByte) = CharToUtf16Bytes(ch);
+                        var (loByte, hiByte) = Utils.CharToUtf16Bytes(ch);
                         output.WriteByte(loByte);
                         output.WriteByte(hiByte);
                     }
@@ -156,27 +154,20 @@ namespace Funes.Sets {
             }
         }
         
-        public static Task<Result<string>[]> UploadSetRecords(ILogger logger, IDataEngine de, int max,
-            IncrementId incId, Dictionary<string,SetRecord> records, List<EntityId> outputs, CancellationToken ct) {
-            var uploadTasks = ArrayPool<Task<Result<string>>>.Shared.Rent(records.Count);
+        public static async ValueTask UploadSetRecords(ILogger logger, IDataEngine de, int max,
+            IncrementId incId, Dictionary<string,SetRecord> records, List<EntityId> outputs, 
+            ArraySegment<Result<string>> results, CancellationToken ct) {
+            var uploadTasksArr = ArrayPool<ValueTask<Result<string>>>.Shared.Rent(records.Count);
+            var uploadTasks = new ArraySegment<ValueTask<Result<string>>>(uploadTasksArr, 0, records.Count);
             try {
                 var idx = 0;
-                foreach (var pair in records) {
-                    uploadTasks[idx++] = UploadSetRecord(de, ct, incId, pair.Key, pair.Value, max, outputs).AsTask();
-                }
-
-                // fill rest of the array with Task.CompletedTask
-                for (var i = records.Count; i < uploadTasks.Length; i++)
-                    uploadTasks[i] = Result<string>.CompletedTask;
-
-                return Task.WhenAll(uploadTasks);
-            }
-            catch (AggregateException x) {
-                logger.FunesException(nameof(UploadSetRecords), "Catch", incId, x);
-                return Task.FromResult(new []{Result<string>.Exception(x)});
+                foreach (var pair in records)
+                    uploadTasks[idx++] = UploadSetRecord(de, ct, incId, pair.Key, pair.Value, max, outputs);
+                
+                await Utils.WhenAll(uploadTasks, results, ct);
             }
             finally {
-                ArrayPool<Task<Result<string>>>.Shared.Return(uploadTasks);
+                ArrayPool<ValueTask<Result<string>>>.Shared.Return(uploadTasksArr);
             }
         }
 

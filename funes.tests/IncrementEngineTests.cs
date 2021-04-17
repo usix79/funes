@@ -46,7 +46,7 @@ namespace Funes.Tests {
                 (model, msg) => ("", Cmd<string, string>.None),
                 model => Cmd<string, string>.None);
             
-            Task Behavior(IncrementId incId, string sideEffect, CancellationToken ct) => Task.CompletedTask;
+            ValueTask<Result<Void>> Behavior(IncrementId _, string se, CancellationToken ct) => Result<Void>.CompletedTask;
 
             var env = CreateIncrementEngineEnv(logic, Behavior, repo);
             var fact = CreateSimpleFact(0, "");
@@ -92,9 +92,9 @@ namespace Funes.Tests {
                     return new Cmd<string, string>.SideEffectCmd("effect");
                 });
             
-            Task Behavior(IncrementId incId, string se, CancellationToken ct) {
+            ValueTask<Result<Void>> Behavior(IncrementId incId, string se, CancellationToken ct) {
                 sideEffect = se;
-                return Task.CompletedTask;
+                return Result<Void>.CompletedTask;
             }
 
             var env = CreateIncrementEngineEnv(logic, Behavior, repo);
@@ -151,7 +151,7 @@ namespace Funes.Tests {
                     evt.Wait();
                     return Cmd<string, string>.None; });
 
-            Task Behavior(IncrementId incId, string sideEffect, CancellationToken ct) => Task.CompletedTask;
+            ValueTask<Result<Void>> Behavior(IncrementId _, string se, CancellationToken ct) => Result<Void>.CompletedTask;
 
             var env1 = CreateIncrementEngineEnv(logic, Behavior, repo, cache, tre);
             var env2 = CreateIncrementEngineEnv(logicWithWaiting, Behavior, repo, cache, tre);
@@ -217,7 +217,7 @@ namespace Funes.Tests {
                 (model, msg) => ("", Cmd<string, string>.None),
                 model => Cmd<string, string>.None);
             
-            Task Behavior(IncrementId incId, string se, CancellationToken ct) => Task.CompletedTask;
+            ValueTask<Result<Void>> Behavior(IncrementId _, string se, CancellationToken ct) => Result<Void>.CompletedTask;
 
             var env = CreateIncrementEngineEnv(logic, Behavior, repo, cache);
             var fact = CreateSimpleFact(1, "fact");
@@ -282,7 +282,7 @@ namespace Funes.Tests {
                 (model, msg) => ("", Cmd<string, string>.None),
                 model => Cmd<string, string>.None);
             
-            Task Behavior(IncrementId _, string se, CancellationToken ct) => Task.CompletedTask;
+            ValueTask<Result<Void>> Behavior(IncrementId _, string se, CancellationToken ct) => Result<Void>.CompletedTask;
 
             var env = CreateIncrementEngineEnv(logic, Behavior, repo, cache, maxEventLogSize:maxLogSize);
 
@@ -361,7 +361,7 @@ namespace Funes.Tests {
                 (model, msg) => ("", Cmd<string, string>.None),
                 model => Cmd<string, string>.None);
             
-            Task Behavior(IncrementId _, string se, CancellationToken ct) => Task.CompletedTask;
+            ValueTask<Result<Void>> Behavior(IncrementId _, string se, CancellationToken ct) => Result<Void>.CompletedTask;
 
             var env = CreateIncrementEngineEnv(logic, Behavior, repo, cache);
          
@@ -416,7 +416,7 @@ namespace Funes.Tests {
                 (model, msg) => ("", Cmd<string, string>.None),
                 model => Cmd<string, string>.None);
             
-            Task Behavior(IncrementId _, string se, CancellationToken ct) => Task.CompletedTask;
+            ValueTask<Result<Void>> Behavior(IncrementId _, string se, CancellationToken ct) => Result<Void>.CompletedTask;
 
             var env = CreateIncrementEngineEnv(logic, Behavior, repo, cache);
          
