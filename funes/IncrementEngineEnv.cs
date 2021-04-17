@@ -11,7 +11,7 @@ namespace Funes {
         public ILogger Logger { get; }
         public ISerializer Serializer { get; }
         public IDataEngine DataEngine { get; }
-        public LogicEngine<TModel, TMsg, TSideEffect> LogicEngine { get; }
+        public LogicEngineEnv<TModel, TMsg, TSideEffect> LogicEngineEnv { get; }
         public Behavior<TSideEffect> Behavior { get; }
 
         public ISerializer SystemSerializer { get; } = new SystemSerializer();
@@ -21,15 +21,15 @@ namespace Funes {
         public long ElapsedMilliseconds => _stopwatch.ElapsedMilliseconds;
 
         public IncrementEngineEnv(
-            LogicEngine<TModel, TMsg, TSideEffect> logicEngine, 
+            LogicEngineEnv<TModel, TMsg, TSideEffect> logicEngineEnv, 
             Behavior<TSideEffect> behavior,
             ISerializer serializer,
             IDataEngine de, 
             ILogger logger, 
             int maxAttempts = 3,
             int maxEventLogSize = 42) {
-            (LogicEngine, Behavior, Serializer, DataEngine, Logger, MaxAttempts, MaxEventLogSize) = 
-                (logicEngine, behavior, serializer, de, logger, maxAttempts, maxEventLogSize);
+            (LogicEngineEnv, Behavior, Serializer, DataEngine, Logger, MaxAttempts, MaxEventLogSize) = 
+                (logicEngineEnv, behavior, serializer, de, logger, maxAttempts, maxEventLogSize);
 
             _stopwatch = new Stopwatch();
             _stopwatch.Start();

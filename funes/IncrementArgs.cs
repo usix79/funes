@@ -5,6 +5,9 @@ namespace Funes {
 
     public interface IIncrementArgsCollector {
         void RegisterEntity(EntityStampKey key, bool asPremise);
+
+        void RegisterEntry(EntityEntry entry, bool asPremise);
+        
         void RegisterEvent(EntityId recordId, IncrementId first, IncrementId last);
     }
     public class IncrementArgs : IIncrementArgsCollector {
@@ -78,6 +81,11 @@ namespace Funes {
             else {
                 Entities.Add(new InputEntityLink(key, asPremise));
             }
+        }
+
+        public void RegisterEntry(EntityEntry entry, bool asPremise) {
+            if (entry.IsOk)
+                RegisterEntity(entry.Key, asPremise);
         }
 
         public void RegisterEvent(EntityId recordId, IncrementId first, IncrementId last) {

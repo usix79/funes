@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Text;
 using Funes.Sets;
 using Microsoft.Extensions.Logging;
@@ -9,9 +8,9 @@ namespace Funes {
     public abstract record Cmd<TMsg,TSideEffect> {
         public record MsgCmd(TMsg Msg) : Cmd<TMsg,TSideEffect>;
         public record RetrieveCmd(EntityId EntityId, Func<EntityEntry, TMsg> Action, bool AsPremise = true) : Cmd<TMsg,TSideEffect>;
-        public record RetrieveManyCmd(IEnumerable<EntityId> EntityIds, Func<EntityEntry[], TMsg> Action, bool AsPremise = true) : Cmd<TMsg,TSideEffect>;
+        public record RetrieveManyCmd(EntityId[] EntityIds, Func<ReadOnlyMemory<EntityEntry>, TMsg> Action, bool AsPremise = true) : Cmd<TMsg,TSideEffect>;
         public record RetrieveSetCmd(string SetName, Func<IReadOnlySet<string>, TMsg> Action) : Cmd<TMsg,TSideEffect>;
-        public record BatchCmd(IEnumerable<Cmd<TMsg, TSideEffect>> Items) : Cmd<TMsg, TSideEffect> {
+        public record BatchCmd(params Cmd<TMsg, TSideEffect>[] Items) : Cmd<TMsg, TSideEffect> {
             public override string ToString() {
                 var txt = new StringBuilder("Batch[");
                 foreach (var item in Items) txt.Append(item).Append(',');
@@ -28,7 +27,7 @@ namespace Funes {
         public record SideEffectCmd(TSideEffect SideEffect) : OutputCmd;
         public record ConstantCmd(string Name, string Value) : OutputCmd;
 
-        public record BatchOutputCmd(IEnumerable<OutputCmd> Items) : OutputCmd {
+        public record BatchOutputCmd(params OutputCmd[] Items) : OutputCmd {
             public override string ToString() {
                 var txt = new StringBuilder("OutputBatch[");
                 foreach (var item in Items) txt.Append(item).Append(',');
@@ -44,6 +43,6 @@ namespace Funes {
         public static Cmd<TMsg, TSideEffect> Information(string msg, params object[] args) => new LogCmd(LogLevel.Information, msg, args);
         public static Cmd<TMsg, TSideEffect> Debug(string msg, params object[] args) => new LogCmd(LogLevel.Debug, msg, args);
 
-        // TODO: consider using pool of commands
+        // TODO: consider using object pool for each type of command
     }
 }

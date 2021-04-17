@@ -1,7 +1,6 @@
 using System;
 using System.Buffers;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Funes.Impl;
@@ -9,89 +8,55 @@ using Funes.Sets;
 using Microsoft.Extensions.Logging;
 
 namespace Funes {
-    public class LogicEngine<TModel,TMsg,TSideEffect> {
-
-        private readonly int _iterationsLimit;
-        private readonly ILogger _logger;
-        private readonly ITracer<TModel,TMsg,TSideEffect> _tracer;
-        private readonly ISerializer _serializer;
-        private readonly ISerializer _sysSerializer = new SystemSerializer();
-        private readonly IDataSource _ds;
-        private readonly ILogic<TModel,TMsg,TSideEffect> _logic;
-
-        public LogicEngine(ILogic<TModel,TMsg,TSideEffect> logic, 
-                            ISerializer serializer,
-                            IDataSource dr,
-                            ILogger logger, 
-                            ITracer<TModel,TMsg,TSideEffect> tracer, 
-                            int iterationsLimit = 100500) {
-            (_ds, _logic, _serializer, _logger, _tracer, _iterationsLimit) = 
-                (dr, logic, serializer, logger, tracer, iterationsLimit);
-        }
+    public static class LogicEngine<TModel,TMsg,TSideEffect> {
         
-        public class LogicResult {
-            public Dictionary<EntityId, Entity> Entities { get; } = new ();
-            public Dictionary<string, SetRecord> SetRecords { get; } = new();
-            public List<TSideEffect> SideEffects { get; } = new ();
-            public List<KeyValuePair<string, string>> Constants { get; } = new ();
-        }
-
-        public async Task<Result<LogicResult>> Run(Entity fact, 
-            IConstants constants, IIncrementArgsCollector argsCollector, CancellationToken ct) {
-            var entities = new Dictionary<EntityId, EntityEntry>{[fact.Id] = EntityEntry.Ok(fact)};
-            var sets = new Dictionary<string, SetSnapshot>();
-
-            var pendingMessages = new Queue<TMsg>();
-            var pendingCommands = new LinkedList<Cmd<TMsg, TSideEffect>>();
-            var retrievingTasks = new Dictionary<EntityId, ValueTask<Result<EntityEntry>>>();
-            var retrievingSetTasks = new Dictionary<string, Task<Result<SetSnapshot>>>();
+        private static readonly ObjectPool<LogicState<TMsg, TSideEffect>> StatesPool =
+            new(() => new LogicState<TMsg, TSideEffect>(), 12);
+        
+        public static async Task<Result<LogicResult<TSideEffect>>> Run(LogicEngineEnv<TModel,TMsg,TSideEffect> env,
+            Entity fact, IConstants constants, IIncrementArgsCollector argsCollector, CancellationToken ct) {
             
-            var output = new LogicResult();
-            var iteration = 0;
+            var lgResult = new LogicResult<TSideEffect>();
+            var lgState = StatesPool.Rent();
 
+            var iteration = 0;
             try {
-                var (model, cmd) = _logic.Begin(fact, constants);
-                await _tracer.BeginResult(fact, model, cmd);
+                var (model, cmd) = env.Logic.Begin(fact, constants);
+                await env.Tracer.BeginResult(fact, model, cmd);
                 ProcessCommand(cmd);
 
-                while (pendingMessages.Count > 0 || pendingCommands.First != null) {
+                while (lgState.InProcessing) {
                     ct.ThrowIfCancellationRequested();
-                    
+
                     // TODO: consider continue work after exception in update()
-                    while (pendingMessages.TryDequeue(out var msg)) {
-                        if (iteration++ > _iterationsLimit) ThrowIterationsLimitException();
-                        (model, cmd) = _logic.Update(model, msg);
-                        await _tracer.UpdateResult(msg, model, cmd);
+                    while (lgState.PendingMessages.TryDequeue(out var msg)) {
+                        if (iteration++ > env.IterationsLimit) ThrowIterationsLimitException(env.IterationsLimit);
+                        (model, cmd) = env.Logic.Update(model, msg);
+                        await env.Tracer.UpdateResult(msg, model, cmd);
                         ProcessCommand(cmd);
                     }
 
                     ProcessPendingCommands();
-                    if (pendingMessages.Count == 0 && pendingCommands.First != null) {
-                        var tasksArr = ArrayPool<Task>.Shared.Rent(
-                            retrievingTasks.Count + retrievingSetTasks.Count);
-
-                        try {
-                            var idx = 0;
-                            foreach (var task in retrievingTasks.Values) tasksArr[idx++] = task.AsTask();
-                            foreach (var task in retrievingSetTasks.Values) tasksArr[idx++] = task;
-                            while (idx < tasksArr.Length) tasksArr[idx++] = Task.CompletedTask;
-
-                            await Task.WhenAny(tasksArr);
-                        }
-                        finally {
-                            ArrayPool<Task>.Shared.Return(tasksArr);
-                        }
+                    if (lgState.ShouldWait) {
+                        await lgState.WhenAnyPendingTasks(ct);
                         ProcessPendingCommands();
                     }
                 }
 
-                cmd = _logic.End(model);
-                await _tracer.EndResult(cmd);
+                cmd = env.Logic.End(model);
+                await env.Tracer.EndResult(cmd);
                 ProcessCommand(cmd);
-                return new Result<LogicResult>(output);
+                return new Result<LogicResult<TSideEffect>>(lgResult);
+            }
+            catch (TaskCanceledException) {
+                throw;
             }
             catch (Exception e) {
-                return Result<LogicResult>.Exception(e);
+                return Result<LogicResult<TSideEffect>>.Exception(e);
+            }
+            finally {
+                lgState.Reset();
+                StatesPool.Return(lgState);
             }
             
             void ProcessCommand(Cmd<TMsg, TSideEffect> aCmd) {
@@ -99,142 +64,158 @@ namespace Funes {
                     case Cmd<TMsg, TSideEffect>.NoneCmd:
                         break;
                     case Cmd<TMsg, TSideEffect>.MsgCmd x:
-                        pendingMessages.Enqueue(x.Msg);
+                        lgState.PendingMessages.Enqueue(x.Msg);
                         break;
                     case Cmd<TMsg, TSideEffect>.BatchCmd x:
-                        foreach (var item in x.Items) ProcessCommand(item);
+                        foreach (var item in x.Items) 
+                            ProcessCommand(item);
                         break;
                     case Cmd<TMsg, TSideEffect>.BatchOutputCmd x:
-                        foreach (var item in x.Items) ProcessCommand(item);
+                        foreach (var item in x.Items) 
+                            ProcessCommand(item);
                         break;
                     case Cmd<TMsg, TSideEffect>.UploadCmd x:
-                        output.Entities[x.Entity.Id] = x.Entity;
-                        entities[x.Entity.Id] = EntityEntry.Ok(x.Entity);
+                        lgResult.Entities[x.Entity.Id] = x.Entity;
+                        lgState.Entities[x.Entity.Id] = EntityEntry.Ok(x.Entity);
                         break;
                     case Cmd<TMsg, TSideEffect>.SetCmd x:
-                        if (!output.SetRecords.TryGetValue(x.SetName, out var setRecord)) {
+                        if (!lgResult.SetRecords.TryGetValue(x.SetName, out var setRecord)) {
                             setRecord = new SetRecord();
-                            output.SetRecords[x.SetName] = setRecord;
+                            lgResult.SetRecords[x.SetName] = setRecord;
                         }
                         setRecord.Add(new SetOp(x.Op, x.Tag));
                         break;
                     case Cmd<TMsg, TSideEffect>.SideEffectCmd x:
-                        output.SideEffects.Add(x.SideEffect);
+                        lgResult.SideEffects.Add(x.SideEffect);
                         break;
                     case Cmd<TMsg, TSideEffect>.ConstantCmd x:
-                        output.Constants.Add(new KeyValuePair<string, string>(x.Name, x.Value));
+                        lgResult.Constants.Add(new KeyValuePair<string, string>(x.Name, x.Value));
                         break;
                     case Cmd<TMsg, TSideEffect>.RetrieveCmd x:
                         if (!TryCompleteRetrieve(x)) {
-                            pendingCommands.AddLast(x);
+                            lgState.PendingCommands.AddLast(x);
                             StartRetrievingTask(x.EntityId);
                         }
                         break;
                     case Cmd<TMsg, TSideEffect>.RetrieveManyCmd x:
                         if (!TryCompleteRetrieveMany(x)) {
-                            pendingCommands.AddLast(x);
+                            lgState.PendingCommands.AddLast(x);
                             foreach (var memId in x.EntityIds)
                                 StartRetrievingTask(memId);
                         }
                         break;
                     case Cmd<TMsg, TSideEffect>.RetrieveSetCmd x:
                         if (!TryCompleteRetrieveSet(x)) {
-                            pendingCommands.AddLast(x);
+                            lgState.PendingCommands.AddLast(x);
                             StartRetrievingSetTask(x.SetName, argsCollector);
                         }
                         break;
                     case Cmd<TMsg, TSideEffect>.LogCmd x:
-                        _logger.Log(x.Level, x.Message, x.Args);
+                        env.Logger.Log(x.Level, x.Message, x.Args);
                         break;
                 }
             }
 
             bool TryCompleteRetrieve(Cmd<TMsg, TSideEffect>.RetrieveCmd aCmd) {
-                if (!entities!.TryGetValue(aCmd.EntityId, out var entry)) return false;
+                if (!lgState.Entities.TryGetValue(aCmd.EntityId, out var entry)) return false;
 
-                AddInput(entry, aCmd.AsPremise);
+                argsCollector.RegisterEntry(entry, aCmd.AsPremise);
 
                 try {
-                    pendingMessages!.Enqueue(aCmd.Action(entry));
+                    lgState.PendingMessages.Enqueue(aCmd.Action(entry));
                 }
                 catch (Exception x) {
-                    _logger.LogError(x, "Failed retrieve action for {EntityId}", aCmd.EntityId.Id);
+                    env.Logger.LogError(x, "Failed retrieve action for {EntityId}", aCmd.EntityId.Id);
                 }
                 return true;
             }
 
             bool TryCompleteRetrieveMany(Cmd<TMsg, TSideEffect>.RetrieveManyCmd aCmd) {
-                if (aCmd.EntityIds.Any(x => !entities!.ContainsKey(x))) return false;
-
-                var entries = aCmd.EntityIds.Select(eid => entities![eid]).ToArray();
-                
-                foreach (var entry in entries) AddInput(entry, aCmd.AsPremise);
+                var arr = ArrayPool<EntityEntry>.Shared.Rent(aCmd.EntityIds.Length);
+                var entries = new ArraySegment<EntityEntry>(arr, 0, aCmd.EntityIds.Length);
 
                 try {
-                    pendingMessages!.Enqueue(aCmd.Action(entries));
+                    for (var i = 0; i < aCmd.EntityIds.Length; i++) {
+                        if (!lgState.Entities.TryGetValue(aCmd.EntityIds[i], out var entry))
+                            return false;
+                        entries[i] = entry;
+                    }
+                    try {
+                        lgState.PendingMessages.Enqueue(aCmd.Action(entries));
+                    }
+                    catch (Exception x) {
+                        env.Logger.FunesException("RetrieveMany Action", 
+                            aCmd.EntityIds.Length.ToString(), IncrementId.None, x);
+                    }
+                    return true;
                 }
-                catch (Exception x) {
-                    _logger.LogError(x, "Failed retrieve many action for {EntityIds}", aCmd.EntityIds);
+                finally {
+                    ArrayPool<EntityEntry>.Shared.Return(arr);
                 }
-                return true;
             }
-
-            void AddInput(EntityEntry entry, bool asPremise) {
-                if (entry.IsOk) {
-                    argsCollector.RegisterEntity(entry.Key, asPremise);
-                }
-            }
-
+            
             void StartRetrievingTask(EntityId entityId) {
-                if (!retrievingTasks.ContainsKey(entityId)) 
-                    retrievingTasks[entityId] = _ds.Retrieve(entityId, _serializer, ct);
+                if (!lgState.RetrievingTasks.ContainsKey(entityId)) {
+                    lgState.RetrievingTasks[entityId] = env.DataSource.Retrieve(entityId, env.Serializer, ct).AsTask();
+                }
             }
-
+            
             void ProcessRetrievingTasks() {
-                if (retrievingTasks.Values.Any(x => x.IsCompleted)) {
-                    foreach (var eid in retrievingTasks.Keys.ToArray()) {
-                        var task = retrievingTasks[eid];
+                var arr = ArrayPool<EntityId>.Shared.Rent(lgState.RetrievingTasks.Count);
+                var entityIds = new ArraySegment<EntityId>(arr, 0, lgState.RetrievingTasks.Count);
+                lgState.RetrievingTasks.Keys.CopyTo(arr, 0);
+                try {
+                    foreach (var eid in entityIds) {
+                        var task = lgState.RetrievingTasks[eid];
                         if (task.IsCompleted) {
-                            retrievingTasks.Remove(eid);
+                            lgState.RetrievingTasks.Remove(eid);
                             var result = task.IsCompletedSuccessfully
-                                ? task.Result : Result<EntityEntry>.Exception(task.AsTask().Exception!);
-                            RegisterEntity(eid, result);
+                                ? task.Result : Result<EntityEntry>.Exception(task.Exception!);
+                            lgState.RegisterEntity(eid, result);
                         }
                     }
+                }
+                finally {
+                    ArrayPool<EntityId>.Shared.Return(arr);
                 }
             }
 
             bool TryCompleteRetrieveSet(Cmd<TMsg, TSideEffect>.RetrieveSetCmd aCmd) {
-                if (!sets!.TryGetValue(aCmd.SetName, out var snapshot)) return false;
+                if (!lgState.Sets.TryGetValue(aCmd.SetName, out var snapshot)) return false;
                 
                 try {
-                    pendingMessages!.Enqueue(aCmd.Action(snapshot));
+                    lgState.PendingMessages.Enqueue(aCmd.Action(snapshot));
                 }
                 catch (Exception x) {
-                    _logger.FunesException("LogicEngine", "Action", IncrementId.None, x);
+                    env.Logger.FunesException("LogicEngine", "Action", IncrementId.None, x);
                 }
                 return true;
             }
 
-            void StartRetrievingSetTask(string setName, IIncrementArgsCollector argsCollector) {
-                if (!retrievingSetTasks!.ContainsKey(setName)) 
-                    retrievingSetTasks[setName] = SetsHelpers.RetrieveSnapshot(_ds, _sysSerializer, setName, argsCollector, ct);
+            void StartRetrievingSetTask(string setName, IIncrementArgsCollector args) {
+                if (!lgState.RetrievingSetTasks.ContainsKey(setName)) 
+                    lgState.RetrievingSetTasks[setName] = 
+                        SetsHelpers.RetrieveSnapshot(env.DataSource, env.SysSerializer, setName, args, ct);
             }
             
             void ProcessRetrievingSetTasks() {
-                if (retrievingSetTasks!.Values.Any(x => x.IsCompleted)) {
-                    foreach (var setName in retrievingSetTasks.Keys.ToArray()) {
-                        var task = retrievingSetTasks[setName];
+                var arr = ArrayPool<string>.Shared.Rent(lgState.RetrievingSetTasks.Count);
+                var setNames = new ArraySegment<string>(arr, 0, lgState.RetrievingSetTasks.Count);
+                lgState.RetrievingSetTasks.Keys.CopyTo(arr, 0);
+                try {
+                    foreach (var setName in setNames) {
+                        var task = lgState.RetrievingSetTasks[setName];
                         if (task.IsCompleted) {
-                            retrievingSetTasks.Remove(setName);
-                            if (task.IsCompletedSuccessfully && task.Result.IsOk) {
-                                sets![setName] = task.Result.Value;
-                            }
-                            else {
-                                sets![setName] = SetSnapshot.Empty;
-                            }
+                            lgState.RetrievingSetTasks.Remove(setName);
+                            lgState.Sets[setName] = 
+                                task.IsCompletedSuccessfully && task.Result.IsOk
+                                ? task.Result.Value 
+                                : SetSnapshot.Empty;
                         }
                     }
+                }
+                finally {
+                    ArrayPool<string>.Shared.Return(arr);
                 }
             }
             
@@ -242,7 +223,7 @@ namespace Funes {
                 ProcessRetrievingTasks();
                 ProcessRetrievingSetTasks();
                 
-                var node = pendingCommands.First;
+                var node = lgState.PendingCommands.First;
                 while (node != null) {
                     var nextNode = node.Next;
                     if (node.Value switch {
@@ -250,21 +231,15 @@ namespace Funes {
                         Cmd<TMsg, TSideEffect>.RetrieveManyCmd x => TryCompleteRetrieveMany(x),
                         Cmd<TMsg, TSideEffect>.RetrieveSetCmd x => TryCompleteRetrieveSet(x),
                         _ => true}) {
-                        pendingCommands.Remove(node);
+                        lgState.PendingCommands.Remove(node);
                     }
                     node = nextNode;
                 }
             }
-                
-            void RegisterEntity(EntityId eid, Result<EntityEntry> result) {
-                if (!entities!.ContainsKey(eid)) {
-                    entities[eid] = result.IsOk ? result.Value : EntityEntry.NotAvailable(eid);
-                }
-            }
         }
         
-        private void ThrowIterationsLimitException() {
-            var txt = $"Total number of iterations is over {_iterationsLimit}. Check logic for infinite loops.";
+        private static void ThrowIterationsLimitException(int limit) {
+            var txt = $"Total number of iterations is over {limit}. Check logic for infinite loops.";
             throw new Exception(txt);                
         }
     }

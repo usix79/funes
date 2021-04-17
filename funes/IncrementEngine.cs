@@ -16,7 +16,8 @@ namespace Funes {
                 for(var attempt = 1; attempt <= env.MaxAttempts; attempt++){
                     var start = env.ElapsedMilliseconds;
                     var args = new IncrementArgs();
-                    var logicResult = await env.LogicEngine.Run(factStamp.Entity, null!, args, ct);
+                    var logicResult = await LogicEngine<TModel,TMsg,TSideEffect>
+                        .Run(env.LogicEngineEnv, factStamp.Entity, null!, args, ct);
 
                     if (logicResult.IsOk) {
                         var incrementResult = await TryIncrement(logicResult.Value, args, attempt, start);
@@ -71,20 +72,20 @@ namespace Funes {
             }
 
             async ValueTask<Result<Increment>> TryIncrement(
-                LogicEngine<TModel,TMsg,TSideEffect>.LogicResult lg, IncrementArgs args, int attempt, long start) {
+                LogicResult<TSideEffect> lgResult, IncrementArgs args, int attempt, long start) {
 
                 var builder = new IncrementBuilder(factStamp.Key, start, attempt, env.ElapsedMilliseconds);
                 
-                var commitResult = await TryCommit(builder.IncId, args, lg.Entities); 
+                var commitResult = await TryCommit(builder.IncId, args, lgResult.Entities); 
                 builder.RegisterCommitResult(commitResult, env.ElapsedMilliseconds);
 
-                var outputs = new List<EntityId>(lg.Entities.Keys);
+                var outputs = new List<EntityId>(lgResult.Entities.Keys);
                 if (commitResult.IsOk) {
-                    if (lg.Entities.Count > 0) {
-                        var uploadResultsArr = ArrayPool<Result<Void>>.Shared.Rent(lg.Entities.Count);
+                    if (lgResult.Entities.Count > 0) {
+                        var uploadResultsArr = ArrayPool<Result<Void>>.Shared.Rent(lgResult.Entities.Count);
                         try {
-                            var uploadResults = new ArraySegment<Result<Void>>(uploadResultsArr, 0, lg.Entities.Count);
-                            await UploadOutputs(builder.IncId, lg.Entities, uploadResults);
+                            var uploadResults = new ArraySegment<Result<Void>>(uploadResultsArr, 0, lgResult.Entities.Count);
+                            await UploadOutputs(builder.IncId, lgResult.Entities, uploadResults);
                             builder.RegisterResults(uploadResults);
                         }
                         finally {
@@ -92,12 +93,12 @@ namespace Funes {
                         }
                     }
 
-                    if (lg.SetRecords.Count > 0) {
-                        var uploadResultsArr = ArrayPool<Result<string>>.Shared.Rent(lg.SetRecords.Count);
-                        var uploadResults = new ArraySegment<Result<string>>(uploadResultsArr, 0, lg.SetRecords.Count);
+                    if (lgResult.SetRecords.Count > 0) {
+                        var uploadResultsArr = ArrayPool<Result<string>>.Shared.Rent(lgResult.SetRecords.Count);
+                        var uploadResults = new ArraySegment<Result<string>>(uploadResultsArr, 0, lgResult.SetRecords.Count);
                         try {
                             await SetsHelpers.UploadSetRecords(env.Logger, env.DataEngine, 
-                                env.MaxEventLogSize, builder.IncId, lg.SetRecords, outputs, uploadResults, ct);
+                                env.MaxEventLogSize, builder.IncId, lgResult.SetRecords, outputs, uploadResults, ct);
                             
                             builder.RegisterResults(uploadResults);
 
@@ -118,10 +119,10 @@ namespace Funes {
                     // TODO: indexes
                 }
 
-                if (lg.SideEffects.Count > 0)
-                    builder.DescribeSideEffects(DescribeSideEffects(lg.SideEffects));
+                if (lgResult.SideEffects.Count > 0)
+                    builder.DescribeSideEffects(DescribeSideEffects(lgResult.SideEffects));
                 
-                var increment = builder.Create(args, outputs, lg.Constants, env.ElapsedMilliseconds); 
+                var increment = builder.Create(args, outputs, lgResult.Constants, env.ElapsedMilliseconds); 
                 
                 builder.RegisterResult(await env.DataEngine.Upload(
                     Increment.CreateStamp(increment), env.SystemSerializer, ct, true));
@@ -159,7 +160,7 @@ namespace Funes {
                 }
             }
             
-            async ValueTask<Void> UploadOutputs(
+            async ValueTask UploadOutputs(
                 IncrementId incId, Dictionary<EntityId,Entity> outputs, ArraySegment<Result<Void>> results) {
                 
                 var uploadTasksArr = ArrayPool<ValueTask<Result<Void>>>.Shared.Rent(outputs.Count);
@@ -174,8 +175,6 @@ namespace Funes {
                 finally {
                     ArrayPool<ValueTask<Result<Void>>>.Shared.Return(uploadTasksArr);
                 }
-
-                return Void.Value;
             }
 
             static string DescribeSideEffects(List<TSideEffect> sideEffects) {
