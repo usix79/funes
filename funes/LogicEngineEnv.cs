@@ -18,7 +18,6 @@ namespace Funes {
         public ILogger Logger { get; }
         public ITracer<TModel,TMsg,TSideEffect> Tracer { get; }
         public ISerializer Serializer { get; }
-        public ISerializer SysSerializer { get; } = new SystemSerializer();
         public IDataSource DataSource { get; }
         public ILogic<TModel,TMsg,TSideEffect> Logic { get; }
         

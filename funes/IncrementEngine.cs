@@ -4,20 +4,21 @@ using System.Collections.Generic;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Funes.Indexes;
 using Funes.Sets;
 
 namespace Funes {
     public static class IncrementEngine<TModel,TMsg,TSideEffect> {
         
         public static async Task<Result<IncrementId>> Run(
-            IncrementEngineEnv<TModel,TMsg,TSideEffect> env, EntityStamp factStamp, CancellationToken ct = default) {
+            IncrementEngineEnv<TModel,TMsg,TSideEffect> env, EntityEntry fact, CancellationToken ct = default) {
             
             try {
                 for(var attempt = 1; attempt <= env.MaxAttempts; attempt++){
                     var start = env.ElapsedMilliseconds;
                     var args = new IncrementArgs();
                     var logicResult = await LogicEngine<TModel,TMsg,TSideEffect>
-                        .Run(env.LogicEngineEnv, factStamp.Entity, null!, args, ct);
+                        .Run(env.LogicEngineEnv, fact.Entity, null!, args, ct);
 
                     if (logicResult.IsOk) {
                         var incrementResult = await TryIncrement(logicResult.Value, args, attempt, start);
@@ -34,18 +35,18 @@ namespace Funes {
                                 LogError(x.Increment.Id, "TryIncrement", incrementResult.Error);
                                 return new Result<IncrementId>(x);
                             default:
-                                LogError(factStamp.IncId, "TryIncrementGeneral", incrementResult.Error);
+                                LogError(fact.IncId, "TryIncrementGeneral", incrementResult.Error);
                                 return new Result<IncrementId>(incrementResult.Error);
                         }
                     }
-                    LogError(factStamp.IncId, "Logic", logicResult.Error);
+                    LogError(fact.IncId, "Logic", logicResult.Error);
                     return new Result<IncrementId>(logicResult.Error);
                 }
-                LogError(factStamp.IncId, "MaxAttempts");
+                LogError(fact.IncId, "MaxAttempts");
                 return new Result<IncrementId>(Error.MaxAttempts);
             }
             catch (Exception x) {
-                LogException(factStamp.IncId,  "General", x);
+                LogException(fact.IncId,  "General", x);
                 return Result<IncrementId>.Exception(x);
             }
             
@@ -74,7 +75,7 @@ namespace Funes {
             async ValueTask<Result<Increment>> TryIncrement(
                 LogicResult<TSideEffect> lgResult, IncrementArgs args, int attempt, long start) {
 
-                var builder = new IncrementBuilder(factStamp.Key, start, attempt, env.ElapsedMilliseconds);
+                var builder = new IncrementBuilder(fact.Key, start, attempt, env.ElapsedMilliseconds);
                 
                 var commitResult = await TryCommit(builder.IncId, args, lgResult.Entities); 
                 builder.RegisterCommitResult(commitResult, env.ElapsedMilliseconds);
@@ -92,13 +93,14 @@ namespace Funes {
                             ArrayPool<Result<Void>>.Shared.Return(uploadResultsArr);
                         }
                     }
-
+                    
+                    // TODO: DRY, consider abstract records processing for sets and indexes
                     if (lgResult.SetRecords.Count > 0) {
                         var uploadResultsArr = ArrayPool<Result<string>>.Shared.Rent(lgResult.SetRecords.Count);
                         var uploadResults = new ArraySegment<Result<string>>(uploadResultsArr, 0, lgResult.SetRecords.Count);
                         try {
-                            await SetsHelpers.UploadSetRecords(env.Logger, env.DataEngine, 
-                                env.MaxEventLogSize, builder.IncId, lgResult.SetRecords, outputs, uploadResults, ct);
+                            await SetsHelpers.UploadSetRecords(env.DataEngine, env.MaxEventLogSize, 
+                                builder.IncId, lgResult.SetRecords, outputs, uploadResults, ct);
                             
                             builder.RegisterResults(uploadResults);
 
@@ -106,7 +108,7 @@ namespace Funes {
                                 if (res.IsOk && !string.IsNullOrEmpty(res.Value)) {
                                     // TODO: consider updating snapshots in parallel
                                     var snapshotResult = await SetsHelpers.UpdateSnapshot(
-                                        env.DataEngine, env.SystemSerializer, builder.IncId, res.Value, args, outputs, ct);
+                                        env.DataEngine, builder.IncId, res.Value, args, outputs, ct);
                                     builder.RegisterResult(snapshotResult);
                                 }
                             }
@@ -115,20 +117,36 @@ namespace Funes {
                             ArrayPool<Result<string>>.Shared.Return(uploadResultsArr);
                         }
                     }
-                    
-                    // TODO: indexes
+
+                    if (lgResult.IndexRecords.Count > 0) {
+                        var uploadResultsArr = ArrayPool<Result<string>>.Shared.Rent(lgResult.IndexRecords.Count);
+                        var uploadResults = new ArraySegment<Result<string>>(uploadResultsArr, 0, lgResult.IndexRecords.Count);
+                        try {
+                            await IndexesHelpers.UploadRecords(env.DataEngine, env.MaxEventLogSize, 
+                                builder.IncId, lgResult.IndexRecords, outputs, uploadResults, ct);
+                            
+                            builder.RegisterResults(uploadResults);
+
+                            foreach (var res in uploadResults) {
+                                if (res.IsOk && !string.IsNullOrEmpty(res.Value)) {
+                                    // TODO: rebuild index
+                                }
+                            }
+                        }
+                        finally {
+                            ArrayPool<Result<string>>.Shared.Return(uploadResultsArr);
+                        }
+                    }
                 }
 
                 if (lgResult.SideEffects.Count > 0)
                     builder.DescribeSideEffects(DescribeSideEffects(lgResult.SideEffects));
                 
-                var increment = builder.Create(args, outputs, lgResult.Constants, env.ElapsedMilliseconds); 
-                
-                builder.RegisterResult(await env.DataEngine.Upload(
-                    Increment.CreateStamp(increment), env.SystemSerializer, ct, true));
-                builder.RegisterResult(await env.DataEngine.Upload(
-                    Increment.CreateChildStamp(increment.Id, factStamp.IncId), env.SystemSerializer, ct, true));
+                var increment = builder.Create(args, outputs, lgResult.Constants, env.ElapsedMilliseconds);
 
+                builder.RegisterResult(await Increment.Upload(env.DataEngine, increment, ct));
+                builder.RegisterResult(await Increment.UploadChild(env.DataEngine, increment.Id, fact.IncId, ct));
+                
                 var error = builder.GetError();
                 return error == Error.No
                     ? new Result<Increment>(increment)
@@ -141,8 +159,8 @@ namespace Funes {
 
                 var premisesCount = args.PremisesCount();
 
-                var premisesArr = ArrayPool<EntityStampKey>.Shared.Rent(premisesCount);
-                var premises = new ArraySegment<EntityStampKey>(premisesArr, 0, premisesCount);
+                var premisesArr = ArrayPool<StampKey>.Shared.Rent(premisesCount);
+                var premises = new ArraySegment<StampKey>(premisesArr, 0, premisesCount);
                 var conclusionsArr = ArrayPool<EntityId>.Shared.Rent(outputs.Count);
                 var conclusions = new ArraySegment<EntityId>(conclusionsArr, 0, outputs.Count);
                 try {
@@ -155,7 +173,7 @@ namespace Funes {
                     return await env.DataEngine.TryCommit(premises, conclusions, incId, ct);
                 }
                 finally {
-                    ArrayPool<EntityStampKey>.Shared.Return(premisesArr);
+                    ArrayPool<StampKey>.Shared.Return(premisesArr);
                     ArrayPool<EntityId>.Shared.Return(conclusionsArr);
                 }
             }
@@ -168,13 +186,21 @@ namespace Funes {
                 try {
                     var idx = 0;
                     foreach (var outputEntity in outputs.Values)
-                        uploadTasks[idx++] = env.DataEngine.Upload(outputEntity.ToStamp(incId), env.Serializer, ct);
+                        uploadTasks[idx++] = SerializeAndUpload(outputEntity, incId); 
 
                     await Utils.WhenAll(uploadTasks, results, ct);
                 }
                 finally {
                     ArrayPool<ValueTask<Result<Void>>>.Shared.Return(uploadTasksArr);
                 }
+            }
+
+            async ValueTask<Result<Void>> SerializeAndUpload(Entity entity, IncrementId incId) {
+                var serdeResult = env.Serializer.Encode(entity.Id, entity.Value);
+                if (serdeResult.IsError) return new Result<Void>(serdeResult.Error);
+                var stamp = new BinaryStamp(new StampKey(entity.Id, incId), serdeResult.Value);
+                
+                return await env.DataEngine.Upload(stamp, ct);
             }
 
             static string DescribeSideEffects(List<TSideEffect> sideEffects) {

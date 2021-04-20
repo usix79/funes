@@ -19,7 +19,7 @@ namespace Funes.Redis {
             _commitScript = new Script(ComposeCommitScript(ttl));
         }
 
-        public async Task<Result<Void>> TryCommit(ArraySegment<EntityStampKey> premises,
+        public async Task<Result<Void>> TryCommit(ArraySegment<StampKey> premises,
             ArraySegment<EntityId> conclusions, IncrementId incId, CancellationToken ct) {
 
             if (conclusions.Count == 0) 
@@ -50,7 +50,7 @@ namespace Funes.Redis {
                 return new Result<Void>(Void.Value);
             
             var conflictArr = (string[]) result.Value;
-            EntityStampKey? conflictedStampKey = null;
+            StampKey? conflictedStampKey = null;
             foreach (var stampKey in premises) {
                 if (string.CompareOrdinal(stampKey.EntId.Id, 0,
                     conflictArr[0], Prefix.Length, stampKey.EntId.Id.Length) == 0) {

@@ -7,7 +7,6 @@ namespace Funes {
         public Entity(EntityId id, object value) => (Id, Value) = (id, value);
         
         public Entity MapValue(object value) => new (Id, value);
-        public EntityStamp ToStamp(IncrementId incId) => new EntityStamp(this, incId);
         
         public bool Equals(Entity other) => Id.Equals(other.Id) && Value.Equals(other.Value);
         public override bool Equals(object? obj) => obj is Entity other && Equals(other);

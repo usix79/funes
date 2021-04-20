@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using Funes.Indexes;
 using Funes.Sets;
 using Microsoft.Extensions.Logging;
 
@@ -24,6 +25,7 @@ namespace Funes {
         public static readonly NoneCmd None = new ();
         public record UploadCmd(Entity Entity) : OutputCmd;
         public record SetCmd(string SetName, SetOp.Kind Op, string Tag) : OutputCmd;
+        public record IndexCmd(string IndexName, IndexOp.Kind Op, string Key, string Value) : OutputCmd;
         public record SideEffectCmd(TSideEffect SideEffect) : OutputCmd;
         public record ConstantCmd(string Name, string Value) : OutputCmd;
 

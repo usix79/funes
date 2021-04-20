@@ -4,7 +4,7 @@ using System.Collections.Generic;
 namespace Funes {
 
     public interface IIncrementArgsCollector {
-        void RegisterEntity(EntityStampKey key, bool asPremise);
+        void RegisterEntity(StampKey key, bool asPremise);
 
         void RegisterEntry(EntityEntry entry, bool asPremise);
         
@@ -23,11 +23,11 @@ namespace Funes {
 
             public static bool operator !=(InputEntityLink left, InputEntityLink right) => !left.Equals(right);
 
-            public InputEntityLink(EntityStampKey key, bool isPremise) {
+            public InputEntityLink(StampKey key, bool isPremise) {
                 Key = key;
                 IsPremise = isPremise;
             }
-            public EntityStampKey Key { get; init; }
+            public StampKey Key { get; init; }
             public bool IsPremise { get; init; }
         }
 
@@ -66,7 +66,9 @@ namespace Funes {
             return premisesCount;
         }
         
-        public void RegisterEntity(EntityStampKey key, bool asPremise) {
+        public void RegisterEntity(StampKey key, bool asPremise) {
+            if (key.IncId == IncrementId.None) return;
+            
             var idx = -1;
             for (var i = 0; i < Entities.Count; i++) {
                 if (Entities[i].Key == key) {

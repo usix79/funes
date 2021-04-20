@@ -6,14 +6,16 @@ namespace Funes {
     public readonly struct IncrementId : IEquatable<IncrementId>, IComparable<IncrementId>, IComparable {
         public int CompareTo(object? obj) {
             if (ReferenceEquals(null, obj)) return 1;
-            return obj is IncrementId other ? CompareTo(other) : throw new ArgumentException($"Object must be of type {nameof(IncrementId)}");
+            return obj is IncrementId other 
+                ? CompareTo(other) 
+                : throw new ArgumentException($"Object must be of type {nameof(IncrementId)}");
         }
         
         public string Id { get; init; }
 
         public static readonly IncrementId Singularity = new ("");
         public static readonly IncrementId BigBang = new ("BigBang");
-        public static readonly IncrementId None = new ("");
+        public static readonly IncrementId None = new ("None");
         private static readonly DateTimeOffset FryReawakening = 
             new (3000, 1, 1, 0, 0, 0, TimeSpan.Zero);
 

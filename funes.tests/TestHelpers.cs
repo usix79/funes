@@ -11,7 +11,7 @@ namespace Funes.Tests {
         private static readonly Random Rand = new Random(DateTime.Now.Millisecond);
         private static readonly ISerializer SimpleSerializer = new SimpleSerializer<Simple>();
 
-        private static string RandomString(int length) =>
+        public static string RandomString(int length) =>
             string.Create(length, length, (span, n) => {
                 for (var i = 0; i < n; i++) {
                     span[i] = (char) ('a' + Rand.Next(25));
@@ -23,24 +23,26 @@ namespace Funes.Tests {
 
         public static IncrementId CreateRandomIncId(string? cat = null) => IncrementId.NewId();
 
-        public static EntityStampKey CreateRandomStampKey() => CreateRandomEntId().CreateStampKey(CreateRandomIncId());
+        public static StampKey CreateRandomStampKey() => CreateRandomEntId().CreateStampKey(CreateRandomIncId());
 
         public static Simple CreateRandomValue() =>
             new (Rand.Next(1024), RandomString(1024));    
+        
+        public static BinaryStamp CreateSimpleStamp(IncrementId incId, EntityId? eid = null) {
+            var entId = eid ??CreateRandomEntId();
+            var encResult = SimpleSerializer.Encode(entId, CreateRandomValue());
+            Assert.True(encResult.IsOk, encResult.Error.ToString());
+            return new BinaryStamp(entId.CreateStampKey(incId), encResult.Value);
+        }
+        
+        public static Event CreateEvent(IncrementId incId) =>
+            new Event(incId, CreateRandomBuffer(256));
 
-        public static EntityStamp CreateSimpleEntityStamp(IncrementId incId, EntityId? eid = null) =>
-            new EntityStamp (new Entity(eid??CreateRandomEntId(), CreateRandomValue()), incId);
-
-        public static Event CreateEvent(IncrementId incId) {
-            var arr = new byte[256];
+        public static byte[] CreateRandomBuffer(int size) {
+            var arr = new byte[size];
             Rand.NextBytes(arr);
-            return new Event(incId, arr);
-        }
-
-        public static void AssertEntitiesEqual(EntityStamp expected, EntityStamp actual) {
-            Assert.Equal(expected.Key, actual.Key);
-            Assert.Equal(expected.Value, actual.Value);
-        }
+            return arr;
+        } 
 
         public static void AssertEventsEqual(Event expected, Event actual) {
             Assert.Equal(expected.IncId, actual.IncId);
@@ -79,13 +81,13 @@ namespace Funes.Tests {
         public static Entity CreateSimpleFact(int id, string value) =>
             new Entity(new EntityId("/tests/facts"), new Simple(id, value));
 
-        public static EntityStampKey[] Keys(params (EntityId, string)[] keys) =>
+        public static StampKey[] Keys(params (EntityId, string)[] keys) =>
             Keys(keys.Select(pair => (pair.Item1, new IncrementId(pair.Item2))).ToArray());
 
-        public static EntityStampKey[] Keys(params (EntityId, IncrementId)[] keys) => 
-            keys.Select(x => new EntityStampKey(x.Item1, x.Item2)).ToArray();
+        public static StampKey[] Keys(params (EntityId, IncrementId)[] keys) => 
+            keys.Select(x => new StampKey(x.Item1, x.Item2)).ToArray();
         
-        public static readonly EntityStampKey[] EmptyKeys = Array.Empty<EntityStampKey>(); 
+        public static readonly StampKey[] EmptyKeys = Array.Empty<StampKey>(); 
 
         public static EntityId[] EntIds(params EntityId[] entIds) => entIds;
     }

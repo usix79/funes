@@ -1,8 +1,6 @@
 using System;
-using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Funes.Impl;
 using Microsoft.Extensions.Logging;
 using StackExchange.Redis;
 using static Funes.Redis.RedisHelpers;
@@ -11,26 +9,24 @@ namespace Funes.Redis {
     
     public class RedisCache : ICache {
         private const string PropIncId = "IncId";
-        private const string PropStatus = "Status";
         private const string PropEncoding = "Enc";
         private const string PropData = "Data";
-        private readonly RedisValue[] _hashFields 
-            = {new (PropStatus), new (PropIncId), new (PropEncoding), new (PropData)};
+        private readonly RedisValue[] _hashFields = { new (PropIncId), new (PropEncoding), new (PropData)};
         private static RedisKey EventsLockPrefix = "EVTL:" ;
         private static RedisKey EventsDataPrefix = "EVTD:" ;
         private static RedisKey EventsIncPrefix = "EVTI:";
 
-        private static readonly ObjectPool<KeysHolder> Keys1Holders = new (() => new KeysHolder(1), 7);
-        private static readonly ObjectPool<KeysHolder> Keys3Holders = new (() => new KeysHolder(3), 7);
-        private static readonly ObjectPool<ValuesHolder> Values1Holders = new (() => new ValuesHolder(1), 7);
-        private static readonly ObjectPool<ValuesHolder> Values2Holders = new (() => new ValuesHolder(2), 7);
-        private static readonly ObjectPool<ValuesHolder> Values4Holders = new (() => new ValuesHolder(4), 7);
+        private static readonly Utils.ObjectPool<HashEntryHolder> HashEntry3Holders = new (() => new HashEntryHolder(3), 7);
+        private static readonly Utils.ObjectPool<KeysHolder> Keys1Holders = new (() => new KeysHolder(1), 7);
+        private static readonly Utils.ObjectPool<KeysHolder> Keys3Holders = new (() => new KeysHolder(3), 7);
+        private static readonly Utils.ObjectPool<ValuesHolder> Values1Holders = new (() => new ValuesHolder(1), 7);
+        private static readonly Utils.ObjectPool<ValuesHolder> Values2Holders = new (() => new ValuesHolder(2), 7);
+        private static readonly Utils.ObjectPool<ValuesHolder> Values3Holders = new (() => new ValuesHolder(3), 7);
 
         private readonly ILogger _logger;
         private readonly ConnectionMultiplexer _redis;
         private readonly TimeSpan _ttlSpan;
         private readonly Script _updateScript;
-        private readonly Script _emptyScript;
         private readonly Script _updateEventsScript;
         private readonly Script _getEventLogScript;
         private readonly Script _appendEventScript;
@@ -41,97 +37,60 @@ namespace Funes.Redis {
             _ttlSpan = TimeSpan.FromSeconds(ttl);
             _redis = ConnectionMultiplexer.Connect(connectionString);
             _updateScript = new Script(ComposeUpdateScript(ttl));
-            _emptyScript = new Script(ComposeUploadEmptyScript(ttl));
             _updateEventsScript = new Script(ComposeUpdateEventsScript(ttl));
             _getEventLogScript = new Script(ComposeGetEventsLogScript(ttl));
             _appendEventScript = new Script(ComposeAppendEventScript(ttl));
             _truncateEventScript = new Script(ComposeTruncateEventsScript(ttl));
         }
 
-        public async Task<Result<EntityEntry>> Get(EntityId eid, ISerializer ser, CancellationToken ct) {
+        public async Task<Result<BinaryStamp>> Get(EntityId eid, CancellationToken ct) {
             var db = _redis.GetDatabase();
 
             RedisValue[]? values;
             try {
                 var tran = db!.CreateTransaction();
                 var t1 = tran!.HashGetAsync(eid.Id, _hashFields);
-                var t2 = tran!.KeyExpireAsync(eid.Id, _ttlSpan);
+                var _ = tran!.KeyExpireAsync(eid.Id, _ttlSpan);
                 var committed = await tran.ExecuteAsync();
-                if (!committed) {
-                    return new Result<EntityEntry>(new Error.IoError("redis hash get failed"));
-                }
+                if (!committed) return Result<BinaryStamp>.IoError("redis hash get failed");
                 values = await t1;
             }
             catch (Exception x) {
-                return new Result<EntityEntry>(new Error.ExceptionError(x));
+                return new Result<BinaryStamp>(new Error.ExceptionError(x));
             }
 
-            if (values[0].IsNull) {
-                return new Result<EntityEntry>(Error.NotFound);
+            if (values[0].IsNull)
+                return new Result<BinaryStamp>(Error.NotFound);
+            
+            if (values[1].IsNull) {
+                var msg = $"Cache entry with absent encoding for {eid}";
+                _logger.LogError(msg);
+                return Result<BinaryStamp>.IoError(msg);
             }
-
-            var status = (EntityEntry.EntryStatus?) (int?) values[0];
-            switch (status) {
-                case EntityEntry.EntryStatus.IsOk:
-                    if (values[2].IsNull) {
-                        _logger.LogError($"Cache entry with absent encoding for {eid}");
-                        return new Result<EntityEntry>(EntityEntry.NotAvailable(eid));
-                    }
-
-                    if (values[3].IsNull) {
-                        _logger.LogError($"Cache entry with absent data field for {eid}");
-                        return new Result<EntityEntry>(EntityEntry.NotAvailable(eid));
-                    }
-
-                    var buffer = (byte[]) values[3];
-                    await using (var stream = new MemoryStream(buffer, 0, buffer.Length, false, true)) {
-                        var decodingResult = await ser.Decode(stream, eid, values[2], ct);
-                        if (decodingResult.IsError) {
-                            return new Result<EntityEntry>(decodingResult.Error);
-                        }
-
-                        return new Result<EntityEntry>(EntityEntry.Ok(new Entity(eid, decodingResult.Value),
-                            new IncrementId(values[1])));
-                    }
-                case EntityEntry.EntryStatus.IsNotExist:
-                    return new Result<EntityEntry>(EntityEntry.NotExist(eid));
-                case EntityEntry.EntryStatus.IsNotAvailable:
-                    return new Result<EntityEntry>(EntityEntry.NotAvailable(eid));
-                default:
-                    _logger.LogError($"Cache entry with unknown status={status} for {eid}");
-                    return new Result<EntityEntry>(EntityEntry.NotAvailable(eid));
+            
+            if (values[2].IsNull) {
+                var msg = $"Cache entry with absent data field for {eid}";
+                _logger.LogError(msg);
+                return Result<BinaryStamp>.IoError(msg);
             }
+            
+            var stampKey = new StampKey(eid, new IncrementId(values[0]));
+            var stamp = new BinaryStamp(stampKey, new BinaryData(values[1], (byte[]) values[2]));
+            return new Result<BinaryStamp>(stamp);
         } 
 
-        public async Task<Result<Void>> Set(EntityEntry entry, ISerializer ser, CancellationToken ct) {
+        public async Task<Result<Void>> Set(BinaryStamp stamp, CancellationToken ct) {
             var db = _redis.GetDatabase();
-            
-            var (encodingValue, dataValue, incIdValue) = 
-                (RedisValue.EmptyString, RedisValue.EmptyString, RedisValue.EmptyString);
 
-            if (entry.Status == EntityEntry.EntryStatus.IsOk) {
-                await using var stream = new MemoryStream();
-                var encodeResult = await ser.Encode(stream, entry.EntId, entry.Value, ct);
-                if (encodeResult.IsError) {
-                    return new Result<Void>(encodeResult.Error);
-                }
-
-                incIdValue = new RedisValue(entry.IncId.Id);
-                encodingValue = new RedisValue(encodeResult.Value);
-                dataValue = RedisValue.CreateFrom(stream);
-            }
-
-            var hashEntries = new HashEntry[] {
-                new(PropStatus, (int) entry.Status),
-                new(PropIncId, incIdValue),
-                new(PropEncoding, encodingValue),
-                new(PropData, dataValue)
-            };
-
+            var holder = HashEntry3Holders.Rent();
             try {
+                holder.Arr[0] = new(PropIncId, stamp.IncId.Id);
+                holder.Arr[1] = new(PropEncoding, stamp.Data.Encoding);
+                holder.Arr[2] = new(PropData, stamp.Data.Memory);
+
                 var tran = db!.CreateTransaction();
-                var t1 = tran!.HashSetAsync(entry.EntId.Id, hashEntries);
-                var t2 = tran!.KeyExpireAsync(entry.EntId.Id, _ttlSpan);
+                var t1 = tran!.HashSetAsync(stamp.Eid.Id, holder.Arr);
+                var t2 = tran!.KeyExpireAsync(stamp.Eid.Id, _ttlSpan);
                 var committed = await tran.ExecuteAsync();
 
                 return committed
@@ -141,71 +100,39 @@ namespace Funes.Redis {
             catch (Exception x) {
                 return new Result<Void>(new Error.ExceptionError(x));
             }
+            finally {
+                HashEntry3Holders.Return(holder);
+            }
         }
         
         private static string ComposeUpdateScript(int ttl) =>
             @$"local incId = redis.call('HGET', KEYS[1], '{PropIncId}')
-if (incId == false or incId == '' or ARGV[2] < incId) then
-    redis.call('HMSET', KEYS[1], '{PropStatus}', ARGV[1], '{PropIncId}', ARGV[2], '{PropEncoding}', ARGV[3], '{PropData}', ARGV[4])
+if (incId == false or incId == '' or ARGV[1] < incId) then
+    redis.call('HMSET', KEYS[1], '{PropIncId}', ARGV[1], '{PropEncoding}', ARGV[2], '{PropData}', ARGV[3])
     redis.call('EXPIRE', KEYS[1], {ttl})
     return 1
 else
     return 0
 end";
-        private static string ComposeUploadEmptyScript(int ttl) =>
-            @$"local incId = redis.call('HGET', KEYS[1], '{PropIncId}')
-if (incId == false) then
-    redis.call('HMSET', KEYS[1], '{PropStatus}', ARGV[1], '{PropIncId}', '', '{PropEncoding}', '', '{PropData}', '')
-    redis.call('EXPIRE', KEYS[1], {ttl})
-    return 1
-else
-    return 0
-end";
-
-        public async Task<Result<Void>> UpdateIfNewer(EntityEntry entry, ISerializer ser, CancellationToken ct) {
-            if (entry.IsOk) {
-                await using var stream = new MemoryStream();
-                var encodeResult = await ser.Encode(stream, entry.EntId, entry.Value, ct);
-                if (encodeResult.IsError) {
-                    return new Result<Void>(encodeResult.Error);
-                }
-
-                var keys = Keys1Holders.Rent();
-                var values = Values4Holders.Rent();
-                try {
-                    keys.Arr[0] = entry.EntId.Id;
-                    values.Arr[0] = (int) entry.Status;
-                    values.Arr[1] = entry.IncId.Id;
-                    values.Arr[2] = encodeResult.Value;
-                    values.Arr[3] = RedisValue.CreateFrom(stream);
-                    
-                    var result1 = await Eval(_redis, _logger, _updateScript, keys.Arr, values.Arr);
-
-                    return result1.IsOk
-                        ? new Result<Void>(Void.Value)
-                        : new Result<Void>(result1.Error);
-
-                }
-                finally {
-                    Keys1Holders.Return(keys);
-                    Values4Holders.Return(values);
-                }
-            }
-
-            var keysForEmpty = Keys1Holders.Rent();
-            var valuesForEmpty = Values1Holders.Rent();
+        public async Task<Result<Void>> UpdateIfNewer(BinaryStamp stamp, CancellationToken ct) {
+            var keys = Keys1Holders.Rent();
+            var values = Values3Holders.Rent();
             try {
-                keysForEmpty.Arr[0] = entry.EntId.Id;
-                valuesForEmpty.Arr[0] = (int) entry.Status;
-                var result2 = await Eval(_redis, _logger, _emptyScript, keysForEmpty.Arr, valuesForEmpty.Arr);
+                keys.Arr[0] = stamp.Eid.Id;
+                values.Arr[0] = stamp.IncId.Id;
+                values.Arr[1] = stamp.Data.Encoding;
+                values.Arr[2] = stamp.Data.Memory;
+                
+                var result1 = await Eval(_redis, _logger, _updateScript, keys.Arr, values.Arr);
 
-                return result2.IsOk
+                return result1.IsOk
                     ? new Result<Void>(Void.Value)
-                    : new Result<Void>(result2.Error);
+                    : new Result<Void>(result1.Error);
+
             }
             finally {
-                Keys1Holders.Return(keysForEmpty);
-                Values1Holders.Return(valuesForEmpty);
+                Keys1Holders.Return(keys);
+                Values3Holders.Return(values);
             }
         }
 

@@ -13,9 +13,7 @@ namespace Funes {
         public IDataEngine DataEngine { get; }
         public LogicEngineEnv<TModel, TMsg, TSideEffect> LogicEngineEnv { get; }
         public Behavior<TSideEffect> Behavior { get; }
-
-        public ISerializer SystemSerializer { get; } = new SystemSerializer();
-
+        
         private readonly Stopwatch _stopwatch;
 
         public long ElapsedMilliseconds => _stopwatch.ElapsedMilliseconds;

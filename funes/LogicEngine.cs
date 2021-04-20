@@ -3,14 +3,14 @@ using System.Buffers;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Funes.Impl;
+using Funes.Indexes;
 using Funes.Sets;
 using Microsoft.Extensions.Logging;
 
 namespace Funes {
     public static class LogicEngine<TModel,TMsg,TSideEffect> {
         
-        private static readonly ObjectPool<LogicState<TMsg, TSideEffect>> StatesPool =
+        private static readonly Utils.ObjectPool<LogicState<TMsg, TSideEffect>> StatesPool =
             new(() => new LogicState<TMsg, TSideEffect>(), 12);
         
         public static async Task<Result<LogicResult<TSideEffect>>> Run(LogicEngineEnv<TModel,TMsg,TSideEffect> env,
@@ -85,6 +85,13 @@ namespace Funes {
                         }
                         setRecord.Add(new SetOp(x.Op, x.Tag));
                         break;
+                    case Cmd<TMsg, TSideEffect>.IndexCmd x:
+                        if (!lgResult.IndexRecords.TryGetValue(x.IndexName, out var indexRecord)) {
+                            indexRecord = new IndexRecord();
+                            lgResult.IndexRecords[x.IndexName] = indexRecord;
+                        }
+                        indexRecord.Add(new IndexOp(x.Op, x.Key, x.Value));
+                        break;
                     case Cmd<TMsg, TSideEffect>.SideEffectCmd x:
                         lgResult.SideEffects.Add(x.SideEffect);
                         break;
@@ -156,8 +163,22 @@ namespace Funes {
             
             void StartRetrievingTask(EntityId entityId) {
                 if (!lgState.RetrievingTasks.ContainsKey(entityId)) {
-                    lgState.RetrievingTasks[entityId] = env.DataSource.Retrieve(entityId, env.Serializer, ct).AsTask();
+                    lgState.RetrievingTasks[entityId] = RetrieveAndDeserialize(entityId);
                 }
+            }
+            
+            async Task<Result<EntityEntry>> RetrieveAndDeserialize(EntityId eid)
+            {
+                var retrieveResult = await env.DataSource.Retrieve(eid, ct);
+                if (retrieveResult.IsError) return new Result<EntityEntry>(EntityEntry.NotAvailable(eid));
+
+                var bin = retrieveResult.Value;
+                if (bin.IsEmpty) return new Result<EntityEntry>(EntityEntry.NotExist(eid));
+
+                var serdeResult = env.Serializer.Decode(eid, bin.Data);
+                if (serdeResult.IsError) return new Result<EntityEntry>(EntityEntry.NotAvailable(eid));
+
+                return new Result<EntityEntry>(EntityEntry.Ok(new Entity(eid, serdeResult.Value), bin.IncId));
             }
             
             void ProcessRetrievingTasks() {
@@ -195,7 +216,7 @@ namespace Funes {
             void StartRetrievingSetTask(string setName, IIncrementArgsCollector args) {
                 if (!lgState.RetrievingSetTasks.ContainsKey(setName)) 
                     lgState.RetrievingSetTasks[setName] = 
-                        SetsHelpers.RetrieveSnapshot(env.DataSource, env.SysSerializer, setName, args, ct);
+                        SetsHelpers.RetrieveSnapshot(env.DataSource, setName, args, ct);
             }
             
             void ProcessRetrievingSetTasks() {

@@ -1,7 +1,7 @@
-using System;
 using System.Collections.Generic;
 using System.Linq;
 using Funes.Impl;
+using Funes.Indexes;
 using Funes.Sets;
 using Xunit;
 using Xunit.Abstractions;
@@ -103,7 +103,10 @@ namespace Funes.Tests {
             var ser = new SimpleSerializer<Simple>();
             var repo = new SimpleRepository();
             var entity = new Entity(RetrieveLogic.EntId, new Simple(0, "42"));
-            var saveResult = await repo.Save(new EntityStamp(entity, IncrementId.NewId()), ser, default);
+            var encodeResult = ser.Encode(entity.Id, entity.Value);
+            Assert.True(encodeResult.IsOk, encodeResult.Error.ToString());
+            var stamp = new BinaryStamp(entity.Id.CreateStampKey(IncrementId.NewId()), encodeResult.Value);
+            var saveResult = await repo.Save(stamp, default);
             Assert.True(saveResult.IsOk);
             
             var env = CreateEnv(new RetrieveLogic(), repo);
@@ -137,6 +140,31 @@ namespace Funes.Tests {
             var op = idxRecord[0];
             Assert.Equal(SetOp.Kind.Add, op.OpKind);
             Assert.Equal(tag, op.Tag);
+        }
+
+        [Fact]
+        public async void AddIndexLogicTest() {
+            var indexName = "testIndex";
+            var key = "key1";
+            var val = "val";
+            
+            var logic = new CallbackLogic<string,string,string>(
+                entity => ("", new Cmd<string, string>.IndexCmd(indexName, IndexOp.Kind.Update, key, val )),
+                (model, msg) => ("", Cmd<string, string>.None),
+                model => Cmd<string, string>.None);
+            
+            var env = CreateEnv(logic);
+
+            var fact = new Entity(new EntityId("/tests/fact"), "!");
+            var args = new IncrementArgs();
+            var result = await LogicEngine<string, string, string>.Run(env, fact, null!, args,default);
+            Assert.True(result.IsOk);
+            Assert.True(result.Value.IndexRecords.TryGetValue(indexName, out var idxRecord));
+            Assert.True(idxRecord!.Count == 1);
+            var op = idxRecord[0];
+            Assert.Equal(IndexOp.Kind.Update, op.OpKind);
+            Assert.Equal(key, op.Key);
+            Assert.Equal(val, op.Value);
         }
 
     }

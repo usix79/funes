@@ -1,14 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using Amazon.S3;
 using Amazon.S3.Model;
 using Microsoft.Toolkit.HighPerformance;
-using Microsoft.Toolkit.HighPerformance.Streams;
 
 namespace Funes.S3 {
     
@@ -28,24 +26,18 @@ namespace Funes.S3 {
 
         private const string EncodingKey = "x-amz-meta-encoding";
         
-        public async ValueTask<Result<Void>> Save(EntityStamp entityStamp, ISerializer ser, CancellationToken ct) {
+        public async Task<Result<Void>> Save(BinaryStamp stamp, CancellationToken ct) {
             try {
-                await using var stream = new MemoryStream();
-                var encodeResult = await ser.Encode(stream, entityStamp.Entity.Id,  entityStamp.Value, ct);
-                if (encodeResult.IsError) return new Result<Void>(encodeResult.Error);
-
-                var encoding = encodeResult.Value;
-                stream.Position = 0;
-
+                var encoding = stamp.Data.Encoding;
                 var req = new PutObjectRequest {
                     BucketName = BucketName,
-                    Key = CreateMemS3Key(entityStamp.Key),
+                    Key = CreateMemS3Key(stamp.Key),
                     ContentType = ResolveContentType(),
-                    InputStream = stream,
+                    InputStream = stamp.Data.Memory.AsStream(),
                     Headers = {[EncodingKey] = encoding}
                 };
                 
-                var resp = await _client.PutObjectAsync(req, ct);
+                var _ = await _client.PutObjectAsync(req, ct);
 
                 return new Result<Void>(Void.Value);
 
@@ -60,43 +52,24 @@ namespace Funes.S3 {
             catch (Exception e) { return Result<Void>.Exception(e); }
         }
         
-        public async ValueTask<Result<Void>> SaveBinary(EntityStampKey key, ReadOnlyMemory<byte> data, CancellationToken ct) {
-            try {
-                var req = new PutObjectRequest {
-                    BucketName = BucketName,
-                    Key = CreateMemS3Key(key),
-                    ContentType = "application/octet-stream",
-                    InputStream = data.AsStream(),
-                    Headers = {[EncodingKey] = "evt"}
-                };
-                
-                var resp = await _client.PutObjectAsync(req, ct);
-
-                return new Result<Void>(Void.Value);
-            }
-            catch (TaskCanceledException) { throw; }
-            catch (AmazonS3Exception e) { return Result<Void>.IoError(e.ToString()); }
-            catch (Exception e) { return Result<Void>.Exception(e); }
-        }
-
-        public async ValueTask<Result<EntityStamp>> Load(EntityStampKey key, ISerializer ser, CancellationToken ct) {
+        public async Task<Result<BinaryStamp>> Load(StampKey key, CancellationToken ct) {
             try {
                 var resp = await _client.GetObjectAsync(BucketName, CreateMemS3Key(key), ct);
                 
                 var encoding = resp.Metadata[EncodingKey];
 
-                var decodeResult = await ser.Decode(resp.ResponseStream, key.EntId, encoding, ct);
-                return decodeResult.IsOk
-                    ? new Result<EntityStamp>(new EntityStamp(key, decodeResult.Value))
-                    : new Result<EntityStamp>(decodeResult.Error);
+                await using MemoryStream stream = new();
+                await resp.ResponseStream.CopyToAsync(stream, ct);
+                if (!stream.TryGetBuffer(out var buffer)) buffer = stream.ToArray();
+                return new Result<BinaryStamp>(new BinaryStamp(key, new BinaryData(encoding, buffer)));
             }
             catch (TaskCanceledException) { throw; }
-            catch (AmazonS3Exception e) when (e.StatusCode == HttpStatusCode.NotFound) { return Result<EntityStamp>.NotFound; }
-            catch (AmazonS3Exception e) { return Result<EntityStamp>.IoError(e.ToString()); }
-            catch (Exception e) { return Result<EntityStamp>.Exception(e); }
+            catch (AmazonS3Exception e) when (e.StatusCode == HttpStatusCode.NotFound) { return Result<BinaryStamp>.NotFound; }
+            catch (AmazonS3Exception e) { return Result<BinaryStamp>.IoError(e.ToString()); }
+            catch (Exception e) { return Result<BinaryStamp>.Exception(e); }
         }
         
-        public async ValueTask<Result<ReadOnlyMemory<byte>>> LoadBinary(EntityStampKey key, CancellationToken ct) {
+        public async Task<Result<ReadOnlyMemory<byte>>> LoadBinary(StampKey key, CancellationToken ct) {
             try {
                 var resp = await _client.GetObjectAsync(BucketName, CreateMemS3Key(key), ct);
                 await using var stream = new MemoryStream();
@@ -110,14 +83,14 @@ namespace Funes.S3 {
             catch (Exception e) { return Result<ReadOnlyMemory<byte>>.Exception(e); }
         }
 
-        public async ValueTask<Result<IncrementId[]>> HistoryBefore(EntityId eid, 
-                        IncrementId before, int maxCount = 1, CancellationToken ct = default) {
+        public async Task<Result<IncrementId[]>> HistoryBefore(EntityId eid,
+            IncrementId before, int maxCount = 1, CancellationToken ct = default) {
             try {
                 var prefix = CreateMemS3Id(eid);
                 var req = new ListObjectsV2Request {
                     BucketName = BucketName,
                     Prefix = prefix,
-                    StartAfter = CreateMemS3Key(new EntityStampKey(eid, before)),
+                    StartAfter = CreateMemS3Key(new StampKey(eid, before)),
                     MaxKeys = maxCount
                 };
 
@@ -135,7 +108,7 @@ namespace Funes.S3 {
             catch (Exception e) { return Result<IncrementId[]>.Exception(e); }
         }
 
-        public async ValueTask<Result<IncrementId[]>> HistoryAfter(EntityId eid, 
+        public async Task<Result<IncrementId[]>> HistoryAfter(EntityId eid,
             IncrementId after, CancellationToken ct = default) {
             
             try {
@@ -146,7 +119,7 @@ namespace Funes.S3 {
                     var req = new ListObjectsV2Request {
                         BucketName = BucketName,
                         Prefix = prefix,
-                        StartAfter = CreateMemS3Key(new EntityStampKey(eid, startId)),
+                        StartAfter = CreateMemS3Key(new StampKey(eid, startId)),
                         MaxKeys = 42
                     };
 
@@ -177,7 +150,7 @@ namespace Funes.S3 {
             catch (Exception e) { return Result<IncrementId[]>.Exception(e); }
         }
 
-        private string CreateMemS3Key(EntityStampKey key) => $"{Prefix}/{key.EntId.Id}/{key.IncId.Id}";
+        private string CreateMemS3Key(StampKey key) => $"{Prefix}/{key.EntId.Id}/{key.IncId.Id}";
         private string CreateMemS3Id(EntityId id) => $"{Prefix}/{id.Id}/";
     }
 }

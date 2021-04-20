@@ -1,21 +1,19 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using Funes.Impl;
 using Xunit;
 
 namespace Funes.Tests {
     public abstract class AbstractRepoTests {
         protected abstract IRepository CreateRepo();
-        private readonly ISerializer _simpleSerializer = new SimpleSerializer<Simple>();
 
         [Fact]
         public async void GetNonExistingTest() {
             var repo = CreateRepo();
 
             var testMemId = new EntityId("TestCategory", "TestId");
-            var testMemKey = new EntityStampKey(testMemId, new IncrementId("TestReflectionId"));
-            var mem = await repo.Load(testMemKey, _simpleSerializer, default);
+            var testMemKey = new StampKey(testMemId, new IncrementId("TestReflectionId"));
+            var mem = await repo.Load(testMemKey, default);
             Assert.True(mem.Error == Error.NotFound);
         }
 
@@ -24,14 +22,14 @@ namespace Funes.Tests {
             var repo = CreateRepo();
 
             var testIncId = IncrementId.NewId();
-            var testStamp = TestHelpers.CreateSimpleEntityStamp(testIncId);
+            var testStamp = TestHelpers.CreateSimpleStamp(testIncId);
             
-            var putResult = await repo.Save(testStamp, _simpleSerializer, default);
+            var putResult = await repo.Save(testStamp, default);
             Assert.True(putResult.IsOk);
             
-            var getResult = await repo.Load(testStamp.Key, _simpleSerializer, default);
+            var getResult = await repo.Load(testStamp.Key, default);
             Assert.True(getResult.IsOk);
-            TestHelpers.AssertEntitiesEqual(testStamp, getResult.Value);
+            Assert.Equal(testStamp, getResult.Value);
         }
 
         [Fact]
@@ -41,15 +39,15 @@ namespace Funes.Tests {
             var id = new EntityId("cat-s", "id-b2");
             
             var testIncId1 = IncrementId.NewId();
-            var testStamp1 = TestHelpers.CreateSimpleEntityStamp(testIncId1, id);
-            var putResult1 = await repo.Save(testStamp1, _simpleSerializer, default);
+            var testStamp1 = TestHelpers.CreateSimpleStamp(testIncId1, id);
+            var putResult1 = await repo.Save(testStamp1, default);
             Assert.True(putResult1.IsOk);
 
             await Task.Delay(50);
             
             var testReflectionId2 = IncrementId.NewId();
-            var testMem2 = TestHelpers.CreateSimpleEntityStamp(testReflectionId2, id);
-            var putResult2 = await repo.Save(testMem2, _simpleSerializer, default);
+            var testStamp2 = TestHelpers.CreateSimpleStamp(testReflectionId2, id);
+            var putResult2 = await repo.Save(testStamp2, default);
             Assert.True(putResult2.IsOk);
             
             var historyResult = await repo.HistoryBefore(id, IncrementId.Singularity, 1);
@@ -68,13 +66,14 @@ namespace Funes.Tests {
             var testEid = TestHelpers.CreateRandomEntId();
             var testIncId = IncrementId.NewId();
             var testEvent = TestHelpers.CreateEvent(testIncId);
+            var stamp = new BinaryStamp(testEid.CreateStampKey(testIncId), new BinaryData("evt", testEvent.Data));
             
-            var saveResult = await repo.SaveBinary(testEid.CreateStampKey(testIncId), testEvent.Data, default);
+            var saveResult = await repo.Save(stamp, default);
             Assert.True(saveResult.IsOk, saveResult.Error.ToString());
             
-            var loadResult = await repo.LoadBinary(testEid.CreateStampKey(testIncId), default);
+            var loadResult = await repo.Load(testEid.CreateStampKey(testIncId), default);
             Assert.True(loadResult.IsOk, loadResult.Error.ToString());
-            TestHelpers.AssertEventsEqual(testEvent, new Event(testIncId, loadResult.Value));
+            TestHelpers.AssertEventsEqual(testEvent, new Event(testIncId, loadResult.Value.Data.Memory));
         }
 
         [Fact]
@@ -82,12 +81,12 @@ namespace Funes.Tests {
             var repo = CreateRepo();
             
             var key = new EntityId("cat-s", "id-b2");
-            var history = new List<(EntityStamp, IncrementId)>();
+            var history = new List<(BinaryStamp, IncrementId)>();
             for (var i = 0; i < 12; i++) {
                 var incId = new IncrementId((100-i).ToString("d4"));
-                var mem = TestHelpers.CreateSimpleEntityStamp(incId, key);
-                history.Add((mem, incId));
-                var putResult = await repo.Save(mem, _simpleSerializer, default);
+                var stamp = TestHelpers.CreateSimpleStamp(incId, key);
+                history.Add((stamp, incId));
+                var putResult = await repo.Save(stamp, default);
                 Assert.True(putResult.IsOk);
             }
             
@@ -124,12 +123,12 @@ namespace Funes.Tests {
             var repo = CreateRepo();
             
             var key = new EntityId("cat-s", "id-b2");
-            var history = new List<(EntityStamp, IncrementId)>();
+            var history = new List<(BinaryStamp, IncrementId)>();
             for (var i = 0; i < 12; i++) {
                 var incId = new IncrementId((100-i).ToString("d4"));
-                var mem = TestHelpers.CreateSimpleEntityStamp(incId, key);
-                history.Add((mem, incId));
-                var putResult = await repo.Save(mem, _simpleSerializer, default);
+                var stamp = TestHelpers.CreateSimpleStamp(incId, key);
+                history.Add((stamp, incId));
+                var putResult = await repo.Save(stamp, default);
                 Assert.True(putResult.IsOk);
             }
             

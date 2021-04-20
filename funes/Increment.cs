@@ -2,12 +2,13 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Funes {
     public record Increment(
         IncrementId Id, 
-        EntityStampKey FactKey,
+        StampKey FactKey,
         IncrementArgs Args,
         List<EntityId> Outputs,
         List<KeyValuePair<string,string>> Constants,
@@ -27,44 +28,9 @@ namespace Funes {
 
         public static EntityId CreateEntId(IncrementId incId) => new (Category, incId.Id);
         public static bool IsIncrement(EntityId entId) => entId.Id.StartsWith(Category);
-        public static EntityStamp CreateStamp(Increment inc) =>
-            new (new Entity(Increment.CreateEntId(inc.Id), inc), inc.Id);
         public static EntityId CreateChildEntId(IncrementId parentId) => new (ChildrenCategory, parentId.Id);
         public static bool IsChild(EntityId entId) => entId.Id.StartsWith(ChildrenCategory);
-
-        public static EntityStamp CreateChildStamp(IncrementId incId, IncrementId parentId) =>
-            new(new Entity(Increment.CreateChildEntId(parentId), null!), incId);        
-        public static EntityStampKey CreateStampKey(IncrementId incId) => new (CreateEntId(incId), incId);
-
-        // private static async ValueTask<Result<Increment>> Load(IRepository repo, ISerializer serializer, IncrementId incId) {
-        //     var getResult = await repo.Load(CreateStampKey(incId), serializer, default);
-        //     return getResult.IsOk
-        //         ? new Result<Increment>((Increment) getResult.Value.Value)
-        //         : new Result<Increment>(getResult.Error);
-        // }
-        
-        public static async ValueTask<Result<string>> Encode(Stream output, Increment increment) {
-            try {
-                await JsonSerializer.SerializeAsync(output, increment);
-                return new Result<string>("json");
-            }
-            catch (Exception e) {
-                return Result<string>.SerdeError(e.Message);
-            }
-        }
-
-        public static async ValueTask<Result<object>> Decode(Stream input, string encoding) {
-            if ("json" != encoding) return Result<object>.NotSupportedEncoding(encoding);
-            try {
-                var reflectionOrNull = await JsonSerializer.DeserializeAsync<Increment>(input);
-                return reflectionOrNull != null
-                    ? new Result<object>(reflectionOrNull)
-                    : Result<object>.SerdeError("null");
-            }
-            catch (Exception e) {
-                return Result<object>.SerdeError(e.Message);
-            }
-        }
+        public static StampKey CreateStampKey(IncrementId incId) => new (CreateEntId(incId), incId);
         
         public string FindDetail(string key) {
             foreach(var pair in Details)
@@ -73,11 +39,56 @@ namespace Funes {
 
             return "";
         }
+        
+        public static Result<BinaryData> Encode(Increment increment) {
+            using MemoryStream stream = new();
+            using Utf8JsonWriter writer = new(stream);
+                
+            try {
+                JsonSerializer.Serialize(writer, increment);
+                if (!stream.TryGetBuffer(out var buffer)) buffer = stream.ToArray();
+                return new Result<BinaryData>(new BinaryData("json", buffer));
+            }
+            catch (Exception e) {
+                return Result<BinaryData>.Exception(e);
+            }
+        }
 
+        public static ValueTask<Result<Void>> Upload(IDataEngine de, Increment increment, CancellationToken ct) {
+            var encodingResult = Encode(increment);
+            if (encodingResult.IsError)
+                return ValueTask.FromResult(new Result<Void>(encodingResult.Error));
+
+            var stamp = new BinaryStamp(CreateStampKey(increment.Id), encodingResult.Value);
+            return de.Upload(stamp, ct, true);
+        }
+
+        public static ValueTask<Result<Void>> UploadChild(IDataEngine de, IncrementId incId, IncrementId parentId,
+            CancellationToken ct) {
+
+            var stampKey = CreateChildEntId(parentId).CreateStampKey(incId);
+            return de.Upload(new BinaryStamp(stampKey, BinaryData.Empty), ct, true);
+        }
+        
+        public static Result<Increment> Decode(BinaryData data) {
+            if ("json" != data.Encoding) 
+                return Result<Increment>.NotSupportedEncoding(data.Encoding);
+            
+            try {
+                var reflectionOrNull = JsonSerializer.Deserialize<Increment>(data.Memory.Span);
+                return reflectionOrNull != null
+                    ? new Result<Increment>(reflectionOrNull)
+                    : Result<Increment>.SerdeError("null");
+            }
+            catch (Exception e) {
+                return Result<Increment>.SerdeError(e.Message);
+            }
+        }
+        
         // public struct Conflict {
-        //     public EntityStampKey PremiseKey { get;}
+        //     public StampKey PremiseKey { get;}
         //     public IncrementId ActualIncId { get;}
-        //     public Conflict(EntityStampKey premise, IncrementId actualIncId) => 
+        //     public Conflict(StampKey premise, IncrementId actualIncId) => 
         //         (PremiseKey, ActualIncId) = (premise, actualIncId);
         // }
         

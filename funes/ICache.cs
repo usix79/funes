@@ -1,13 +1,12 @@
-using System;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace Funes {
     public interface ICache {
 
-        Task<Result<EntityEntry>> Get(EntityId eid, ISerializer ser, CancellationToken ct);
-        Task<Result<Void>> Set(EntityEntry entry, ISerializer ser, CancellationToken ct);
-        Task<Result<Void>> UpdateIfNewer(EntityEntry entry, ISerializer ser, CancellationToken ct);
+        Task<Result<BinaryStamp>> Get(EntityId eid, CancellationToken ct);
+        Task<Result<Void>> Set(BinaryStamp stamp, CancellationToken ct);
+        Task<Result<Void>> UpdateIfNewer(BinaryStamp stamp, CancellationToken ct);
         
         Task<Result<EventLog>> GetEventLog(EntityId eid, CancellationToken ct);
         Task<Result<Void>> UpdateEventsIfNotExists(EntityId eid, Event[] events, CancellationToken ct);

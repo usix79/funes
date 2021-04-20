@@ -8,7 +8,7 @@ namespace Funes.Impl {
     public class SimpleTransactionEngine: ITransactionEngine {
         private readonly Dictionary<EntityId, IncrementId> _actualIncIds = new();
         public Task<Result<Void>> TryCommit(
-            ArraySegment<EntityStampKey> premises, 
+            ArraySegment<StampKey> premises, 
             ArraySegment<EntityId> conclusions, IncrementId incId, CancellationToken ct) {
             ct.ThrowIfCancellationRequested();
 

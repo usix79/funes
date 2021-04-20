@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 namespace Funes {
     public struct IncrementBuilder {
-        private readonly EntityStampKey _factKey;
+        private readonly StampKey _factKey;
         private readonly long _startMilliseconds;
         private readonly int _attempt;
         private readonly long _startCommitMilliseconds;
@@ -15,7 +15,7 @@ namespace Funes {
 
         public IncrementId IncId => _incId;
 
-        public IncrementBuilder(EntityStampKey factKey, long startMilliseconds, int attempt, long ms) {
+        public IncrementBuilder(StampKey factKey, long startMilliseconds, int attempt, long ms) {
             _incId = IncrementId.NewId();
             _factKey = factKey;
             _startMilliseconds = startMilliseconds;
@@ -48,7 +48,14 @@ namespace Funes {
                 _errors.Add(result.Error);
             }
         }
-        
+
+        public void RegisterError(Error err) {
+            if (err != Error.No) {
+                _errors ??= new List<Error>();
+                _errors.Add(err);
+            }
+        }
+
         public void RegisterResults(ArraySegment<Result<Void>> results) {
             foreach (var result in results) {
                 if (result.IsError) {

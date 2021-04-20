@@ -10,6 +10,14 @@ using StackExchange.Redis;
 namespace Funes.Redis {
     public static class RedisHelpers {
 
+        public class HashEntryHolder {
+            public HashEntry[] Arr { get; }
+
+            public HashEntryHolder(int size) {
+                Arr = new HashEntry[size];
+            }
+        }
+
         public class KeysHolder {
             public RedisKey[] Arr { get; }
 
