@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
@@ -12,7 +13,7 @@ namespace Funes.Impl {
         private readonly IRepository _repo;
         private readonly ICache _cache;
         private readonly ITransactionEngine _tre;
-        private readonly ConcurrentQueue<Task> _tasksQueue = new ();
+        private readonly ConcurrentQueue<Task> _backgroundTasks = new ();
         
         public StatelessDataEngine(IRepository repo, ICache cache, ITransactionEngine tre, ILogger logger) =>
             (_logger, _repo, _cache, _tre) = (logger, repo, cache, tre);
@@ -43,7 +44,7 @@ namespace Funes.Impl {
         
         public async ValueTask<Result<Void>> Upload(BinaryStamp stamp, CancellationToken ct, bool skipCache = false) {
 
-            _tasksQueue.Enqueue(_repo.Save(stamp, ct));
+            _backgroundTasks.Enqueue(_repo.Save(stamp, ct));
 
             return skipCache
                 ? new Result<Void>(Void.Value)
@@ -60,7 +61,7 @@ namespace Funes.Impl {
                 if (piSecArr.Length > 0) {
                     var conflictsTxt = string.Join(',', piSecArr.Select(x => x.ToString()));
                     _logger.FunesWarning(nameof(StatelessDataEngine), "Possible piSec", conflictsTxt);
-                    _tasksQueue.Enqueue(CheckCollisions(piSecArr, ct));
+                    _backgroundTasks.Enqueue(CheckCollisions(piSecArr, ct));
                 }
             }
 
@@ -70,7 +71,7 @@ namespace Funes.Impl {
         public async ValueTask<Result<int>> AppendEvent(EntityId recordsId, Event evt, EntityId offsetId, 
             CancellationToken ct, bool skipCache = false) {
             if (skipCache) {
-                _tasksQueue.Enqueue(SaveEvent(recordsId, evt, ct));
+                _backgroundTasks.Enqueue(SaveEvent(recordsId, evt, ct));
                 return new Result<int>(0);
             }
 
@@ -83,7 +84,7 @@ namespace Funes.Impl {
                 appendResult = await _cache.AppendEvent(recordsId, evt, ct);
             }
             
-            _tasksQueue.Enqueue(SaveEvent(recordsId, evt, ct));
+            _backgroundTasks.Enqueue(SaveEvent(recordsId, evt, ct));
             return appendResult;
         }
 
@@ -141,13 +142,18 @@ namespace Funes.Impl {
             return await _cache.TruncateEvents(recordId, lastToTruncate, ct);
         }        
 
-        public Task Flush() {
-            if (_tasksQueue.IsEmpty) return Task.CompletedTask;
+        public async ValueTask Flush(CancellationToken ct = default) {
+            if (_backgroundTasks.IsEmpty) return;
 
-            var tasks = new List<Task>(_tasksQueue.Count);
-            while(_tasksQueue.TryDequeue(out var task)) tasks.Add(task);
-
-            return Task.WhenAll(tasks);
+            var tasksArr = ArrayPool<Task>.Shared.Rent(_backgroundTasks.Count);
+            try {
+                var idx = 0;
+                while(_backgroundTasks.TryDequeue(out var task) && idx < tasksArr.Length) tasksArr[idx++] = task;
+                await Utils.WhenAll(new ArraySegment<Task>(tasksArr, 0, idx), ct);
+            }
+            finally {
+                ArrayPool<Task>.Shared.Return(tasksArr);
+            }
         }
 
         private bool IsPiSec(Error.CommitError.Conflict conflict) { 

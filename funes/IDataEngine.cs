@@ -15,6 +15,6 @@ namespace Funes {
         ValueTask<Result<Void>> TryCommit(ArraySegment<StampKey> premises, 
             ArraySegment<EntityId> conclusions, IncrementId incId, CancellationToken ct);
         
-        Task Flush();
+        ValueTask Flush(CancellationToken ct = default);
     }
 }

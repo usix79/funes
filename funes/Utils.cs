@@ -107,7 +107,6 @@ namespace Funes {
         }
 #nullable restore
         
-        
         public static async ValueTask WhenAll<T>(
             ArraySegment<ValueTask<Result<T>>> tasks, ArraySegment<Result<T>> results, CancellationToken ct) {
 
@@ -124,5 +123,19 @@ namespace Funes {
                 }
             }
         }
+        public static async ValueTask WhenAll(ArraySegment<Task> tasks, CancellationToken ct) {
+            for (var i = 0; i < tasks.Count; i++) {
+                ct.ThrowIfCancellationRequested();
+                try {
+                    await tasks[i];
+                }
+                catch (TaskCanceledException) {
+                    throw;
+                }
+                catch (Exception) {
+                }
+            }
+        }
+
     }
 }
