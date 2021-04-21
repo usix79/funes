@@ -46,12 +46,10 @@ namespace Funes.Tests {
         }
 
         private async ValueTask<IncrementId> LoadOffset(IRepository repo, EntityId offsetId, IncrementId incId) {
-            var loadOffsetResult =
-                await repo.Load(offsetId.CreateStampKey(incId), default);
+            var loadOffsetResult = await repo.Load(offsetId.CreateStampKey(incId), default);
             Assert.True(loadOffsetResult.IsOk, loadOffsetResult.Error.ToString());
-            var offsetDecodingResult = Utils.DecodeOffset(loadOffsetResult.Value.Data);
-            Assert.True(offsetDecodingResult.IsOk, offsetDecodingResult.Error.ToString());
-            return offsetDecodingResult.Value;
+            var offset = new EventOffset(loadOffsetResult.Value.Data);
+            return offset.GetLastIncId();
         }
         
         [Fact]
@@ -235,7 +233,7 @@ namespace Funes.Tests {
             Assert.True(cacheResult.IsOk, cacheResult.Error.ToString());
             Assert.Equal(incId, cacheResult.Value.First);
             Assert.Equal(incId, cacheResult.Value.Last);
-            var reader = new SetRecordsReader(cacheResult.Value.Data);
+            var reader = new SetRecordsReader(cacheResult.Value.Memory);
             Assert.True(reader.MoveNext());
             Assert.Equal(expectedOp, reader.Current);
             Assert.False(reader.MoveNext());
@@ -318,13 +316,13 @@ namespace Funes.Tests {
             var snapshotId = SetsHelpers.GetSnapshotId(setName);
             var loadSnapshotResult = await repo.Load(snapshotId.CreateStampKey(lastIncId), default);
             Assert.True(loadSnapshotResult.IsOk, loadSnapshotResult.Error.ToString());
-            var snaphotDecodingResult = SetsHelpers.DecodeSnapshot(loadSnapshotResult.Value.Data);
-            Assert.True(snaphotDecodingResult.IsOk, snaphotDecodingResult.Error.ToString());
-            var snapshot = snaphotDecodingResult.Value;
-            Assert.Equal(3, snapshot.Count);
-            Assert.Contains("tagCCC", snapshot);
-            Assert.Contains("tagZZZ", snapshot);
-            Assert.Contains("tagQQQ", snapshot);
+            var snapshot = new SetSnapshot(loadSnapshotResult.Value.Data);
+
+            var set = snapshot.GetSet();
+            Assert.Equal(3, set.Count);
+            Assert.Contains("tagCCC", set);
+            Assert.Contains("tagZZZ", set);
+            Assert.Contains("tagQQQ", set);
 
             // eventlog in cache should be empty
             var cacheResult = await cache.GetEventLog(tagRecordId, default);
@@ -376,15 +374,15 @@ namespace Funes.Tests {
             var snapshotIncId = new IncrementId("100"); 
             var setName = CreateRandomEntId().GetName();
 
-            var snapshot = new SetSnapshot {"AAA", "a3131", "ZYAA-1234"};
-            var snapshotKey = SetsHelpers.GetSnapshotId(setName).CreateStampKey(snapshotIncId);
-            var data = SetsHelpers.EncodeSnapshot(snapshot);
-            var saveSnapshotResult = await repo.Save(new BinaryStamp(snapshotKey, data),default);
+            var set = new HashSet<string> {"AAA", "a3131", "ZYAA-1234"};
+            var snapshot = SetSnapshot.FromSet(set);
+            var snapshotStamp = snapshot.CreateStamp(SetsHelpers.GetSnapshotId(setName), snapshotIncId);
+            var saveSnapshotResult = await repo.Save(snapshotStamp,default);
             Assert.True(saveSnapshotResult.IsOk, saveSnapshotResult.Error.ToString());
 
-            var offsetKey = SetsHelpers.GetOffsetId(setName).CreateStampKey(snapshotIncId);
-            var offsetData = Utils.EncodeOffset(snapshotIncId);
-            var saveOffsetResult = await repo.Save(new BinaryStamp(offsetKey, offsetData), default);
+            var offsetId = SetsHelpers.GetOffsetId(setName);
+            var offset = new EventOffset(BinaryData.Empty).NextGen(snapshotIncId);
+            var saveOffsetResult = await repo.Save(offset.CreateStamp(offsetId, snapshotIncId), default);
             Assert.True(saveOffsetResult.IsOk, saveOffsetResult.Error.ToString());
 
             var record = new SetRecord() {
@@ -427,7 +425,7 @@ namespace Funes.Tests {
 
             var increment = await LoadIncrement(repo, result.Value);
 
-            Assert.Equal(new HashSet<IncrementArgs.InputEntityLink> {new (snapshotKey, false),}, 
+            Assert.Equal(new HashSet<IncrementArgs.InputEntityLink> {new (snapshotStamp.Key, false),}, 
                 new HashSet<IncrementArgs.InputEntityLink>(increment.Args.Entities));
             Assert.Equal(new List<IncrementArgs.InputEventLink> {
                     new (recordId, firstInc, firstInc),
@@ -469,7 +467,7 @@ namespace Funes.Tests {
             Assert.True(cacheResult.IsOk, cacheResult.Error.ToString());
             Assert.Equal(incId, cacheResult.Value.First);
             Assert.Equal(incId, cacheResult.Value.Last);
-            var reader = new IndexRecordsReader(cacheResult.Value.Data);
+            var reader = new IndexRecordsReader(cacheResult.Value.Memory);
             Assert.True(reader.MoveNext());
             Assert.Equal(expectedOp, reader.Current);
             Assert.False(reader.MoveNext());

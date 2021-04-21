@@ -202,10 +202,10 @@ namespace Funes {
             }
 
             bool TryCompleteRetrieveSet(Cmd<TMsg, TSideEffect>.RetrieveSetCmd aCmd) {
-                if (!lgState.Sets.TryGetValue(aCmd.SetName, out var snapshot)) return false;
+                if (!lgState.Sets.TryGetValue(aCmd.SetName, out var set)) return false;
                 
                 try {
-                    lgState.PendingMessages.Enqueue(aCmd.Action(snapshot));
+                    lgState.PendingMessages.Enqueue(aCmd.Action(set));
                 }
                 catch (Exception x) {
                     env.Logger.FunesException("LogicEngine", "Action", IncrementId.None, x);
@@ -230,8 +230,8 @@ namespace Funes {
                             lgState.RetrievingSetTasks.Remove(setName);
                             lgState.Sets[setName] = 
                                 task.IsCompletedSuccessfully && task.Result.IsOk
-                                ? task.Result.Value 
-                                : SetSnapshot.Empty;
+                                ? task.Result.Value.GetSet() 
+                                : new HashSet<string>();
                         }
                     }
                 }

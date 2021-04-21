@@ -61,7 +61,7 @@ namespace Funes {
                     for (var i = 0; i < sideEffects.Count; i++)
                         behaviorTasks[i] = env.Behavior(incId, sideEffects[i], ct);
                     
-                    await Utils.WhenAll(behaviorTasks, results, ct);
+                    await Utils.Tasks.WhenAll(behaviorTasks, results, ct);
 
                     foreach (var result in results)
                         if (result.IsError) LogError(incId, "SideEffect", result.Error);
@@ -188,7 +188,7 @@ namespace Funes {
                     foreach (var outputEntity in outputs.Values)
                         uploadTasks[idx++] = SerializeAndUpload(outputEntity, incId); 
 
-                    await Utils.WhenAll(uploadTasks, results, ct);
+                    await Utils.Tasks.WhenAll(uploadTasks, results, ct);
                 }
                 finally {
                     ArrayPool<ValueTask<Result<Void>>>.Shared.Return(uploadTasksArr);

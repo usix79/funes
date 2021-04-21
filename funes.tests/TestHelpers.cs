@@ -56,7 +56,7 @@ namespace Funes.Tests {
 
         public static void AssertEventsEqual(Event[] events, EventLog evtLog) {
             if (events.Length == 0) {
-                Assert.Equal(0, evtLog.Data.Length);
+                Assert.Equal(0, evtLog.Memory.Length);
                 Assert.Equal(IncrementId.None, evtLog.First);
                 Assert.Equal(IncrementId.None, evtLog.Last);
                 Assert.True(evtLog.IsEmpty);
@@ -67,7 +67,7 @@ namespace Funes.Tests {
             Assert.Equal(events[^1].IncId, evtLog.Last);
 
             var offset = 0;
-            var actualSpan = evtLog.Data.Span;
+            var actualSpan = evtLog.Memory.Span;
             foreach (var evt in events) {
                 var expectedSpan = evt.Data.Span;
                 for (var i = 0; i < evt.Data.Length; i++) {

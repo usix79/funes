@@ -110,10 +110,9 @@ namespace Funes.Impl {
 
             var after = IncrementId.BigBang;
             if (offsetResult.Value.IsNotEmpty) {
-                var deserializeResult = Utils.DecodeOffset(offsetResult.Value.Data);
-                if (deserializeResult.IsError) return new Result<Void>(deserializeResult.Error);
+                var offset = new EventOffset(offsetResult.Value.Data);
 
-                after = deserializeResult.Value;
+                after = offset.GetLastIncId();
             }
 
             var historyResult = await _repo.HistoryAfter(eventLogId, after, ct);
@@ -133,11 +132,7 @@ namespace Funes.Impl {
         }
 
         public async ValueTask<Result<Void>> TruncateEvents(
-            EntityId recordId, StampKey offsetKey, IncrementId lastToTruncate, CancellationToken ct) {
-
-            var stamp = new BinaryStamp(offsetKey, Utils.EncodeOffset(lastToTruncate));
-            var uploadOffsetResult = await Upload(stamp, ct);
-            if (uploadOffsetResult.IsError) return new Result<Void>(uploadOffsetResult.Error);
+            EntityId recordId, IncrementId lastToTruncate, CancellationToken ct) {
 
             return await _cache.TruncateEvents(recordId, lastToTruncate, ct);
         }        
@@ -149,7 +144,7 @@ namespace Funes.Impl {
             try {
                 var idx = 0;
                 while(_backgroundTasks.TryDequeue(out var task) && idx < tasksArr.Length) tasksArr[idx++] = task;
-                await Utils.WhenAll(new ArraySegment<Task>(tasksArr, 0, idx), ct);
+                await Utils.Tasks.WhenAll(new ArraySegment<Task>(tasksArr, 0, idx), ct);
             }
             finally {
                 ArrayPool<Task>.Shared.Return(tasksArr);

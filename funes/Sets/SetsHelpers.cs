@@ -38,29 +38,7 @@ namespace Funes.Sets {
 
         public static bool IsSnapshot(EntityId eid) => 
             eid.Id.StartsWith("funes/sets/") && eid.Id.EndsWith("/snapshot");
-        
-        
-        public static int CalcSize(SetSnapshot aSnapshot) {
-            var size = 4; // int count
-            foreach (var tag in aSnapshot) {
-                size += 1 + 2 * tag.Length;
-            }
-            return size;
-        }
 
-        public static BinaryData EncodeSnapshot(SetSnapshot snapshot) {
-            var memory = new Memory<byte>(new byte[CalcSize(snapshot)]);
-            var idx = 0;
-            
-            Utils.Binary.WriteInt32(memory, ref idx, snapshot.Count);
-            foreach (var tag in snapshot) {
-                memory.Span[idx++] = (byte)tag.Length;
-                Utils.Binary.WriteString(memory, ref idx, tag);
-            }
-
-            return new BinaryData("bin", memory);
-        }
-        
         public static int CalcSize(SetRecord rec) {
             var size = 0;
             foreach (var op in rec)
@@ -80,26 +58,6 @@ namespace Funes.Sets {
             return new BinaryData("bin", memory);
         }
         
-        public static Result<SetSnapshot> DecodeSnapshot(BinaryData data) {
-            if ("bin" != data.Encoding) return Result<SetSnapshot>.NotSupportedEncoding(data.Encoding);
-            try {
-                var idx = 0;
-                var count = Utils.Binary.ReadInt32(data.Memory, ref idx);
-                var snapshot = new SetSnapshot(count);
-
-                while (idx < data.Memory.Length) {
-                    var charsCount = Utils.Binary.ReadByte(data.Memory, ref idx);
-                    var tag = charsCount > 0
-                        ? Utils.Binary.ReadString(data.Memory, ref idx, charsCount)
-                        : "";
-                    snapshot.Add(tag);
-                }
-                return new Result<SetSnapshot>(snapshot);
-            }
-            catch (Exception e) {
-                return Result<SetSnapshot>.Exception(e);
-            }
-        }
         
         public static async ValueTask UploadSetRecords(IDataEngine de, int max,
             IncrementId incId, Dictionary<string,SetRecord> records, List<EntityId> outputs, 
@@ -111,7 +69,7 @@ namespace Funes.Sets {
                 foreach (var pair in records)
                     uploadTasks[idx++] = UploadSetRecord(de, ct, incId, pair.Key, pair.Value, max, outputs);
                 
-                await Utils.WhenAll(uploadTasks, results, ct);
+                await Utils.Tasks.WhenAll(uploadTasks, results, ct);
             }
             finally {
                 ArrayPool<ValueTask<Result<string>>>.Shared.Return(uploadTasksArr);
@@ -138,39 +96,34 @@ namespace Funes.Sets {
         private static readonly Utils.ObjectPool<EntityId[]> ConclusionsArr = new (() => new EntityId [1], 7);
         public static async Task<Result<Void>> UpdateSnapshot(IDataEngine de, IncrementId incId, string setName, 
             IIncrementArgsCollector argsCollector, List<EntityId> outputs, CancellationToken ct) {
-            
+
+            var offsetId = GetOffsetId(setName);
+            var offsetResult = await de.Retrieve(offsetId, ct);
+            if (offsetResult.IsError) return new Result<Void>(offsetResult.Error);
+            var offset = new EventOffset(offsetResult.Value.Data);
+            argsCollector.RegisterEntity(offsetResult.Value.Key, true);
+
             var snapshotId = GetSnapshotId(setName);
             var snapshotResult = await de.Retrieve(snapshotId, ct);
             if (snapshotResult.IsError) return new Result<Void>(snapshotResult.Error);
             argsCollector.RegisterEntity(snapshotResult.Value.Key, false);
-
-            SetSnapshot snapshot;
-            if (snapshotResult.Value.IsNotEmpty) {
-                var decodeResult = DecodeSnapshot(snapshotResult.Value.Data);
-                if (decodeResult.IsError) return new Result<Void>(decodeResult.Error);
-                snapshot = decodeResult.Value;
-            }
-            else {
-                snapshot = new SetSnapshot();
-            }
+            var snapshot = new SetSnapshot(snapshotResult.Value.Data);
 
             var recordId = GetRecordId(setName);
-            var offsetId = GetOffsetId(setName);
-
             var eventLogResult = await de.RetrieveEventLog(recordId, offsetId, ct);
             if (eventLogResult.IsError) return new Result<Void>(eventLogResult.Error);
 
             var eventLog = eventLogResult.Value;
             argsCollector.RegisterEvent(recordId, eventLog.First, eventLog.Last);
-            var reader = new SetRecordsReader(eventLog.Data);
-            UpdateSnapshot(snapshot, reader);
+            var reader = new SetRecordsReader(eventLog.Memory);
+            var newSnapshot = UpdateSnapshot(snapshot, reader);
 
             // try commit 
             var premises = PremisesArr.Rent();
             var conclusions = ConclusionsArr.Rent();
             try {
-                premises[0] = snapshotResult.Value.Key;
-                conclusions[0] = snapshotId;
+                premises[0] = offsetResult.Value.Key;
+                conclusions[0] = offsetId;
                 var commitResult = await de.TryCommit(premises, conclusions, incId, ct);
 
                 if (commitResult.IsError)
@@ -181,11 +134,14 @@ namespace Funes.Sets {
                 ConclusionsArr.Return(conclusions);
             }
 
-            var snapshotStamp = new BinaryStamp(snapshotId.CreateStampKey(incId), EncodeSnapshot(snapshot)); 
-            var uploadSnapshotResult = await de.Upload(snapshotStamp, ct);
+            var uploadSnapshotResult = await de.Upload(newSnapshot.CreateStamp(snapshotId, incId), ct);
             if (uploadSnapshotResult.IsError) return new Result<Void>(uploadSnapshotResult.Error);
 
-            var truncateResult = await de.TruncateEvents(recordId, offsetId.CreateStampKey(incId), eventLog.Last, ct);
+            var newOffset = offset.NextGen(eventLog.Last);
+            var uploadOffsetResult = await de.Upload(newOffset.CreateStamp(offsetId, incId), ct);
+            if (uploadOffsetResult.IsError) return new Result<Void>(uploadOffsetResult.Error);
+
+            var truncateResult = await de.TruncateEvents(recordId, eventLog.Last, ct);
             if (truncateResult.IsError) return new Result<Void>(truncateResult.Error);
 
             outputs.Add(snapshotId);
@@ -201,40 +157,36 @@ namespace Funes.Sets {
             if (snapshotResult.IsError) return new Result<SetSnapshot>(snapshotResult.Error);
             argsCollector.RegisterEntity(snapshotResult.Value.Key, false);
 
-            var decodeResult = DecodeSnapshot(snapshotResult.Value.Data);
-            if (decodeResult.IsError) return new Result<SetSnapshot>(decodeResult.Error);
+            var snapshot = new SetSnapshot(snapshotResult.Value.Data);
 
-            var snapshot = decodeResult.Value; 
             var recordId = GetRecordId(setName);
             var offsetId = GetOffsetId(setName);
-
             var eventLogResult = await ds.RetrieveEventLog(recordId, offsetId, ct);
             if (eventLogResult.IsError) return new Result<SetSnapshot>(eventLogResult.Error);
             
             var eventLog = eventLogResult.Value;
             argsCollector.RegisterEvent(recordId, eventLog.First, eventLog.Last);
-            var reader = new SetRecordsReader(eventLog.Data);
-            UpdateSnapshot(snapshot, reader);
 
-            return new Result<SetSnapshot>(snapshot);
+            return new Result<SetSnapshot>(UpdateSnapshot(snapshot, new SetRecordsReader(eventLog.Memory)));
         }
 
-        public static void UpdateSnapshot(SetSnapshot snapshot, SetRecordsReader reader) {
+        public static SetSnapshot UpdateSnapshot(SetSnapshot snapshot, SetRecordsReader reader) {
+            var set = snapshot.GetSet();
             while (reader.MoveNext()) {
                 var op = reader.Current;
                 switch (op.OpKind) {
                     case SetOp.Kind.Add:
-                        snapshot.Add(op.Tag);
+                        set.Add(op.Tag);
                         break;
                     case SetOp.Kind.Clear:
-                        snapshot.Clear();
+                        set.Clear();
                         break;
                     case SetOp.Kind.Del:
-                        snapshot.Remove(op.Tag);
+                        set.Remove(op.Tag);
                         break;
                     case SetOp.Kind.ReplaceWith:
-                        snapshot.Clear();
-                        snapshot.Add(op.Tag);
+                        set.Clear();
+                        set.Add(op.Tag);
                         break;
                     case SetOp.Kind.Unknown:
                         break;
@@ -242,6 +194,8 @@ namespace Funes.Sets {
                         throw new ArgumentOutOfRangeException();
                 }
             }
+
+            return SetSnapshot.FromSet(set);
         }
         
     }

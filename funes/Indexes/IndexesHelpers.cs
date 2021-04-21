@@ -2,7 +2,7 @@ using System;
 using System.Buffers;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.IO;
+using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -82,14 +82,14 @@ namespace Funes.Indexes {
                 foreach (var pair in records)
                     uploadTasks[idx++] = UploadRecord(de, ct, incId, pair.Key, pair.Value, max, outputs);
                 
-                await Utils.WhenAll(uploadTasks, results, ct);
+                await Utils.Tasks.WhenAll(uploadTasks, results, ct);
             }
             finally {
                 ArrayPool<ValueTask<Result<string>>>.Shared.Return(uploadTasksArr);
             }
         }
         
-        // return indexName if the set needs snapshot updating
+        // return indexName if the index needs updating of the pages
         static async ValueTask<Result<string>> UploadRecord(IDataEngine de, CancellationToken ct, 
             IncrementId incId, string indexName, IndexRecord record, int max, List<EntityId> outputs) {
             var data = EncodeRecord(record);
@@ -103,5 +103,90 @@ namespace Funes.Indexes {
                 ? new Result<string>(result.Value >= max ? indexName : "") 
                 : new Result<string>(result.Error); 
         }
+
+        private readonly struct PageOp : IComparable<PageOp> {
+            public PageOp(EntityId pageId, short idx, Kind op, string key, string value) =>
+                (PageId, Idx, Op, Key, Value) = (pageId, idx, op, key, value);
+
+            public enum Kind:byte {Unknown = 0, InsertAfter = 1, RemoveAt = 2};
+            public EntityId PageId { get; }
+            public short Idx { get; }
+            public Kind Op { get; }
+            public string Key { get; }
+            public string Value { get; }
+            
+            public int CompareTo(PageOp other) {
+                var pageIdComparison = PageId.CompareTo(other.PageId);
+                if (pageIdComparison != 0) return pageIdComparison;
+                return Idx.CompareTo(other.Idx);
+            }
+        }
+
+        public static async ValueTask<Result<List<IndexPage>>> UpdateIndex(
+            DataSource ds, string indexName, EventLog log, CancellationToken ct) {
+            
+            // for each key leave only last op
+            Dictionary<string, IndexOp> ops = new();
+            var reader = new IndexRecordsReader(log.Memory);
+            foreach (var op in reader) ops[op.Key] = op;
+
+            var pageOps = new List<PageOp>(ops.Count);
+            foreach (var op in ops.Values) {
+                switch (op.OpKind) {
+                    case IndexOp.Kind.Update:
+                        var keyRes = await GetIndexKey(op.Key);
+                        if (keyRes.IsError) return new Result<List<IndexPage>>(keyRes.Error);
+
+                        var keyValue = keyRes.Value.GetValue();
+                        if (keyValue == op.Value) continue;
+                        
+                        if (keyValue != "") {
+                            var removeRes = await RemoveOp(op.Key, keyValue);
+                            if (removeRes.IsError) return new Result<List<IndexPage>>(removeRes.Error);
+                            if (removeRes.Value.HasValue) pageOps.Add(removeRes.Value.Value);
+                        }
+
+                        var insertRes = await InsertOp(op.Key, op.Value);
+                        if (insertRes.IsError) return new Result<List<IndexPage>>(insertRes.Error);
+                        pageOps.Add(insertRes.Value);
+                        break;
+                    case IndexOp.Kind.Remove:
+                        keyRes = await GetIndexKey(op.Key);
+                        if (keyRes.IsError) return new Result<List<IndexPage>>(keyRes.Error);
+
+                        keyValue = keyRes.Value.GetValue();
+                        if (keyValue != "") {
+                            var removeRes = await RemoveOp(op.Key, keyValue);
+                            if (removeRes.IsError) return new Result<List<IndexPage>>(removeRes.Error);
+                            if (removeRes.Value.HasValue) pageOps.Add(removeRes.Value.Value);
+                        }
+                        break;
+                    default:
+                        throw new NotImplementedException();
+                }
+                
+            }
+            
+            throw new NotImplementedException();
+
+            async ValueTask<Result<IndexKey>> GetIndexKey(string key) {
+                var keyId = GetKeyId(indexName, key);
+                var res = await ds.Retrieve(keyId, ct);
+                return res.IsOk
+                    ? new Result<IndexKey>(new IndexKey(res.Value.Data))
+                    : new Result<IndexKey>(res.Error);
+            }
+
+            async ValueTask<Result<PageOp?>> RemoveOp(string key, string value) {
+                throw new NotImplementedException();
+            }
+
+            async ValueTask<Result<PageOp>> InsertOp(string key, string value) {
+                throw new NotImplementedException();
+                    
+            }
+
+        }
+        
     }
 }

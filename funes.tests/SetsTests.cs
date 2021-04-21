@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Data;
 using System.IO;
 using System.Text;
@@ -53,27 +54,23 @@ namespace Funes.Tests {
         
         [Fact]
         public async void SnapshotEncoding() {
-            var snapshot = new SetSnapshot();
-            snapshot.Add("tag1");
-            snapshot.Add("_tagЫ");
-            snapshot.Add("tag144");
-            snapshot.Add("bla-bla-bla-bla-bla-bla-bla-bla-bla-bla-bla-bla-bla-bla-bla-bla-bla-bla-bla-bla");
-            snapshot.Add("");
+            var set = new HashSet<string> {
+                "tag1",
+                "_tagЫ",
+                "tag144",
+                "bla-bla-bla-bla-bla-bla-bla-bla-bla-bla-bla-bla-bla-bla-bla-bla-bla-bla-bla-bla",
+                ""
+            };
 
-            var eid = SetsHelpers.GetSnapshotId("testSet");
-            
-            var data = SetsHelpers.EncodeSnapshot(snapshot);
+            var snapshot = SetSnapshot.FromSet(set);
 
-            var reader = new StreamReader(data.Memory.AsStream(), Encoding.Unicode);
+            var reader = new StreamReader(snapshot.Data.Memory.AsStream(), Encoding.Unicode);
             _testOutputHelper.WriteLine($"DATA: {await reader.ReadToEndAsync()}");
-
-            var decodingResult = SetsHelpers.DecodeSnapshot(data); 
-            Assert.True(decodingResult.IsOk, decodingResult.Error.ToString());
-
-            var decodedSnapshot = decodingResult.Value;
-            Assert.Equal(snapshot.Count, decodedSnapshot.Count);
-            foreach (var tag in decodedSnapshot) {
-                Assert.True(snapshot.Contains(tag), tag);
+            
+            var decodedSet = snapshot.GetSet();
+            Assert.Equal(set.Count, decodedSet.Count);
+            foreach (var tag in decodedSet) {
+                Assert.True(set.Contains(tag), tag);
             }
         }
         

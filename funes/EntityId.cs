@@ -2,8 +2,22 @@ using System;
 using System.Data.Common;
 
 namespace Funes {
-    public readonly struct EntityId : IEquatable<EntityId> {
-        
+    public readonly struct EntityId : IEquatable<EntityId>, IComparable<EntityId>, IComparable {
+        public int CompareTo(EntityId other) => string.Compare(Id, other.Id, StringComparison.Ordinal);
+
+        public int CompareTo(object? obj) {
+            if (ReferenceEquals(null, obj)) return 1;
+            return obj is EntityId other ? CompareTo(other) : throw new ArgumentException($"Object must be of type {nameof(EntityId)}");
+        }
+
+        public static bool operator <(EntityId left, EntityId right) => left.CompareTo(right) < 0;
+
+        public static bool operator >(EntityId left, EntityId right) => left.CompareTo(right) > 0;
+
+        public static bool operator <=(EntityId left, EntityId right) => left.CompareTo(right) <= 0;
+
+        public static bool operator >=(EntityId left, EntityId right) => left.CompareTo(right) >= 0;
+
         public string Id { get; init; }
 
         public string GetCategory() {

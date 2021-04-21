@@ -411,9 +411,8 @@ namespace Funes.Tests {
                 Assert.True(saveResult.IsOk, saveResult.Error.ToString());
             }
 
-            var offsetData = Utils.EncodeOffset(events[2].IncId);
-            var saveOffsetResult = await repo.Save(
-                new BinaryStamp(offsetId.CreateStampKey(events[2].IncId), offsetData), default);
+            var offset = new EventOffset(BinaryData.Empty).NextGen(events[2].IncId);
+            var saveOffsetResult = await repo.Save(offset.CreateStamp(offsetId, events[2].IncId), default);
             Assert.True(saveOffsetResult.IsOk, saveOffsetResult.Error.ToString());
 
             var newIncId = new IncrementId((100 - events.Length).ToString("d4"));

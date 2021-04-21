@@ -34,8 +34,10 @@ namespace Funes.Indexes {
         
         public IndexOp Current {
             get {
-                var key = Encoding.Unicode.GetString(_data.Slice(_currentIdx + 3, _keyLength * 2).Span); 
-                var val = Encoding.Unicode.GetString(_data.Slice(_currentIdx + 3 + _keyLength * 2, _valLength * 2).Span); 
+                var key = Encoding.Unicode.GetString(_data.Slice(_currentIdx + 3, _keyLength * 2).Span);
+                var val = _valLength > 0
+                    ? Encoding.Unicode.GetString(_data.Slice(_currentIdx + 3 + _keyLength * 2, _valLength * 2).Span)
+                    : "";
                 return new IndexOp(_opKind, key, val);
             }
         }

@@ -8,7 +8,7 @@ namespace Funes {
     
     public class LogicState<TMsg, TSideEffect> {
         public Dictionary<EntityId, EntityEntry> Entities { get; } = new ();
-        public Dictionary<string, SetSnapshot> Sets { get; }= new ();
+        public Dictionary<string, HashSet<string>> Sets { get; }= new ();
         public Queue<TMsg> PendingMessages { get; } = new ();
         public LinkedList<Cmd<TMsg, TSideEffect>> PendingCommands = new ();
         public Dictionary<EntityId, Task<Result<EntityEntry>>> RetrievingTasks = new ();

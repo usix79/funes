@@ -6,20 +6,7 @@ using System.Threading.Tasks;
 
 namespace Funes {
     public static class Utils {
-
-        public static BinaryData EncodeOffset(IncrementId incId) =>
-            new ("utf16", Encoding.Unicode.GetBytes(incId.Id));
         
-        public static Result<IncrementId> DecodeOffset(BinaryData data) {
-            try {
-                var id = Encoding.Unicode.GetString(data.Memory.Span);
-                return new Result<IncrementId>(new IncrementId(id));
-            }
-            catch (Exception x) {
-                return Result<IncrementId>.Exception(x);
-            }
-        }
-
         public static class Binary {
             public static void WriteInt32(Memory<byte> memory, ref int idx, int val) {
                 var span = memory.Slice(idx, 4).Span;
@@ -106,36 +93,37 @@ namespace Funes {
             }
         }
 #nullable restore
-        
-        public static async ValueTask WhenAll<T>(
-            ArraySegment<ValueTask<Result<T>>> tasks, ArraySegment<Result<T>> results, CancellationToken ct) {
 
-            for (var i = 0; i < tasks.Count; i++) {
-                ct.ThrowIfCancellationRequested();
-                try {
-                    results[i] = await tasks[i];
+        public static class Tasks {
+            public static async ValueTask WhenAll<T>(
+                ArraySegment<ValueTask<Result<T>>> tasks, ArraySegment<Result<T>> results, CancellationToken ct) {
+
+                for (var i = 0; i < tasks.Count; i++) {
+                    ct.ThrowIfCancellationRequested();
+                    try {
+                        results[i] = await tasks[i];
+                    }
+                    catch (TaskCanceledException) {
+                        throw;
+                    }
+                    catch (Exception e) {
+                        results[i] = Result<T>.Exception(e);
+                    }
                 }
-                catch (TaskCanceledException) {
-                    throw;
-                }
-                catch (Exception e) {
-                    results[i] = Result<T>.Exception(e);
+            }
+            public static async ValueTask WhenAll(ArraySegment<Task> tasks, CancellationToken ct) {
+                for (var i = 0; i < tasks.Count; i++) {
+                    ct.ThrowIfCancellationRequested();
+                    try {
+                        await tasks[i];
+                    }
+                    catch (TaskCanceledException) {
+                        throw;
+                    }
+                    catch (Exception) {
+                    }
                 }
             }
         }
-        public static async ValueTask WhenAll(ArraySegment<Task> tasks, CancellationToken ct) {
-            for (var i = 0; i < tasks.Count; i++) {
-                ct.ThrowIfCancellationRequested();
-                try {
-                    await tasks[i];
-                }
-                catch (TaskCanceledException) {
-                    throw;
-                }
-                catch (Exception) {
-                }
-            }
-        }
-
     }
 }
