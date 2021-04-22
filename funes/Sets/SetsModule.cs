@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 
 namespace Funes.Sets {
     
-    public static class SetsHelpers {
+    public static class SetsModule {
         private readonly struct Dsc {
             public EntityId RecordId { get; }
             public EntityId OffsetId { get; }

@@ -24,10 +24,10 @@ namespace Funes.Tests {
 
             var record = new SetRecord();
 
-            var size = SetsHelpers.CalcSize(record);
+            var size = SetsModule.CalcSize(record);
             Assert.Equal(0, size);
 
-            var data = SetsHelpers.EncodeRecord(record);
+            var data = SetsModule.EncodeRecord(record);
 
             var reader = new SetRecordsReader(data.Memory);
             Assert.False(reader.MoveNext());
@@ -41,7 +41,7 @@ namespace Funes.Tests {
                 new (SetOp.Kind.ReplaceWith, "tag22")
             };
 
-            var data = SetsHelpers.EncodeRecord(record);
+            var data = SetsModule.EncodeRecord(record);
 
             var reader = new SetRecordsReader(data.Memory);
 

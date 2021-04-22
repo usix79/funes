@@ -69,7 +69,7 @@ namespace Funes.Indexes {
         }
 
         private ValueTask<Result<string>> GetCurrentValue(string key, CancellationToken ct) {
-            // var keyId = IndexesHelpers.GetKeyId(_indexName, key);
+            // var keyId = IndexesModule.GetKeyId(_indexName, key);
             // if (!RetrievedEntities.TryGetValue(keyId, out var entry)) {
             //     var retrieveResult = await _ds.Retrieve(keyId, StringSerializer.Instance, ct);
             //     if (retrieveResult.IsError) return new Result<string>(retrieveResult.Error);

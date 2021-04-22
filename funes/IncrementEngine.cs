@@ -99,7 +99,7 @@ namespace Funes {
                         var uploadResultsArr = ArrayPool<Result<string>>.Shared.Rent(lgResult.SetRecords.Count);
                         var uploadResults = new ArraySegment<Result<string>>(uploadResultsArr, 0, lgResult.SetRecords.Count);
                         try {
-                            await SetsHelpers.UploadSetRecords(env.DataEngine, env.MaxEventLogSize, 
+                            await SetsModule.UploadSetRecords(env.DataEngine, env.MaxEventLogSize, 
                                 builder.IncId, lgResult.SetRecords, outputs, uploadResults, ct);
                             
                             builder.RegisterResults(uploadResults);
@@ -107,7 +107,7 @@ namespace Funes {
                             foreach (var res in uploadResults) {
                                 if (res.IsOk && !string.IsNullOrEmpty(res.Value)) {
                                     // TODO: consider updating snapshots in parallel
-                                    var snapshotResult = await SetsHelpers.UpdateSnapshot(
+                                    var snapshotResult = await SetsModule.UpdateSnapshot(
                                         env.DataEngine, builder.IncId, res.Value, args, outputs, ct);
                                     builder.RegisterResult(snapshotResult);
                                 }
@@ -122,7 +122,7 @@ namespace Funes {
                         var uploadResultsArr = ArrayPool<Result<string>>.Shared.Rent(lgResult.IndexRecords.Count);
                         var uploadResults = new ArraySegment<Result<string>>(uploadResultsArr, 0, lgResult.IndexRecords.Count);
                         try {
-                            await IndexesHelpers.UploadRecords(env.DataEngine, env.MaxEventLogSize, 
+                            await IndexesModule.UploadRecords(env.DataEngine, env.MaxEventLogSize, 
                                 builder.IncId, lgResult.IndexRecords, outputs, uploadResults, ct);
                             
                             builder.RegisterResults(uploadResults);

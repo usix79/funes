@@ -138,7 +138,7 @@ namespace Funes.Tests {
         private Event CreateEvent(string incIdStr, SetOp.Kind kind, string tag) {
             var incId = new IncrementId(incIdStr);
             var rec = new SetRecord {new(kind, tag)};
-            var data = SetsHelpers.EncodeRecord(rec);
+            var data = SetsModule.EncodeRecord(rec);
             return new Event(incId, data.Memory);
         }
         

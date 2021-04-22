@@ -226,7 +226,7 @@ namespace Funes.Tests {
             await env.DataEngine.Flush();
             Assert.True(result.IsOk, result.Error.ToString());
 
-            var indexRecordId = SetsHelpers.GetRecordId(setName);
+            var indexRecordId = SetsModule.GetRecordId(setName);
             var expectedOp = new SetOp(SetOp.Kind.Add, tag);
 
             var cacheResult = await cache.GetEventLog(indexRecordId, default);
@@ -293,7 +293,7 @@ namespace Funes.Tests {
 
             await env.DataEngine.Flush();
             
-            var tagRecordId = SetsHelpers.GetRecordId(setName);
+            var tagRecordId = SetsModule.GetRecordId(setName);
 
             // repo should contain 10 records, 1 offset and 2 keys
             for (var i = 0; i < incrementIds.Length; i++) {
@@ -309,11 +309,11 @@ namespace Funes.Tests {
             var lastIncId = incrementIds[^1];
             
             // offset should be on last incId
-            var offsetId = SetsHelpers.GetOffsetId(setName);
+            var offsetId = SetsModule.GetOffsetId(setName);
             var offset = await LoadOffset(repo, offsetId, lastIncId);
             Assert.Equal(lastIncId, offset);
             
-            var snapshotId = SetsHelpers.GetSnapshotId(setName);
+            var snapshotId = SetsModule.GetSnapshotId(setName);
             var loadSnapshotResult = await repo.Load(snapshotId.CreateStampKey(lastIncId), default);
             Assert.True(loadSnapshotResult.IsOk, loadSnapshotResult.Error.ToString());
             var snapshot = new SetSnapshot(loadSnapshotResult.Value.Data);
@@ -332,7 +332,7 @@ namespace Funes.Tests {
             // increment should contain record, offset and snapshot in outputs
             var incId = lastIncId;
             var increment = await LoadIncrement(repo, incId);
-            Assert.Equal(new HashSet<EntityId>{snapshotId, offsetId, SetsHelpers.GetRecordId(setName)}, 
+            Assert.Equal(new HashSet<EntityId>{snapshotId, offsetId, SetsModule.GetRecordId(setName)}, 
                 new HashSet<EntityId>(increment.Outputs));
         }
 
@@ -376,11 +376,11 @@ namespace Funes.Tests {
 
             var set = new HashSet<string> {"AAA", "a3131", "ZYAA-1234"};
             var snapshot = SetSnapshot.FromSet(set);
-            var snapshotStamp = snapshot.CreateStamp(SetsHelpers.GetSnapshotId(setName), snapshotIncId);
+            var snapshotStamp = snapshot.CreateStamp(SetsModule.GetSnapshotId(setName), snapshotIncId);
             var saveSnapshotResult = await repo.Save(snapshotStamp,default);
             Assert.True(saveSnapshotResult.IsOk, saveSnapshotResult.Error.ToString());
 
-            var offsetId = SetsHelpers.GetOffsetId(setName);
+            var offsetId = SetsModule.GetOffsetId(setName);
             var offset = new EventOffset(BinaryData.Empty).NextGen(snapshotIncId);
             var saveOffsetResult = await repo.Save(offset.CreateStamp(offsetId, snapshotIncId), default);
             Assert.True(saveOffsetResult.IsOk, saveOffsetResult.Error.ToString());
@@ -389,10 +389,10 @@ namespace Funes.Tests {
                 new (SetOp.Kind.Add, "BBB"),
                 new (SetOp.Kind.Del, "AAA")
             };
-            var recordData = SetsHelpers.EncodeRecord(record);
+            var recordData = SetsModule.EncodeRecord(record);
             var firstInc = new IncrementId("099");
             var evt = new Event(firstInc, recordData.Memory);
-            var recordId = SetsHelpers.GetRecordId(setName);
+            var recordId = SetsModule.GetRecordId(setName);
             var updateEventResult =
                 await cache.UpdateEventsIfNotExists(recordId, new[] {evt}, default);
             Assert.True(updateEventResult.IsOk, updateEventResult.Error.ToString());
@@ -460,7 +460,7 @@ namespace Funes.Tests {
             await env.DataEngine.Flush();
             Assert.True(result.IsOk, result.Error.ToString());
 
-            var indexRecordId = IndexesHelpers.GetRecordId(indexName);
+            var indexRecordId = IndexesModule.GetRecordId(indexName);
             var expectedOp = new IndexOp(IndexOp.Kind.Update, key, val);
 
             var cacheResult = await cache.GetEventLog(indexRecordId, default);

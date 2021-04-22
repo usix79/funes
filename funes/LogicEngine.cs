@@ -216,7 +216,7 @@ namespace Funes {
             void StartRetrievingSetTask(string setName, IIncrementArgsCollector args) {
                 if (!lgState.RetrievingSetTasks.ContainsKey(setName)) 
                     lgState.RetrievingSetTasks[setName] = 
-                        SetsHelpers.RetrieveSnapshot(env.DataSource, setName, args, ct);
+                        SetsModule.RetrieveSnapshot(env.DataSource, setName, args, ct);
             }
             
             void ProcessRetrievingSetTasks() {

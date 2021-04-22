@@ -5,6 +5,29 @@ using System.Text;
 
 namespace Funes.Indexes {
     
+    public static class RecordBuilder {
+        public  static int CalcSize(IndexRecord rec) {
+            var size = 0;
+            foreach (var op in rec)
+                size += 3 + 2 * op.Key.Length + 2 * op.Value.Length;
+            return size;
+        }
+
+        public static BinaryData EncodeRecord(IndexRecord record) {
+            var memory = new Memory<byte>(new byte[CalcSize(record)]);
+            var idx = 0;
+            foreach (var op in record) {
+                Utils.Binary.WriteByte(memory, ref idx, (byte)op.OpKind);
+                Utils.Binary.WriteByte(memory, ref idx, (byte)op.Key.Length);
+                Utils.Binary.WriteByte(memory, ref idx, (byte)op.Value.Length);
+                Utils.Binary.WriteString(memory, ref idx, op.Key);
+                Utils.Binary.WriteString(memory, ref idx, op.Value);
+            }
+
+            return new BinaryData("bin", memory);
+        }
+    }
+
     public class IndexRecordsReader: IEnumerable<IndexOp>, IEnumerator<IndexOp> {
         
         private readonly ReadOnlyMemory<byte> _data;

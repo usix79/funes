@@ -1,15 +1,24 @@
+using System;
 using System.Text;
 
 namespace Funes.Indexes {
     
     public readonly struct IndexKey {
         
-        public IndexKey(BinaryData data) =>
-            Data = data;
-
+        public EntityId Id { get; }
         public BinaryData Data { get; }
+        
+        public IndexKey(EntityId id, BinaryData data) =>
+            (Id, Data) = (id, data);
+        
+        public string GetValue() => Encoding.Unicode.GetString(Data.Memory.Span);
+    }
 
-        public string GetValue() =>
-            Data.Memory.IsEmpty ? "" : Encoding.Unicode.GetString(Data.Memory.Span);
+    public static class IndexKeyHelpers {
+        public static IndexKey CreateKey(EntityId id, string value) {
+            var memory = new Memory<byte>(new byte[value.Length * 2]);
+            Encoding.Unicode.GetBytes(value, memory.Span);
+            return new IndexKey(id, new BinaryData("bin", memory));
+        }
     }
 }
