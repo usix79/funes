@@ -1,14 +1,11 @@
 using System;
 using System.Buffers.Binary;
-using System.Collections.Generic;
-using System.ComponentModel;
 using System.Text;
 using static Funes.Indexes.IndexPageHelpers;
 
 namespace Funes.Indexes {
     
     public readonly struct IndexPage  {
-
         public enum Kind { Unknown = 0, Page = 1, Table = 2 }
 
         public EntityId Id { get; }
@@ -18,17 +15,12 @@ namespace Funes.Indexes {
             (Id, Data) = (id, data);
 
         public ReadOnlyMemory<byte> Memory => Data.Memory;
-        public Kind PageKind => GetKind(Memory);
-        public int ItemsCount => GetItemsCount(Memory);
-        
-        public string GetKeyAt(int idx) =>
-            Encoding.Unicode.GetString(GetKeyMemory(this, idx).Span);
-
-        public string GetValueAt(int idx) =>
-            Encoding.Unicode.GetString(GetValueMemory(this, idx).Span);
-
-        public string GetValueForParent() =>
-            ItemsCount > 0 ? GetValueAt(0) + GetKeyAt(0) : "";
+        public ReadOnlySpan<byte> Span => Data.Memory.Span;
+        public Kind PageKind => GetKind(Span);
+        public int ItemsCount => GetItemsCount(Span);
+        public string GetKeyAt(int idx) => Encoding.Unicode.GetString(GetKeySpan(this, idx));
+        public string GetValueAt(int idx) => Encoding.Unicode.GetString(GetValueSpan(this, idx));
+        public string GetValueForParent() => ItemsCount > 0 ? GetValueAt(0) + GetKeyAt(0) : "";
         
         public int GetIndexForInsertion(string key, string value) {
             var searchResult = BinarySearch(this, value);
@@ -44,7 +36,7 @@ namespace Funes.Indexes {
         }
 
         public int GetIndexOfChildPage(string key, string value) {
-            var searchResult = BinarySearch(this, key, value);
+            var searchResult = BinarySearchInTable(this, key, value);
             return searchResult > 0 ? searchResult : ~searchResult - 1;
         }
 
@@ -62,7 +54,7 @@ namespace Funes.Indexes {
         }
         
         public Result<int> FindIndexOfChild(EntityId childId, string childValue) {
-            var searchResult = BinarySearch(this, childId.GetName(), childValue);
+            var searchResult = BinarySearchInTable(this, childId.GetName(), childValue);
             if (searchResult < 0) return Result<int>.NotFound;
             return new Result<int>(searchResult);
         }
@@ -71,45 +63,42 @@ namespace Funes.Indexes {
     
     public static class IndexPageHelpers {
 
-        public static IndexPage.Kind GetKind(ReadOnlyMemory<byte> memory) =>
-            (IndexPage.Kind) BinaryPrimitives.ReadInt32LittleEndian(memory.Span);
+        public static IndexPage.Kind GetKind(ReadOnlySpan<byte> span) =>
+            (IndexPage.Kind)BinaryPrimitives.ReadInt32LittleEndian(span);
 
-        public static int GetItemsCount(ReadOnlyMemory<byte> memory) {
-            return BinaryPrimitives.ReadInt32LittleEndian(memory.Slice(4).Span);
-        }
+        public static int GetItemsCount(ReadOnlySpan<byte> span) =>
+            BinaryPrimitives.ReadInt32LittleEndian(span.Slice(4));
+        
+        private static int GetItemOffset(ReadOnlySpan<byte> span, int idx) =>
+            BinaryPrimitives.ReadInt32LittleEndian(span.Slice(8 + idx * 4));
 
-        private static int GetItemOffset(ReadOnlyMemory<byte> memory, int idx) =>
-            BinaryPrimitives.ReadInt32LittleEndian(memory.Slice(8 + idx * 4).Span);
+        private static int GetCurrentSize(ReadOnlySpan<byte> span) =>
+            GetItemOffset(span, GetItemsCount(span));
 
-        private static int GetEndOffset(ReadOnlyMemory<byte> memory) =>
-            GetItemOffset(memory, GetItemsCount(memory));
-
-        public static ReadOnlyMemory<byte> GetValueMemory(in IndexPage page, int itemIdx) {
-            var itemOffset = GetItemOffset(page.Memory, itemIdx);
-            var keyLength = BinaryPrimitives.ReadInt32LittleEndian(page.Memory.Slice(itemOffset).Span);
-            var valueLength = BinaryPrimitives.ReadInt32LittleEndian(page.Memory.Slice(itemOffset+4).Span);
+        public static ReadOnlySpan<byte> GetValueSpan(in IndexPage page, int itemIdx) {
+            var itemOffset = GetItemOffset(page.Span, itemIdx);
+            var keyLength = BinaryPrimitives.ReadInt32LittleEndian(page.Span.Slice(itemOffset));
+            var valueLength = BinaryPrimitives.ReadInt32LittleEndian(page.Span.Slice(itemOffset+4));
             var valueOffset = itemOffset + 8 + keyLength * 2;
-            return page.Memory.Slice(valueOffset, valueLength * 2);
+            return page.Span.Slice(valueOffset, valueLength * 2);
         }
 
-        public static ReadOnlyMemory<byte> GetKeyMemory(in IndexPage page, int itemIdx) {
-            var itemOffset = GetItemOffset(page.Memory, itemIdx);
-            var keyLength = BinaryPrimitives.ReadInt32LittleEndian(page.Memory.Slice(itemOffset).Span);
+        public static ReadOnlySpan<byte> GetKeySpan(in IndexPage page, int itemIdx) {
+            var itemOffset = GetItemOffset(page.Span, itemIdx);
+            var keyLength = BinaryPrimitives.ReadInt32LittleEndian(page.Span.Slice(itemOffset));
             var keyOffset = itemOffset + 8;
-            return page.Memory.Slice(keyOffset, keyLength * 2);
+            return page.Span.Slice(keyOffset, keyLength * 2);
         }
 
-        public static IndexPage CreateIndexPage(EntityId id, ReadOnlyMemory<byte> memory) {
-            return new IndexPage(id, new BinaryData("bin", memory.Slice(0, GetEndOffset(memory))));
-        }
-
+        public static IndexPage CreateIndexPage(EntityId id, ReadOnlyMemory<byte> memory) =>
+            new (id, new BinaryData("bin", memory.Slice(0, GetCurrentSize(memory.Span))));
+        
         public static int CompareWithValue(in IndexPage page, int itemIdx, string strToCompare) =>
-            Utils.Binary.Compare(strToCompare.AsMemory(), GetValueMemory(page, itemIdx));
+            Utils.Binary.Compare(strToCompare, GetValueSpan(page, itemIdx));
+        
         public static int CompareWithKey(in IndexPage page, int itemIdx, string key) =>
-            Utils.Binary.Compare(key.AsMemory(), GetValueMemory(page, itemIdx));
+            Utils.Binary.Compare(key, GetValueSpan(page, itemIdx));
 
-        public static int CompareWithValueAndKey(in IndexPage page, int itemIdx, string value, string key) =>
-            Utils.Binary.Compare(value.AsMemory(), key.AsMemory(), GetValueMemory(page, itemIdx));
 
         public static int BinarySearch(in IndexPage page, string value) {
             var start = 0;
@@ -130,12 +119,13 @@ namespace Funes.Indexes {
             }
             return ~start;
         }
-        public static int BinarySearch(in IndexPage page, string key, string value) {
+        
+        public static int BinarySearchInTable(in IndexPage page, string key, string value) {
             var start = 0;
             var end = page.ItemsCount - 1;
             while (start <= end) {
                 var mid = start + ((end - start) >> 1);
-                var result = CompareWithValueAndKey(page, mid, value, key);
+                var result = Utils.Binary.CompareParts(value, key, GetValueSpan(page, mid)); 
 
                 if (result == 0)
                     return mid;
@@ -150,91 +140,85 @@ namespace Funes.Indexes {
             return ~start;
         }
         
-        public static int SizeOfEmptyPage => 12;
+        public static int SizeOfEmptyPage => 12; // 4 bytes of kind + 4 bytes of items count + 4 bytes of real size
 
-        public static BinaryData EmptyPageData =
-            new ("bin", 
-                WriteHead(new byte[SizeOfEmptyPage], IndexPage.Kind.Page, 0));
+        private static BinaryData CreateEmptyPageData() {
+            var memory = new Memory<byte>(new byte[SizeOfEmptyPage]);
+            WriteHead(memory.Span, IndexPage.Kind.Page, 0);
+            return new BinaryData("bin", memory);
+        }
 
-        public static IndexPage EmptyPage =
-            new IndexPage(EntityId.None, new ("bin", 
-                WriteHead(new byte[SizeOfEmptyPage], IndexPage.Kind.Page, 0)));
+        public static BinaryData EmptyPageData = CreateEmptyPageData();
+
+        public static IndexPage EmptyPage = new (EntityId.None, EmptyPageData);
 
         public static int CalcPageItemSize(string key, string value) =>
-            4 + 8 + key.Length * 2 + value.Length * 2; 
+            4 + 8 + key.Length * 2 + value.Length * 2; // 4 bytes in indexes array + 4 bytes key len + 4 bytes value len 
         
-        public static Memory<byte> WriteHead(Memory<byte> memory, IndexPage.Kind kind, int maxItemsCount) {
+        public static void WriteHead(Span<byte> span, IndexPage.Kind kind, int maxItemsCount) {
             var offset = 0;
-            Utils.Binary.WriteInt32(memory, ref offset, (int)kind);
-            Utils.Binary.WriteInt32(memory, ref offset, 0);
-            Utils.Binary.WriteInt32(memory, ref offset, 8 + 4 * (maxItemsCount+1));
-            return memory;
+            Utils.Binary.WriteInt32(span, ref offset, (int)kind);
+            Utils.Binary.WriteInt32(span, ref offset, 0);
+            Utils.Binary.WriteInt32(span, ref offset, 8 + 4 * (maxItemsCount+1));
         }
-        public static void SetItemsCount(Memory<byte> memory, int count) {
-            BinaryPrimitives.WriteInt32LittleEndian(memory.Slice(4).Span, count);
+        public static void SetItemsCount(Span<byte> span, int count) {
+            BinaryPrimitives.WriteInt32LittleEndian(span.Slice(4), count);
         }
 
-        public static void SetItemOffset(Memory<byte> memory, int idx, int offset) {
-            BinaryPrimitives.WriteInt32LittleEndian(memory.Slice(8 + idx * 4).Span, offset);
+        public static void SetItemOffset(Span<byte> span, int idx, int offset) {
+            BinaryPrimitives.WriteInt32LittleEndian(span.Slice(8 + idx * 4), offset);
         }
         
-        public static int GetAppendOffset(ReadOnlyMemory<byte> memory) {
-            var count = GetItemsCount(memory);
-            return BinaryPrimitives.ReadInt32LittleEndian(memory.Slice(8 + count * 4).Span);
-        }
-        
-        public static int AppendItem(Memory<byte> memory, string key, string value) {
-            var count = GetItemsCount(memory);
-            var offset = GetAppendOffset(memory);
+        public static void AppendItem(Span<byte> span, string key, string value) {
+            var offset = GetCurrentSize(span);
             
-            Utils.Binary.WriteInt32(memory, ref offset, key.Length);
-            Utils.Binary.WriteInt32(memory, ref offset, value.Length);
-            Utils.Binary.WriteString(memory, ref offset, key);
-            Utils.Binary.WriteString(memory, ref offset, value);
-
-            SetItemsCount(memory, count + 1);
-            BinaryPrimitives.WriteInt32LittleEndian(memory.Slice(8 + (count+1)*4).Span, offset);
-
-            return count;
+            Utils.Binary.WriteInt32(span, ref offset, key.Length);
+            Utils.Binary.WriteInt32(span, ref offset, value.Length);
+            Utils.Binary.WriteString(span, ref offset, key);
+            Utils.Binary.WriteString(span, ref offset, value);
+            
+            var count = GetItemsCount(span);
+            SetItemsCount(span, count + 1);
+            SetItemOffset(span, count + 1, offset);
         }
 
-        public static void CopyItems(Memory<byte> memory, in IndexPage page, int idxFrom, int idxTo) {
-            var count = GetItemsCount(memory);
-            var appendOffset = GetAppendOffset(memory);
+        public static void CopyItems(Span<byte> span, in IndexPage page, int idxFrom, int idxTo) {
+            var count = GetItemsCount(span);
+            var appendOffset = GetCurrentSize(span);
             
             // copy items
-            var startOffset = GetItemOffset(page.Memory, idxFrom);
-            var endOffset = GetItemOffset(page.Memory, idxTo);
-            page.Memory.Slice(startOffset, endOffset - startOffset).Span.CopyTo(memory.Slice(appendOffset).Span);
+            var startOffset = GetItemOffset(page.Span, idxFrom);
+            var endOffset = GetItemOffset(page.Span, idxTo);
+            page.Span.Slice(startOffset, endOffset - startOffset).CopyTo(span.Slice(appendOffset));
             
             // update count
-            SetItemsCount(memory, count + (idxTo - idxFrom));
+            SetItemsCount(span, count + (idxTo - idxFrom));
             
             // update offsets
             for (var idx = idxFrom; idx <= idxTo; idx++) {
-                var offset = GetItemOffset(page.Memory, idx);
-                SetItemOffset(memory, count + idx, appendOffset + (offset - startOffset));
+                var offset = GetItemOffset(page.Span, idx);
+                SetItemOffset(span, count + idx, appendOffset + (offset - startOffset));
             }
         }
 
         public static (Memory<byte>, Memory<byte>) Split(Memory<byte> memory) {
-            var kind = GetKind(memory);
-            var itemsCount = GetItemsCount(memory);
+            var kind = GetKind(memory.Span);
+            var itemsCount = GetItemsCount(memory.Span);
             var splitItemIdx = itemsCount / 2;
-            var splitItemOffset = GetItemOffset(memory, splitItemIdx);
+            var splitItemOffset = GetItemOffset(memory.Span, splitItemIdx);
             var newPageItemsCount = (itemsCount - splitItemIdx);
             var size = SizeOfEmptyPage + 4 * newPageItemsCount + (memory.Length - splitItemOffset);
             var newMemory = new Memory<byte>(new byte[size]);
-            WriteHead(memory, kind, itemsCount - splitItemIdx);
-            var firstItemOffset = GetItemOffset(newMemory, 0);
+            WriteHead(memory.Span, kind, itemsCount - splitItemIdx);
+            var firstItemOffset = GetItemOffset(newMemory.Span, 0);
             for (var idx = splitItemIdx; idx <= itemsCount; idx++) {
-                var offset = GetItemOffset(memory, idx);
-                SetItemOffset(newMemory, idx - splitItemIdx,  firstItemOffset + offset - splitItemOffset);
+                var offset = GetItemOffset(memory.Span, idx);
+                SetItemOffset(newMemory.Span, idx - splitItemIdx,  firstItemOffset + offset - splitItemOffset);
             }
             memory.Slice(splitItemOffset).CopyTo(newMemory.Slice(firstItemOffset));
             
             // just change items count in the origin page 
-            SetItemsCount(memory, splitItemIdx);
+            SetItemsCount(memory.Span, splitItemIdx);
             return (memory.Slice(0, splitItemOffset), newMemory);
         }
     }

@@ -467,14 +467,14 @@ namespace Funes.Tests {
             Assert.True(cacheResult.IsOk, cacheResult.Error.ToString());
             Assert.Equal(incId, cacheResult.Value.First);
             Assert.Equal(incId, cacheResult.Value.Last);
-            var reader = new IndexRecordsReader(cacheResult.Value.Memory);
+            var reader = new IndexRecord.Reader(cacheResult.Value.Memory);
             Assert.True(reader.MoveNext());
             Assert.Equal(expectedOp, reader.Current);
             Assert.False(reader.MoveNext());
             
             var repoResult = await repo.Load(indexRecordId.CreateStampKey(incId), default);
             Assert.True(repoResult.IsOk, repoResult.Error.ToString());
-            reader = new IndexRecordsReader(repoResult.Value.Data.Memory);
+            reader = new IndexRecord.Reader(repoResult.Value.Data.Memory);
             Assert.True(reader.MoveNext());
             Assert.Equal(expectedOp, reader.Current);
             

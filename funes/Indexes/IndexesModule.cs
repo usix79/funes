@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
@@ -47,36 +46,15 @@ namespace Funes.Indexes {
         public static bool IsIndexPage(EntityId eid) => 
             eid.Id.StartsWith("funes/indexes/") && eid.Id.Contains("/pages/");
         
-        public static async ValueTask UploadRecords(IDataEngine de, int max,
-            IncrementId incId, Dictionary<string,IndexRecord> records, List<EntityId> outputs, 
-            ArraySegment<Result<string>> results, CancellationToken ct) {
-            var uploadTasksArr = ArrayPool<ValueTask<Result<string>>>.Shared.Rent(records.Count);
-            var uploadTasks = new ArraySegment<ValueTask<Result<string>>>(uploadTasksArr, 0, records.Count);
-            try {
-                var idx = 0;
-                foreach (var pair in records)
-                    uploadTasks[idx++] = UploadRecord(de, ct, incId, pair.Key, pair.Value, max, outputs);
-                
-                await Utils.Tasks.WhenAll(uploadTasks, results, ct);
-            }
-            finally {
-                ArrayPool<ValueTask<Result<string>>>.Shared.Return(uploadTasksArr);
-            }
-        }
-        
-        // return indexName if the index needs updating of the pages
-        static async ValueTask<Result<string>> UploadRecord(IDataEngine de, CancellationToken ct, 
-            IncrementId incId, string indexName, IndexRecord record, int max, List<EntityId> outputs) {
-            var data = RecordBuilder.EncodeRecord(record);
-            var evt = new Event(incId, data.Memory);
+        public static async ValueTask<Result<int>> UploadRecord(IDataEngine de, IncrementId incId, 
+            string indexName, IndexRecord record, List<EntityId> outputs, CancellationToken ct) {
 
             var recordId = GetRecordId(indexName);
             outputs.Add(recordId);
+            var evt = new Event(incId, IndexRecord.Builder.EncodeRecord(record).Memory);
             var result = await de.AppendEvent(recordId, evt, GetOffsetId(indexName), ct);
                 
-            return result.IsOk
-                ? new Result<string>(result.Value >= max ? indexName : "") 
-                : new Result<string>(result.Error); 
+            return result.IsOk ? new Result<int>(result.Value) : new Result<int>(result.Error); 
         }
 
         public readonly struct PageOp : IComparable<PageOp> {
@@ -103,281 +81,96 @@ namespace Funes.Indexes {
             }
         }
         
-        private static Dictionary<string, IndexOp> ReadOps(EventLog log) {
-            // for each key keep only last op
-            Dictionary<string, IndexOp> ops = new();
-            var reader = new IndexRecordsReader(log.Memory);
-            foreach (var op in reader) ops[op.Key] = op;
-
-            return ops;
+        private static async ValueTask<Result<IndexPage>> RetrieveIndexPage(
+            EntityId pageId, DataSource ds, CancellationToken ct) {
+            var retResult = await ds.Retrieve(pageId, ct);
+            if (retResult.IsError) return new Result<IndexPage>(retResult.Error);
+            var data = retResult.Value.IsEmpty ? IndexPageHelpers.EmptyPageData : retResult.Value.Data;
+            // TODO: validate
+            return new Result<IndexPage>(new IndexPage(pageId, data));
         }
         
-        public static async ValueTask<Result<(List<IndexPage>, List<IndexKey>)>> UpdateIndex(
-            ILogger logger, DataSource ds, string idxName, EventLog log, int maxItemsOnPage, CancellationToken ct) {
+        private static async ValueTask<Result<IndexKey>> RetrieveIndexKey(
+            string idxName, string key, DataSource ds, CancellationToken ct) {
+            var keyId = GetKeyId(idxName, key);
+            var res = await ds.Retrieve(keyId, ct);
+            return res.IsOk
+                ? new Result<IndexKey>(new IndexKey(keyId, res.Value.Data))
+                : new Result<IndexKey>(res.Error);
+        }
 
-            var ops = ReadOps(log);
-            var parents = new Dictionary<EntityId, EntityId>();
+        private static async ValueTask<Result<EventOffset>> RetrieveIndexOffset(
+            string idxName, DataSource ds, CancellationToken ct) {
             
-            var pageOpsRes = await PreparePageOps();
-            if (pageOpsRes.IsError) return new Result<(List<IndexPage>, List<IndexKey>)>(pageOpsRes.Error);
-
             var offsetRes = await ds.Retrieve(GetOffsetId(idxName), ct);
-            if (offsetRes.IsError) return new Result<(List<IndexPage>, List<IndexKey>)>(offsetRes.Error);
-            var offset = new EventOffset(offsetRes.Value.Data);
-            var genNum = offset.Gen.ToString();
-            var createdPagesCount = 0;
+            return offsetRes.IsOk
+                ? new Result<EventOffset>(new EventOffset(offsetRes.Value.Data))
+                : new Result<EventOffset>(offsetRes.Error);
+        }
+        
+        private static async ValueTask<Result<List<PageOp>>> PreparePageOps(ILogger logger, DataSource ds, 
+            string idxName, EventLog log, Dictionary<EntityId, IndexPage> parents, CancellationToken ct) {
 
-            var newPages = new List<IndexPage>();
-            var newKeys = new List<IndexKey>();
+            var indexOps = ReadOps();
+ 
+            var pageOps = new List<PageOp>(indexOps.Count);
+            foreach (var op in indexOps.Values) {
+                switch (op.OpKind) {
+                    case IndexOp.Kind.Update:
+                        var keyRes = await RetrieveIndexKey(idxName, op.Key, ds, ct);
+                        if (keyRes.IsError) return new Result<List<PageOp>>(keyRes.Error);
 
-            var pageOps = pageOpsRes.Value;
-            while (pageOps.Count > 0) {
-                pageOps.Sort();
-                var updatePagesRes = await UpdatePages(pageOps);
-                if (updatePagesRes.IsError) return new Result<(List<IndexPage>, List<IndexKey>)>(updatePagesRes.Error);
-                pageOps = updatePagesRes.Value;
-            }
-
-            return new Result<(List<IndexPage>, List<IndexKey>)>((newPages, newKeys));
-
-            EntityId GetNewPageId() => 
-                GetPageId(idxName, genNum + (- ++createdPagesCount).ToString("d4"));
-
-            async ValueTask<Result<IndexPage>> GetParentPage(EntityId pageId) {
-                if (!parents.TryGetValue(pageId, out var parentId))
-                    return Result<IndexPage>.NotFound;
-
-                return await RetrievePage(parentId);
-            }
-            
-            async ValueTask<Result<List<PageOp>>> UpdatePages(List<PageOp> aPageOps) {
-                var newPageOps = new List<PageOp>();
-                var currentPage = IndexPageHelpers.EmptyPage;
-                var currentPageIdx = 0;
-                var currentMemory = Memory<byte>.Empty;
-                
-                var idx = 0;
-                while (true) {
+                        var keyValue = keyRes.Value.GetValue();
+                        if (keyValue == op.Value) continue; // skip op if the index contains same value
                     
-                    if (idx == aPageOps.Count || aPageOps[idx].Page.Id != currentPage.Id) {
-                        if (currentPage.Id != EntityId.None) {
-                            IndexPageHelpers.CopyItems(currentMemory, currentPage, currentPageIdx, currentPage.ItemsCount);
-
-                            var itemsCount = IndexPageHelpers.GetItemsCount(currentMemory);
-                            if (itemsCount <= 0) {
-                                if (currentPage.Id == GetRootId(idxName)) {
-                                    // create empty root page
-                                    newPages.Add(new IndexPage(currentPage.Id, IndexPageHelpers.EmptyPageData));
-                                }
-                                else {
-                                    var parentRes = await GetParentPage(currentPage.Id);
-                                    if (parentRes.IsError) return new Result<List<PageOp>>(parentRes.Error);
-                                    var parent = parentRes.Value;
-                                    
-                                    var idxResult = parent.FindIndexOfChild(currentPage.Id, currentPage.GetValueForParent());
-                                    if (idxResult.IsOk) {
-                                        var newOp = new PageOp(parent, PageOp.Kind.RemoveAt, idxResult.Value, "", "");
-                                        newPageOps.Add(newOp);
-                                    }
-                                    else {
-                                        // possible inconsistency
-                                        logger.FunesWarning(nameof(UpdatePages), "Child not found", 
-                                            $"{idxName} {parent.Id} {currentPage.Id}=>{currentPage.GetValueForParent()}");
-                                    }
-                                }
-                                
-                                if (itemsCount < 0)
-                                    logger.FunesWarning(nameof(UpdatePages), 
-                                        "PageError", $"Negative items count for {currentPage.Id}");
-                            }
-                            else if (itemsCount <= maxItemsOnPage) {
-                                var page = IndexPageHelpers.CreateIndexPage(currentPage.Id, currentMemory); 
-                                newPages.Add(page);
-
-                                if (page.Id != GetRootId(idxName)) {
-                                    var currentValueForParent = currentPage.GetValueForParent();
-                                    var newValueForParent = page.GetValueForParent();
-                                    if (currentValueForParent != newValueForParent) {
-                                        var parentRes = await GetParentPage(currentPage.Id);
-                                        if (parentRes.IsError) return new Result<List<PageOp>>(parentRes.Error);
-
-                                        var parent = parentRes.Value;
-                                        var idxResult = parent.FindIndexOfChild(currentPage.Id, currentValueForParent);
-                                        if (idxResult.IsOk) {
-                                            var newOp = new PageOp(parent, PageOp.Kind.ReplaceAt, idxResult.Value, page.Id.GetName(), newValueForParent);
-                                            newPageOps.Add(newOp);
-                                        }
-                                        else {
-                                            // possible inconsistency
-                                            logger.FunesWarning(nameof(UpdatePages), "Child not found", 
-                                                $"{idxName} {parent.Id} {currentPage.Id}=>{currentPage.GetValueForParent()}");
-                                        }
-                                    }
-                                }
-                            }
-                            else {
-                                var (page1Memory, page2Memory) = IndexPageHelpers.Split(currentMemory);
-                                if (currentPage.Id == GetRootId(idxName)) {
-                                    var page1 = IndexPageHelpers.CreateIndexPage(GetNewPageId(), page1Memory); 
-                                    newPages.Add(page1);
-                                    var page2 = IndexPageHelpers.CreateIndexPage(GetNewPageId(), page2Memory); 
-                                    newPages.Add(page2);
-
-                                    var (key1, value1) = (page1.Id.GetName(), page1.GetValueForParent());
-                                    var (key2, value2) = (page2.Id.GetName(), page2.GetValueForParent());
-
-                                    var newRootSize = IndexPageHelpers.SizeOfEmptyPage;
-                                    newRootSize += IndexPageHelpers.CalcPageItemSize(key1, value1);
-                                    newRootSize += IndexPageHelpers.CalcPageItemSize(key1, value2);
-                                    var newRootMemory = new Memory<byte>(new byte[newRootSize]);
-                                    IndexPageHelpers.WriteHead(newRootMemory, IndexPage.Kind.Table, 2);
-                                    IndexPageHelpers.AppendItem(newRootMemory, key1, value1);
-                                    IndexPageHelpers.AppendItem(newRootMemory, key2, value2);
-                                    newPages.Add(IndexPageHelpers.CreateIndexPage(GetRootId(idxName), newRootMemory));
-                                }
-                                else {
-                                    var page1 = IndexPageHelpers.CreateIndexPage(currentPage.Id, page1Memory); 
-                                    newPages.Add(page1);
-                                    var page2 = IndexPageHelpers.CreateIndexPage(GetNewPageId(), page2Memory); 
-                                    newPages.Add(page2);
-                                    
-                                    // TODO: add page op
-                                    var parentRes = await GetParentPage(currentPage.Id);
-                                    if (parentRes.IsError) return new Result<List<PageOp>>(parentRes.Error);
-                                    var parent = parentRes.Value;
-
-                                    var newKey = page2.Id.GetName();
-                                    var newValue = page2.GetValueForParent();
-                                    var insertIdx = parent.GetIndexForInsertion(newKey, newValue);
-
-                                    var newOp = new PageOp(parent, PageOp.Kind.InsertAt, insertIdx, newKey, newValue);
-                                    newPageOps.Add(newOp);
-
-                                    var currentValueForParent = currentPage.GetValueForParent();
-                                    var newValueForParent = page1.GetValueForParent();
-                                    if (currentValueForParent != newValueForParent) {
-                                        var newOp2 = new PageOp(parent, PageOp.Kind.InsertAt, insertIdx-1, page1.Id.GetName(), newValueForParent);
-                                        newPageOps.Add(newOp2);
-                                    }
-                                }
-                            }
+                        if (keyValue != "") {
+                            var removeRes = await RemoveOp(op.Key, keyValue);
+                            if (removeRes.IsError) return new Result<List<PageOp>>(removeRes.Error);
+                            if (removeRes.Value.HasValue) pageOps.Add(removeRes.Value.Value);
                         }
 
-                        if (idx == aPageOps.Count) break;
+                        var insertRes = await InsertOp(op.Key, op.Value);
+                        if (insertRes.IsError) return new Result<List<PageOp>>(insertRes.Error);
+                        pageOps.Add(insertRes.Value);
+                        break;
+                    case IndexOp.Kind.Remove:
+                        keyRes = await RetrieveIndexKey(idxName, op.Key, ds, ct);
+                        if (keyRes.IsError) return new Result<List<PageOp>>(keyRes.Error);
 
-                        currentPage = aPageOps[idx].Page;
-                        currentPageIdx = 0;
-                        
-                        var size = currentPage.Memory.Length;
-                        var count = 0;
-                        while (idx + count < aPageOps.Count) {
-                            var futureOp = aPageOps[idx + count];
-                            if (futureOp.Page.Id != currentPage.Id) break;
-
-                            size += futureOp.Op switch {
-                                PageOp.Kind.InsertAt => IndexPageHelpers.CalcPageItemSize(futureOp.Key, futureOp.Value),
-                                PageOp.Kind.ReplaceAt => IndexPageHelpers.CalcPageItemSize(futureOp.Key, futureOp.Value),
-                                _ => 0
-                            };
-                            count++;
+                        keyValue = keyRes.Value.GetValue();
+                        if (keyValue != "") {
+                            var removeRes = await RemoveOp(op.Key, keyValue);
+                            if (removeRes.IsError) return new Result<List<PageOp>>(removeRes.Error);
+                            if (removeRes.Value.HasValue) pageOps.Add(removeRes.Value.Value);
                         }
-                        currentMemory = new Memory<byte>(new byte[size]);
-                        IndexPageHelpers.WriteHead(currentMemory, IndexPage.Kind.Page, count);
-                    }
-
-                    var op = aPageOps[idx];
-                    
-                    switch (op.Op) {
-                        case PageOp.Kind.InsertAt:
-                            IndexPageHelpers.CopyItems(currentMemory, op.Page, currentPageIdx, op.Idx);
-                            IndexPageHelpers.AppendItem(currentMemory, op.Key, op.Value);
-                            currentPageIdx = op.Idx;
-                            if (currentPage.PageKind == IndexPage.Kind.Page)
-                                newKeys.Add(IndexKeyHelpers.CreateKey(GetKeyId(idxName, op.Key), op.Value));
-                            break;
-                        case PageOp.Kind.RemoveAt:
-                            IndexPageHelpers.CopyItems(currentMemory, op.Page, currentPageIdx, op.Idx);
-                            currentPageIdx = op.Idx + 1; // skip item at index
-                            if (currentPage.PageKind == IndexPage.Kind.Page)
-                                newKeys.Add(IndexKeyHelpers.CreateKey(GetKeyId(idxName, op.Key), ""));
-                            break;
-                        case PageOp.Kind.ReplaceAt:
-                            IndexPageHelpers.CopyItems(currentMemory, op.Page, currentPageIdx, op.Idx);
-                            IndexPageHelpers.AppendItem(currentMemory, op.Key, op.Value);
-                            currentPageIdx = op.Idx + 1; // skip item at index
-                            if (currentPage.PageKind == IndexPage.Kind.Page)
-                                newKeys.Add(IndexKeyHelpers.CreateKey(GetKeyId(idxName, op.Key), op.Value));
-                            break;
-                        default:
-                            throw new NotSupportedException();
-                    }
-                    idx++;
+                        break;
+                    default:
+                        throw new NotSupportedException();
                 }
-                return new Result<List<PageOp>>(newPageOps);
+            }
+        
+            return new Result<List<PageOp>>(pageOps);
+            
+            Dictionary<string, IndexOp> ReadOps() {
+                // for each key keep only last op
+                Dictionary<string, IndexOp> ops = new();
+                var reader = new IndexRecord.Reader(log.Memory);
+                foreach (var op in reader) ops[op.Key] = op;
+                return ops;
             }
             
-            async ValueTask<Result<List<PageOp>>> PreparePageOps() {
-                var pageOps = new List<PageOp>(ops.Count);
-                foreach (var op in ops.Values) {
-                    switch (op.OpKind) {
-                        case IndexOp.Kind.Update:
-                            var keyRes = await GetIndexKey(op.Key);
-                            if (keyRes.IsError) return new Result<List<PageOp>>(keyRes.Error);
-
-                            var keyValue = keyRes.Value.GetValue();
-                            if (keyValue == op.Value) continue; // skip op if the index contains same value
-                        
-                            if (keyValue != "") {
-                                var removeRes = await RemoveOp(op.Key, keyValue);
-                                if (removeRes.IsError) return new Result<List<PageOp>>(removeRes.Error);
-                                if (removeRes.Value.HasValue) pageOps.Add(removeRes.Value.Value);
-                            }
-
-                            var insertRes = await InsertOp(op.Key, op.Value);
-                            if (insertRes.IsError) return new Result<List<PageOp>>(insertRes.Error);
-                            pageOps.Add(insertRes.Value);
-                            break;
-                        case IndexOp.Kind.Remove:
-                            keyRes = await GetIndexKey(op.Key);
-                            if (keyRes.IsError) return new Result<List<PageOp>>(keyRes.Error);
-
-                            keyValue = keyRes.Value.GetValue();
-                            if (keyValue != "") {
-                                var removeRes = await RemoveOp(op.Key, keyValue);
-                                if (removeRes.IsError) return new Result<List<PageOp>>(removeRes.Error);
-                                if (removeRes.Value.HasValue) pageOps.Add(removeRes.Value.Value);
-                            }
-                            break;
-                        default:
-                            throw new NotSupportedException();
-                    }
-                }
-            
-                return new Result<List<PageOp>>(pageOps);
-            }
-
-            async ValueTask<Result<IndexKey>> GetIndexKey(string key) {
-                var keyId = GetKeyId(idxName, key);
-                var res = await ds.Retrieve(keyId, ct);
-                return res.IsOk
-                    ? new Result<IndexKey>(new IndexKey(keyId, res.Value.Data))
-                    : new Result<IndexKey>(res.Error);
-            }
-
             async ValueTask<Result<PageOp?>> RemoveOp(string key, string value) {
                 var pageResult = await FindPage(key, value);
                 if (pageResult.IsError) return new Result<PageOp?>(pageResult.Error);
 
-                var page = pageResult.Value;
-
-                var idxResult = page.FindIndexOfPair(key, value);
+                var idxResult = pageResult.Value.FindIndexOfPair(key, value);
                 if (idxResult.IsError) {
                     // possible inconsistency
                     logger.FunesWarning(nameof(RemoveOp), "Value not found", $"{idxName} {key}=>{value}");
                     return new Result<PageOp?>((PageOp?)null);
                 }
 
-                var op = new PageOp(page, PageOp.Kind.RemoveAt, idxResult.Value, key, value);
+                var op = new PageOp(pageResult.Value, PageOp.Kind.RemoveAt, idxResult.Value, key, value);
                 return new Result<PageOp?>(op);
             }
 
@@ -385,16 +178,14 @@ namespace Funes.Indexes {
                 var pageResult = await FindPage(key, value);
                 if (pageResult.IsError) return new Result<PageOp>(pageResult.Error);
 
-                var page = pageResult.Value;
+                var idx = pageResult.Value.GetIndexForInsertion(key, value);
 
-                var idx = page.GetIndexForInsertion(key, value);
-
-                var op = new PageOp(page, PageOp.Kind.InsertAt, idx, key, value);
+                var op = new PageOp(pageResult.Value, PageOp.Kind.InsertAt, idx, key, value);
                 return new Result<PageOp>(op);
             }
             
             async ValueTask<Result<IndexPage>> FindPage(string key, string value) {
-                var rootResult = await RetrievePage(GetRootId(idxName));
+                var rootResult = await RetrieveIndexPage(GetRootId(idxName), ds, ct);
                 if (rootResult.IsError) return new Result<IndexPage>(rootResult.Error);
                 return await FindPageFrom(rootResult.Value, key, value);
             }
@@ -403,23 +194,209 @@ namespace Funes.Indexes {
                 while (true) {
                     if (page.PageKind == IndexPage.Kind.Page) return new Result<IndexPage>(page);
 
-                    var idx = page.GetIndexOfChildPage(key, value);
-                    var childId = page.GetKeyAt(idx);
-
-                    var childPageResult = await RetrievePage(GetPageId(idxName, childId));
+                    var childId = page.GetKeyAt(page.GetIndexOfChildPage(key, value));
+                    var childPageResult = await RetrieveIndexPage(GetPageId(idxName, childId), ds, ct);
                     if (childPageResult.IsError) return new Result<IndexPage>(childPageResult.Error);
 
-                    parents[childPageResult.Value.Id] = page.Id;
+                    parents[childPageResult.Value.Id] = page;
                     page = childPageResult.Value;
                 }
             }
+        }
 
-            async ValueTask<Result<IndexPage>> RetrievePage(EntityId pageId) {
-                var retResult = await ds.Retrieve(pageId, ct);
-                if (retResult.IsError) return new Result<IndexPage>(retResult.Error);
-                var data = retResult.Value.IsEmpty ? IndexPageHelpers.EmptyPageData : retResult.Value.Data;
-                // TODO: validate
-                return new Result<IndexPage>(new IndexPage(pageId, data));
+        public readonly struct UpdateIndexResult {
+            public List<IndexPage> Pages { get; init; }
+            public List<IndexKey> Keys { get; init; }
+
+            public static UpdateIndexResult CreateNew() =>
+                new  UpdateIndexResult {Pages = new(), Keys = new()};
+        }
+
+        public static async ValueTask<Result<UpdateIndexResult>> UpdateIndex(
+            ILogger logger, DataSource ds, string idxName, EventLog log, int maxItemsOnPage, CancellationToken ct) {
+
+            var parents = new Dictionary<EntityId, IndexPage>();
+            var rootId = GetRootId(idxName);
+            
+            var pageOpsRes = await PreparePageOps(logger, ds, idxName, log, parents, ct);
+            if (pageOpsRes.IsError) return new Result<UpdateIndexResult>(pageOpsRes.Error);
+
+            var offsetRes = await RetrieveIndexOffset(idxName, ds, ct); 
+            if (offsetRes.IsError) return new Result<UpdateIndexResult>(offsetRes.Error);
+            var genNum = offsetRes.Value.Gen.ToString();
+            var createdPagesCount = 0;
+
+            var result = UpdateIndexResult.CreateNew();
+
+            var pageOps = pageOpsRes.Value;
+            while (pageOps.Count > 0) {
+                pageOps.Sort();
+                pageOps = UpdatePages(pageOps);
+            }
+
+            return new Result<UpdateIndexResult>(result);
+
+            EntityId GetNewPageId() => 
+                GetPageId(idxName, genNum + (- ++createdPagesCount).ToString("d4"));
+
+            IndexPage GetParentPage(EntityId pageId) => parents![pageId];
+
+            List<PageOp> UpdatePages(List<PageOp> aPageOps) {
+                var newPageOps = new List<PageOp>();
+                var (curPage, curPageIdx, curMemory) = (IndexPageHelpers.EmptyPage, 0, Memory<byte>.Empty);
+
+                var idx = 0;
+                BeginPage();
+                do {
+                    var op = aPageOps[idx];
+
+                    if (op.Page.Id != curPage.Id) {
+                        CompletePage();
+                        BeginPage();
+                    }
+                    
+                    switch (op.Op) {
+                        case PageOp.Kind.InsertAt:
+                            IndexPageHelpers.CopyItems(curMemory.Span, op.Page, curPageIdx, op.Idx);
+                            IndexPageHelpers.AppendItem(curMemory.Span, op.Key, op.Value);
+                            curPageIdx = op.Idx;
+                            if (curPage.PageKind == IndexPage.Kind.Page)
+                                result.Keys.Add(IndexKeyHelpers.CreateKey(GetKeyId(idxName, op.Key), op.Value));
+                            break;
+                        case PageOp.Kind.RemoveAt:
+                            IndexPageHelpers.CopyItems(curMemory.Span, op.Page, curPageIdx, op.Idx);
+                            curPageIdx = op.Idx + 1; // skip item at index
+                            if (curPage.PageKind == IndexPage.Kind.Page)
+                                result.Keys.Add(IndexKeyHelpers.CreateKey(GetKeyId(idxName, op.Key), ""));
+                            break;
+                        case PageOp.Kind.ReplaceAt:
+                            IndexPageHelpers.CopyItems(curMemory.Span, op.Page, curPageIdx, op.Idx);
+                            IndexPageHelpers.AppendItem(curMemory.Span, op.Key, op.Value);
+                            curPageIdx = op.Idx + 1; // skip item at index
+                            if (curPage.PageKind == IndexPage.Kind.Page)
+                                result.Keys.Add(IndexKeyHelpers.CreateKey(GetKeyId(idxName, op.Key), op.Value));
+                            break;
+                        default:
+                            throw new NotSupportedException();
+                    }
+                } while (++idx < aPageOps.Count);
+                
+                CompletePage();
+
+                return newPageOps;
+
+                void BeginPage() {
+                    curPage = aPageOps[idx].Page;
+                    curPageIdx = 0;
+                        
+                    var size = curPage.Memory.Length;
+                    var count = 0;
+                    while (idx + count < aPageOps.Count) {
+                        var futureOp = aPageOps[idx + count];
+                        if (futureOp.Page.Id != curPage.Id) break;
+
+                        size += futureOp.Op switch {
+                            PageOp.Kind.InsertAt => IndexPageHelpers.CalcPageItemSize(futureOp.Key, futureOp.Value),
+                            PageOp.Kind.ReplaceAt => IndexPageHelpers.CalcPageItemSize(futureOp.Key, futureOp.Value),
+                            _ => 0
+                        };
+                        count++;
+                    }
+                    curMemory = new Memory<byte>(new byte[size]);
+                    IndexPageHelpers.WriteHead(curMemory.Span, IndexPage.Kind.Page, count);
+                }
+
+                void CompletePage() {
+                    IndexPageHelpers.CopyItems(curMemory.Span, curPage, curPageIdx, curPage.ItemsCount);
+
+                    var itemsCount = IndexPageHelpers.GetItemsCount(curMemory.Span);
+                    if (itemsCount <= 0) {
+                        if (curPage.Id == rootId) {
+                            // create empty root page
+                            result.Pages.Add(new IndexPage(curPage.Id, IndexPageHelpers.EmptyPageData));
+                        }
+                        else {
+                            var parent = GetParentPage(curPage.Id);
+
+                            var idxResult = FindIndexOfChild(parent, curPage.Id, curPage.GetValueForParent()); 
+                            if (idxResult.IsOk) {
+                                var newOp = new PageOp(parent, PageOp.Kind.RemoveAt, idxResult.Value, "", "");
+                                newPageOps.Add(newOp);
+                            }
+                        }
+                        
+                        if (itemsCount < 0)
+                            logger.FunesWarning(nameof(UpdatePages), "PageError", $"Negative items count for {curPage.Id}");
+                    }
+                    else if (itemsCount <= maxItemsOnPage) {
+                        var page = IndexPageHelpers.CreateIndexPage(curPage.Id, curMemory); 
+                        result.Pages.Add(page);
+
+                        if (page.Id != rootId) { // check if fist items were removed
+                            var currentValueForParent = curPage.GetValueForParent();
+                            var newValueForParent = page.GetValueForParent();
+                            if (currentValueForParent != newValueForParent) {
+                                var parent = GetParentPage(curPage.Id);
+                                var idxResult = FindIndexOfChild(parent, curPage.Id, currentValueForParent);
+                                if (idxResult.IsOk) {
+                                    var newOp = new PageOp(parent, PageOp.Kind.ReplaceAt, idxResult.Value, page.Id.GetName(), newValueForParent);
+                                    newPageOps.Add(newOp);
+                                }
+                            }
+                        }
+                    }
+                    else {
+                        var (page1Memory, page2Memory) = IndexPageHelpers.Split(curMemory);
+                        if (curPage.Id == rootId) {
+                            var page1 = IndexPageHelpers.CreateIndexPage(GetNewPageId(), page1Memory); 
+                            result.Pages.Add(page1);
+                            var page2 = IndexPageHelpers.CreateIndexPage(GetNewPageId(), page2Memory); 
+                            result.Pages.Add(page2);
+
+                            var (key1, value1) = (page1.Id.GetName(), page1.GetValueForParent());
+                            var (key2, value2) = (page2.Id.GetName(), page2.GetValueForParent());
+
+                            var newRootSize = IndexPageHelpers.SizeOfEmptyPage
+                                + IndexPageHelpers.CalcPageItemSize(key1, value1)
+                                + IndexPageHelpers.CalcPageItemSize(key1, value2);
+                            var newRootMemory = new Memory<byte>(new byte[newRootSize]);
+                            IndexPageHelpers.WriteHead(newRootMemory.Span, IndexPage.Kind.Table, 2);
+                            IndexPageHelpers.AppendItem(newRootMemory.Span, key1, value1);
+                            IndexPageHelpers.AppendItem(newRootMemory.Span, key2, value2);
+                            result.Pages.Add(IndexPageHelpers.CreateIndexPage(GetRootId(idxName), newRootMemory));
+                        }
+                        else {
+                            var page1 = IndexPageHelpers.CreateIndexPage(curPage.Id, page1Memory); 
+                            result.Pages.Add(page1);
+                            var page2 = IndexPageHelpers.CreateIndexPage(GetNewPageId(), page2Memory); 
+                            result.Pages.Add(page2);
+                            
+                            var (newKey, newValue) = (page2.Id.GetName(), page2.GetValueForParent());
+                            var parent = GetParentPage(curPage.Id);
+                            var insertIdx = parent.GetIndexForInsertion(newKey, newValue);
+
+                            var newOp = new PageOp(parent, PageOp.Kind.InsertAt, insertIdx, newKey, newValue);
+                            newPageOps.Add(newOp);
+
+                            var currentValueForParent = curPage.GetValueForParent();
+                            var newValueForParent = page1.GetValueForParent();
+                            if (currentValueForParent != newValueForParent) {
+                                var newOp2 = new PageOp(parent, PageOp.Kind.InsertAt, insertIdx-1, page1.Id.GetName(), newValueForParent);
+                                newPageOps.Add(newOp2);
+                            }
+                        }
+                    }
+                }
+
+                Result<int> FindIndexOfChild(in IndexPage parent, EntityId pageId, string value) {
+                    var idxResult = parent.FindIndexOfChild(pageId, value);
+                    if (idxResult.IsError)
+                        // possible inconsistency
+                        logger.FunesWarning(nameof(UpdatePages), "Child not found", 
+                            $"{idxName} {parent.Id} {curPage.Id}=>{curPage.GetValueForParent()}");
+
+                    return idxResult;
+                }                
             }
         }
     }

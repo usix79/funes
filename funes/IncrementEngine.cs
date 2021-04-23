@@ -118,23 +118,14 @@ namespace Funes {
                         }
                     }
 
-                    if (lgResult.IndexRecords.Count > 0) {
-                        var uploadResultsArr = ArrayPool<Result<string>>.Shared.Rent(lgResult.IndexRecords.Count);
-                        var uploadResults = new ArraySegment<Result<string>>(uploadResultsArr, 0, lgResult.IndexRecords.Count);
-                        try {
-                            await IndexesModule.UploadRecords(env.DataEngine, env.MaxEventLogSize, 
-                                builder.IncId, lgResult.IndexRecords, outputs, uploadResults, ct);
-                            
-                            builder.RegisterResults(uploadResults);
-
-                            foreach (var res in uploadResults) {
-                                if (res.IsOk && !string.IsNullOrEmpty(res.Value)) {
-                                    // TODO: rebuild index
-                                }
-                            }
-                        }
-                        finally {
-                            ArrayPool<Result<string>>.Shared.Return(uploadResultsArr);
+                    foreach (var idxRecordPair in lgResult.IndexRecords) {
+                        // todo consider start tasks in parallel
+                        var uploadResult = await IndexesModule.UploadRecord(env.DataEngine, 
+                            builder.IncId, idxRecordPair.Key, idxRecordPair.Value, outputs, ct);
+                        
+                        builder.RegisterError(uploadResult.Error);
+                        if (uploadResult.IsOk && uploadResult.Value >= env.MaxEventLogSize) {
+                                // TODO: rebuild indexes
                         }
                     }
                 }

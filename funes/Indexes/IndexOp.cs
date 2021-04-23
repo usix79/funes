@@ -4,7 +4,7 @@ namespace Funes.Indexes {
     
     public readonly struct IndexOp : IEquatable<IndexOp> {
 
-        public enum Kind : byte { Unknown = 0, Update = 1, Remove = 2}
+        public enum Kind { Unknown = 0, Update = 1, Remove = 2}
      
         public Kind OpKind { get; }
         public string Key { get; }

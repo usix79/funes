@@ -14,13 +14,13 @@ namespace Funes.Sets {
             if (Data.IsEmpty) return new HashSet<string>();
             
             var idx = 0;
-            var count = Utils.Binary.ReadInt32(Data.Memory, ref idx);
+            var count = Utils.Binary.ReadInt32(Data.Span, ref idx);
             var set = new HashSet<string>(count);
 
             while (idx < Data.Memory.Length) {
-                var charsCount = Utils.Binary.ReadByte(Data.Memory, ref idx);
+                var charsCount = Utils.Binary.ReadByte(Data.Span, ref idx);
                 var tag = charsCount > 0
-                    ? Utils.Binary.ReadString(Data.Memory, ref idx, charsCount)
+                    ? Utils.Binary.ReadString(Data.Span, ref idx, charsCount)
                     : "";
                 set.Add(tag);
             }
@@ -40,10 +40,10 @@ namespace Funes.Sets {
             var memory = new Memory<byte>(new byte[CalcSize(set)]);
             var idx = 0;
             
-            Utils.Binary.WriteInt32(memory, ref idx, set.Count);
+            Utils.Binary.WriteInt32(memory.Span, ref idx, set.Count);
             foreach (var tag in set) {
                 memory.Span[idx++] = (byte)tag.Length;
-                Utils.Binary.WriteString(memory, ref idx, tag);
+                Utils.Binary.WriteString(memory.Span, ref idx, tag);
             }
 
             return new SetSnapshot(new BinaryData("bin", memory));

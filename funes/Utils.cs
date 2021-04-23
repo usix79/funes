@@ -1,5 +1,6 @@
 using System;
 using System.Buffers.Binary;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -8,74 +9,46 @@ namespace Funes {
     public static class Utils {
         
         public static class Binary {
-            public static void WriteInt32(Memory<byte> memory, ref int offset, int val) {
-                var span = memory.Slice(offset, 4).Span;
+            public static void WriteInt32(Span<byte> span, ref int offset, int val) {
+                BinaryPrimitives.WriteInt32LittleEndian(span.Slice(offset, 4), val);
                 offset += 4;
-                BinaryPrimitives.WriteInt32LittleEndian(span, val);
             }
 
-            public static int ReadInt32(ReadOnlyMemory<byte> memory, ref int offset) {
-                var span = memory.Slice(offset, 4).Span;
+            public static int ReadInt32(ReadOnlySpan<byte> span, ref int offset) {
                 offset += 4;
                 return BinaryPrimitives.ReadInt32LittleEndian(span);
             }
 
-            public static void WriteByte(Memory<byte> memory, ref int offset, byte val) {
-                memory.Span[offset++] = val;
+            public static void WriteByte(Span<byte> span, ref int offset, byte val) {
+                span[offset++] = val;
             }
 
-            public static byte ReadByte(ReadOnlyMemory<byte> memory, ref int offset) {
-                return memory.Span[offset++];
+            public static byte ReadByte(ReadOnlySpan<byte> span, ref int offset) {
+                return span[offset++];
             }
 
-            public static void WriteString(Memory<byte> memory, ref int offset, string str) {
-                offset += Encoding.Unicode.GetBytes(str, memory.Slice(offset).Span);
+            public static void WriteString(Span<byte> span, ref int offset, string str) {
+                offset += Encoding.Unicode.GetBytes(str, span.Slice(offset));
             }
 
-            public static string ReadString(ReadOnlyMemory<byte> memory, ref int offset, int charsCount) {
+            public static string ReadString(ReadOnlySpan<byte> span, ref int offset, int charsCount) {
                 var len = charsCount * 2;
-                var span = memory.Slice(offset, len).Span;
+                var result = Encoding.Unicode.GetString(span.Slice(offset, len));
                 offset += len;
-                return Encoding.Unicode.GetString(span);
+                return result;
             }
 
-            public static int Compare(ReadOnlyMemory<char> stringMemory, ReadOnlyMemory<byte> binaryMemory) {
-                var idx = 0;
-                while (true) {
-                    var stringIsOver = stringMemory.Length == idx;
-                    var binaryIsOver = binaryMemory.Length / 2 == idx;
-                    if (stringIsOver || binaryIsOver) return binaryIsOver.CompareTo(stringIsOver);
+            public static int Compare(ReadOnlySpan<char> stringSpan, ReadOnlySpan<byte> binSpan) =>
+                MemoryMarshal.AsBytes(stringSpan).SequenceCompareTo(binSpan);
 
-                    var charFromString = stringMemory.Span[idx];
-                    var shortFromBinary = BinaryPrimitives.ReadInt16LittleEndian(binaryMemory.Slice(idx * 2).Span);
-                    var charFromBinary = Convert.ToChar(shortFromBinary);
-
-                    var result = charFromString.CompareTo(charFromBinary);
-
-                    if (result != 0) return result;
-
-                    idx++;
+            public static int CompareParts(ReadOnlySpan<char> part1, ReadOnlySpan<char> part2, ReadOnlySpan<byte> binSpan) {
+                var binPart1 = MemoryMarshal.AsBytes(part1);
+                var result = binPart1.SequenceCompareTo(binSpan.Slice(0, Math.Min(binPart1.Length, binSpan.Length)));
+                if (result == 0) {
+                    result = MemoryMarshal.AsBytes(part2).SequenceCompareTo(binSpan.Slice(binPart1.Length));
                 }
-            }
-            public static int Compare(
-                ReadOnlyMemory<char> str1, ReadOnlyMemory<char> str2, ReadOnlyMemory<byte> binMemory) {
-                var idx = 0;
-                while (true) {
-                    var str1IsOver = str1.Length == idx;
-                    var stringIsOver = str1.Length + str2.Length == idx;
-                    var binaryIsOver = binMemory.Length / 2 == idx;
-                    if (stringIsOver || binaryIsOver) return binaryIsOver.CompareTo(stringIsOver);
 
-                    var charFromString = str1IsOver ? str2.Span[idx - str1.Length] : str1.Span[idx];
-                    var shortFromBinary = BinaryPrimitives.ReadInt16LittleEndian(binMemory.Slice(idx * 2).Span);
-                    var charFromBinary = Convert.ToChar(shortFromBinary);
-
-                    var result = charFromString.CompareTo(charFromBinary);
-
-                    if (result != 0) return result;
-
-                    idx++;
-                }
+                return result;
             }
         }
         

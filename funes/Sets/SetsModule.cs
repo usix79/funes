@@ -50,15 +50,14 @@ namespace Funes.Sets {
             var idx = 0;
             var memory = new Memory<byte>(new byte[CalcSize(setRecord)]);
             foreach (var op in setRecord) {
-                Utils.Binary.WriteByte(memory, ref idx, (byte)op.OpKind);
-                Utils.Binary.WriteByte(memory, ref idx, (byte)op.Tag.Length);
-                Utils.Binary.WriteString(memory, ref idx, op.Tag);
+                Utils.Binary.WriteByte(memory.Span, ref idx, (byte)op.OpKind);
+                Utils.Binary.WriteByte(memory.Span, ref idx, (byte)op.Tag.Length);
+                Utils.Binary.WriteString(memory.Span, ref idx, op.Tag);
             }
 
             return new BinaryData("bin", memory);
         }
-        
-        
+
         public static async ValueTask UploadSetRecords(IDataEngine de, int max,
             IncrementId incId, Dictionary<string,SetRecord> records, List<EntityId> outputs, 
             ArraySegment<Result<string>> results, CancellationToken ct) {

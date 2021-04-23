@@ -18,12 +18,12 @@ namespace Funes.Tests {
 
             var record = new IndexRecord();
 
-            var size = RecordBuilder.CalcSize(record);
+            var size = IndexRecord.Builder.CalcSize(record);
             Assert.Equal(0, size);
 
-            var data = RecordBuilder.EncodeRecord(record);
+            var data = IndexRecord.Builder.EncodeRecord(record);
 
-            var reader = new IndexRecordsReader(data.Memory);
+            var reader = new IndexRecord.Reader(data.Memory);
             Assert.False(reader.MoveNext());
         }
     
@@ -35,9 +35,9 @@ namespace Funes.Tests {
                 new (IndexOp.Kind.Remove, "key221","val-0")
             };
 
-            var data = RecordBuilder.EncodeRecord(record);
+            var data = IndexRecord.Builder.EncodeRecord(record);
 
-            var reader = new IndexRecordsReader(data.Memory);
+            var reader = new IndexRecord.Reader(data.Memory);
 
             Assert.True(reader.MoveNext());
             Assert.Equal(record[0], reader.Current);
@@ -60,8 +60,8 @@ namespace Funes.Tests {
 
             var size = IndexPageHelpers.SizeOfEmptyPage + IndexPageHelpers.CalcPageItemSize(key, value);
             var memory = new Memory<byte>(new byte[size]);
-            IndexPageHelpers.WriteHead(memory, IndexPage.Kind.Table, 1);
-            IndexPageHelpers.AppendItem(memory, key, value);
+            IndexPageHelpers.WriteHead(memory.Span, IndexPage.Kind.Table, 1);
+            IndexPageHelpers.AppendItem(memory.Span, key, value);
 
             var page = new IndexPage(EntityId.None, new BinaryData("bin", memory));
             Assert.Equal(IndexPage.Kind.Table, page.PageKind);
@@ -86,9 +86,9 @@ namespace Funes.Tests {
                 size += IndexPageHelpers.CalcPageItemSize(key, value);
             
             var memory = new Memory<byte>(new byte[size]);
-            IndexPageHelpers.WriteHead(memory, IndexPage.Kind.Table, items.Length);
+            IndexPageHelpers.WriteHead(memory.Span, IndexPage.Kind.Table, items.Length);
             foreach (var (key, value) in items)
-                IndexPageHelpers.AppendItem(memory, key, value);
+                IndexPageHelpers.AppendItem(memory.Span, key, value);
 
             var page = new IndexPage(EntityId.None, new BinaryData("bin", memory));
             Assert.Equal(IndexPage.Kind.Table, page.PageKind);
@@ -116,13 +116,13 @@ namespace Funes.Tests {
             var record = new IndexRecord {
                 new (IndexOp.Kind.Update, key, val)
             };
-            var recordData = RecordBuilder.EncodeRecord(record);
+            var recordData = IndexRecord.Builder.EncodeRecord(record);
             var eventLog = new EventLog(IncrementId.None, IncrementId.None, recordData.Memory);
 
             var updateResult = await IndexesModule.UpdateIndex(logger, ds, idxName, eventLog, 10, default);
             Assert.True(updateResult.IsOk, updateResult.Error.ToString());
 
-            var (newPages, newKeys) = updateResult.Value;
+            var newPages = updateResult.Value.Pages;
 
             Assert.Single(newPages);
 

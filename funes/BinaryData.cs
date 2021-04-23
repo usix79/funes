@@ -5,13 +5,15 @@ namespace Funes {
     public readonly struct BinaryData : IEquatable<BinaryData> {
         public string Encoding { get; }
         public ReadOnlyMemory<byte> Memory { get; }
-        
+
+        public ReadOnlySpan<byte> Span => Memory.Span;
+
         public BinaryData(string encoding, ReadOnlyMemory<byte> memory) =>
             (Encoding, Memory) = (encoding, memory);
 
         public static readonly BinaryData Empty = new ("", ReadOnlyMemory<byte>.Empty);
 
-        public bool IsEmpty => Memory.IsEmpty;
+        public bool IsEmpty => Memory.IsEmpty && Encoding == "";
 
         public bool Equals(BinaryData other) => 
             Encoding == other.Encoding && Memory.Span.SequenceEqual(other.Memory.Span);
