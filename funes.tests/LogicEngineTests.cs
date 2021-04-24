@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Diagnostics.Tracing;
 using System.Linq;
 using Funes.Impl;
 using Funes.Indexes;
@@ -17,7 +18,7 @@ namespace Funes.Tests {
             _testOutputHelper = testOutputHelper;
         }
 
-        private LogicEngineEnv<TModel, TMsg, TSideEffect> CreateEnv<TModel, TMsg, TSideEffect>(
+        private (LogicEngineEnv<TModel, TMsg, TSideEffect>, DataContext) CreateEnv<TModel, TMsg, TSideEffect>(
             ILogic<TModel, TMsg, TSideEffect> logic, IRepository? repository = null) {
             var logger = XUnitLogger.CreateLogger(_testOutputHelper);
             var tracer = new XUnitTracer<TModel, TMsg, TSideEffect>(_testOutputHelper);
@@ -26,7 +27,9 @@ namespace Funes.Tests {
             var cache = new SimpleCache();
             var tre = new SimpleTransactionEngine();
             var de = new StatelessDataEngine(repo, cache, tre, logger);
-            return new LogicEngineEnv<TModel, TMsg, TSideEffect>(logic, ser, de, logger, tracer);
+            var env = new LogicEngineEnv<TModel, TMsg, TSideEffect>(logic, logger, tracer);
+            var ctx = new DataContext(de, ser);
+            return (env, ctx);
         }
     
         public class BasicLogic : ILogic<string, string, string> {
@@ -45,11 +48,10 @@ namespace Funes.Tests {
 
         [Fact]
         public async void BasicLogicTest() {
-            var env = CreateEnv(new BasicLogic());
+            var (env, ctx) = CreateEnv(new BasicLogic());
 
             var fact = new Entity(new EntityId("/tests/fact"), "World");
-            var args = new IncrementArgs();
-            var result = await LogicEngine<string, string, string>.Run(env, fact, null!, args,default);
+            var result = await LogicEngine<string, string, string>.Run(env, ctx, fact, null!, default);
             Assert.True(result.IsOk);
             Assert.Equal("Publish: Hello, World", result.Value.SideEffects.First());
         }
@@ -76,11 +78,10 @@ namespace Funes.Tests {
         
         [Fact]
         public async void AdvancedLogicTest() {
-            var env = CreateEnv(new AdvanceLogic());
+            var (env, ctx) = CreateEnv(new AdvanceLogic());
 
             var fact = new Entity(new EntityId("/tests/fact"), 6);
-            var args = new IncrementArgs();
-            var result = await LogicEngine<string, string, string>.Run(env, fact, null!, args,default);
+            var result = await LogicEngine<string, string, string>.Run(env, ctx, fact, null!, default);
             Assert.True(result.IsOk);
             Assert.Equal("Publish: FlipFlop", result.Value.SideEffects.First());
         }
@@ -109,11 +110,10 @@ namespace Funes.Tests {
             var saveResult = await repo.Save(stamp, default);
             Assert.True(saveResult.IsOk);
             
-            var env = CreateEnv(new RetrieveLogic(), repo);
+            var (env, ctx) = CreateEnv(new RetrieveLogic(), repo);
 
             var fact = new Entity(new EntityId("/tests/fact"), "Answer:");
-            var args = new IncrementArgs();
-            var result = await LogicEngine<string, string, string>.Run(env, fact, null!, args,default);
+            var result = await LogicEngine<string, string, string>.Run(env, ctx, fact, null!, default);
             Assert.True(result.IsOk);
             var output = (Simple)result.Value.Entities.First().Value.Value;
             Assert.Equal("Answer:42", output.Value);
@@ -129,11 +129,10 @@ namespace Funes.Tests {
                 (model, msg) => ("", Cmd<string, string>.None),
                 model => Cmd<string, string>.None);
             
-            var env = CreateEnv(logic);
+            var (env, ctx) = CreateEnv(logic);
 
             var fact = new Entity(new EntityId("/tests/fact"), "!");
-            var args = new IncrementArgs();
-            var result = await LogicEngine<string, string, string>.Run(env, fact, null!, args,default);
+            var result = await LogicEngine<string, string, string>.Run(env, ctx, fact, null!, default);
             Assert.True(result.IsOk);
             Assert.True(result.Value.SetRecords.TryGetValue(setName, out var idxRecord));
             Assert.True(idxRecord!.Count == 1);
@@ -153,11 +152,10 @@ namespace Funes.Tests {
                 (model, msg) => ("", Cmd<string, string>.None),
                 model => Cmd<string, string>.None);
             
-            var env = CreateEnv(logic);
+            var (env, ctx) = CreateEnv(logic);
 
             var fact = new Entity(new EntityId("/tests/fact"), "!");
-            var args = new IncrementArgs();
-            var result = await LogicEngine<string, string, string>.Run(env, fact, null!, args,default);
+            var result = await LogicEngine<string, string, string>.Run(env, ctx, fact, null!, default);
             Assert.True(result.IsOk);
             Assert.True(result.Value.IndexRecords.TryGetValue(indexName, out var idxRecord));
             Assert.True(idxRecord!.Count == 1);

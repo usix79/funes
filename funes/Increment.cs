@@ -9,11 +9,51 @@ namespace Funes {
     public record Increment(
         IncrementId Id, 
         StampKey FactKey,
-        IncrementArgs Args,
+        List<Increment.InputEntity> Inputs,
+        List<Increment.InputEventLog> EventLogInputs,
         List<EntityId> Outputs,
         List<KeyValuePair<string,string>> Constants,
         List<KeyValuePair<string,string>> Details
         ) {
+
+        public struct InputEntity {
+            public bool Equals(InputEntity other) => Key.Equals(other.Key) && AsPremise == other.AsPremise;
+
+            public override bool Equals(object? obj) => obj is InputEntity other && Equals(other);
+
+            public override int GetHashCode() {
+                unchecked {
+                    return (Key.GetHashCode() * 397) ^ AsPremise.GetHashCode();
+                }
+            }
+
+            public StampKey Key { get; init; }
+            public bool AsPremise { get; init; }
+
+            public InputEntity(StampKey key, bool asPremise) => (Key, AsPremise) = (key, asPremise);
+        }
+
+        public struct InputEventLog {
+            public bool Equals(InputEventLog other) => Id.Equals(other.Id) && FirstIncId.Equals(other.FirstIncId) && LastIncId.Equals(other.LastIncId);
+
+            public override bool Equals(object? obj) => obj is InputEventLog other && Equals(other);
+
+            public override int GetHashCode() {
+                unchecked {
+                    var hashCode = Id.GetHashCode();
+                    hashCode = (hashCode * 397) ^ FirstIncId.GetHashCode();
+                    hashCode = (hashCode * 397) ^ LastIncId.GetHashCode();
+                    return hashCode;
+                }
+            }
+
+            public EntityId Id { get; init; } 
+            public IncrementId FirstIncId { get; init; } 
+            public IncrementId LastIncId { get; init; }
+
+            public InputEventLog(EntityId id, IncrementId firstIncId, IncrementId lastIncId) =>
+                (Id, FirstIncId, LastIncId) = (id, firstIncId, lastIncId);
+        }
         
         public const string Category = "funes/increments";
         public const string ChildrenCategory = "funes/children";

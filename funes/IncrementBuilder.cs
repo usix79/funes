@@ -82,8 +82,7 @@ namespace Funes {
             return new Error.AggregateError(_errors!);
         }
 
-        public Increment Create(IncrementArgs args, List<EntityId> outputs, 
-            List<KeyValuePair<string,string>> constants, long ms) {
+        public Increment Create(DataContext context, List<KeyValuePair<string,string>> constants, long ms) {
             
             AppendDetails(Increment.DetailsIncrementTime, _incrementTime.ToString());
             AppendDetails(Increment.DetailsAttempt, _attempt.ToString());
@@ -95,7 +94,8 @@ namespace Funes {
                 foreach (var error in _errors) AppendDetails(Increment.DetailsError, error.ToString());
             }
 
-            return new Increment(_incId, _factKey, args, outputs, constants, _details);
+            return new Increment(_incId, _factKey, context.GetInputList(), context.GetEventLogInputList(), 
+                context.GetOutputs(), constants, _details);
         }
 
         private void AppendDetails(string key, string value) {

@@ -18,15 +18,17 @@ namespace Funes.Tests {
         public async void IncrementEncoding() {
             var incId = IncrementId.NewId();
             var factStamp = EntityEntry.Ok(CreateSimpleFact(0, ""), IncrementId.NewStimulusId());
-            var args = new IncrementArgs();
-            args.RegisterEntity(CreateRandomStampKey(), false);
-            args.RegisterEntity(CreateRandomStampKey(), true);
-            args.RegisterEntity(CreateRandomStampKey(), false);
+            var inputs = new List<Increment.InputEntity>() {
+                new(CreateRandomStampKey(), false),
+                new(CreateRandomStampKey(), true),
+                new(CreateRandomStampKey(), false)
+            };
+            var inputEventLogs = new List<Increment.InputEventLog>();
             var outputs = new List<EntityId> {CreateRandomEntId(), CreateRandomEntId(), CreateRandomEntId()};
             var constants = new Dictionary<string, string> {{"c1", "1"}, {"c2", "12"}, {"c3",  "123"}};
             var details = new Dictionary<string, string> {["d1"] = "a", ["d2"] = "ab", ["d3"] = "abc"};
 
-            var increment = new Increment(incId, factStamp.Key, args, outputs, constants.ToList(), details.ToList());
+            var increment = new Increment(incId, factStamp.Key, inputs, inputEventLogs, outputs, constants.ToList(), details.ToList());
 
             var encodingResult = Increment.Encode(increment); 
             Assert.True(encodingResult.IsOk, encodingResult.Error.ToString());
@@ -39,8 +41,8 @@ namespace Funes.Tests {
             var decodedIncrement = decodingResult.Value;
             Assert.Equal(increment.Id, decodedIncrement.Id);
             Assert.Equal(increment.FactKey, decodedIncrement.FactKey);
-            Assert.Equal(increment.Args.Entities, decodedIncrement.Args.Entities);
-            Assert.Equal(increment.Args.Events, decodedIncrement.Args.Events);
+            Assert.Equal(increment.Inputs, decodedIncrement.Inputs);
+            Assert.Equal(increment.EventLogInputs, decodedIncrement.EventLogInputs);
             Assert.Equal(increment.Outputs, decodedIncrement.Outputs);
             Assert.Equal(increment.Constants, decodedIncrement.Constants);
             Assert.Equal(increment.Details, decodedIncrement.Details);

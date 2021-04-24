@@ -72,7 +72,7 @@ namespace Funes.Tests {
 
         [Fact]
         public void IndexPageWithMultipleItems() {
-            var items = new (string, string)[] {
+            var items = new [] {
                 ("key1", "value1"),
                 ("key2", "Bla-Bla-Bla"),
                 ("keyЯЯЯЯЯЯ", "valueЫЫЫЫЫЫЫЫЫы"),
@@ -107,7 +107,7 @@ namespace Funes.Tests {
             var tre = new SimpleTransactionEngine();
             var logger = XUnitLogger.CreateLogger(_testOutputHelper);
             var de = new StatelessDataEngine(repo, cache, tre, logger);
-            var ds = new DataSource(de);
+            var ds = new DataContext(de, new SimpleSerializer<Simple>());
 
             var idxName = "testIdx";
             var key = "key1";

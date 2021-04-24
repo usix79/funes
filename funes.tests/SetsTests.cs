@@ -67,7 +67,7 @@ namespace Funes.Tests {
             var reader = new StreamReader(snapshot.Data.Memory.AsStream(), Encoding.Unicode);
             _testOutputHelper.WriteLine($"DATA: {await reader.ReadToEndAsync()}");
             
-            var decodedSet = snapshot.GetSet();
+            var decodedSet = snapshot.CreateSet();
             Assert.Equal(set.Count, decodedSet.Count);
             foreach (var tag in decodedSet) {
                 Assert.True(set.Contains(tag), tag);

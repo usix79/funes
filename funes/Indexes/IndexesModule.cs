@@ -46,13 +46,12 @@ namespace Funes.Indexes {
         public static bool IsIndexPage(EntityId eid) => 
             eid.Id.StartsWith("funes/indexes/") && eid.Id.Contains("/pages/");
         
-        public static async ValueTask<Result<int>> UploadRecord(IDataEngine de, IncrementId incId, 
-            string indexName, IndexRecord record, List<EntityId> outputs, CancellationToken ct) {
+        public static async ValueTask<Result<int>> UploadRecord(
+            DataContext context, CancellationToken ct, IncrementId incId, string indexName, IndexRecord record) {
 
             var recordId = GetRecordId(indexName);
-            outputs.Add(recordId);
             var evt = new Event(incId, IndexRecord.Builder.EncodeRecord(record).Memory);
-            var result = await de.AppendEvent(recordId, evt, GetOffsetId(indexName), ct);
+            var result = await context.AppendEvent(recordId, evt, GetOffsetId(indexName), ct);
                 
             return result.IsOk ? new Result<int>(result.Value) : new Result<int>(result.Error); 
         }
@@ -82,7 +81,7 @@ namespace Funes.Indexes {
         }
         
         private static async ValueTask<Result<IndexPage>> RetrieveIndexPage(
-            EntityId pageId, DataSource ds, CancellationToken ct) {
+            EntityId pageId, IDataSource ds, CancellationToken ct) {
             var retResult = await ds.Retrieve(pageId, ct);
             if (retResult.IsError) return new Result<IndexPage>(retResult.Error);
             var data = retResult.Value.IsEmpty ? IndexPageHelpers.EmptyPageData : retResult.Value.Data;
@@ -91,7 +90,7 @@ namespace Funes.Indexes {
         }
         
         private static async ValueTask<Result<IndexKey>> RetrieveIndexKey(
-            string idxName, string key, DataSource ds, CancellationToken ct) {
+            string idxName, string key, IDataSource ds, CancellationToken ct) {
             var keyId = GetKeyId(idxName, key);
             var res = await ds.Retrieve(keyId, ct);
             return res.IsOk
@@ -100,7 +99,7 @@ namespace Funes.Indexes {
         }
 
         private static async ValueTask<Result<EventOffset>> RetrieveIndexOffset(
-            string idxName, DataSource ds, CancellationToken ct) {
+            string idxName, IDataSource ds, CancellationToken ct) {
             
             var offsetRes = await ds.Retrieve(GetOffsetId(idxName), ct);
             return offsetRes.IsOk
@@ -108,7 +107,7 @@ namespace Funes.Indexes {
                 : new Result<EventOffset>(offsetRes.Error);
         }
         
-        private static async ValueTask<Result<List<PageOp>>> PreparePageOps(ILogger logger, DataSource ds, 
+        private static async ValueTask<Result<List<PageOp>>> PreparePageOps(ILogger logger, IDataSource ds, 
             string idxName, EventLog log, Dictionary<EntityId, IndexPage> parents, CancellationToken ct) {
 
             var indexOps = ReadOps();
@@ -213,7 +212,7 @@ namespace Funes.Indexes {
         }
 
         public static async ValueTask<Result<UpdateIndexResult>> UpdateIndex(
-            ILogger logger, DataSource ds, string idxName, EventLog log, int maxItemsOnPage, CancellationToken ct) {
+            ILogger logger, IDataSource ds, string idxName, EventLog log, int maxItemsOnPage, CancellationToken ct) {
 
             var parents = new Dictionary<EntityId, IndexPage>();
             var rootId = GetRootId(idxName);

@@ -10,7 +10,7 @@ namespace Funes.Sets {
         public SetSnapshot(BinaryData data) =>
             Data = data;
 
-        public HashSet<string> GetSet() {
+        public HashSet<string> CreateSet() {
             if (Data.IsEmpty) return new HashSet<string>();
             
             var idx = 0;

@@ -7,48 +7,50 @@ using Funes.Sets;
 namespace Funes {
     
     public class LogicState<TMsg, TSideEffect> {
-        public Dictionary<EntityId, EntityEntry> Entities { get; } = new ();
-        public Dictionary<string, HashSet<string>> Sets { get; }= new ();
         public Queue<TMsg> PendingMessages { get; } = new ();
         public LinkedList<Cmd<TMsg, TSideEffect>> PendingCommands = new ();
-        public Dictionary<EntityId, Task<Result<EntityEntry>>> RetrievingTasks = new ();
-        public Dictionary<string, Task<Result<SetSnapshot>>> RetrievingSetTasks = new ();
+        public Dictionary<EntityId, Task> PendingTasks = new();
 
         public void Reset() {
-            Entities.Clear();
-            Sets.Clear();
             PendingMessages.Clear();
             PendingCommands.Clear();
-            RetrievingTasks.Clear();
-            RetrievingSetTasks.Clear();
+            PendingTasks.Clear();
         }
 
         public bool InProcessing => PendingMessages.Count > 0 || PendingCommands.First != null;
 
         public bool ShouldWait => PendingMessages.Count == 0 && PendingCommands.First != null;
-
-        public int TotalPendingTasks => RetrievingTasks.Count + RetrievingSetTasks.Count;
-
+        
         public async Task WhenAnyPendingTasks(CancellationToken ct) {
-            if (TotalPendingTasks == 0) return;
+            if (PendingTasks.Count == 0) return;
             
-            var arr = ArrayPool<Task>.Shared.Rent(TotalPendingTasks);
+            var keysArr = ArrayPool<EntityId>.Shared.Rent(PendingTasks.Count);
+            var tasksArr = ArrayPool<Task>.Shared.Rent(PendingTasks.Count);
             var idx = 0;
-            foreach (var task in RetrievingTasks.Values) arr[idx++] = task;
-            foreach (var task in RetrievingSetTasks.Values) arr[idx++] = task;
-            while (idx < arr.Length) arr[idx++] = arr[0];
+            foreach (var pair in PendingTasks) {
+                keysArr[idx] = pair.Key;
+                tasksArr[idx] = pair.Value;
+                idx++;
+            }
+
+            while (idx < tasksArr.Length) {
+                keysArr[idx] = keysArr[0];
+                tasksArr[idx] = tasksArr[0];
+                idx++;
+            }
 
             try {
-                await Task.WhenAny(arr);
+                await Task.WhenAny(tasksArr);
+                
+                // remove finished tasks
+                for (var i = 0; i < PendingTasks.Count; i++) {
+                    if (tasksArr[i].IsCompleted)
+                        PendingTasks.Remove(keysArr[i]);
+                }
             }
             finally {
-                ArrayPool<Task>.Shared.Return(arr);
-            }
-        }
-        
-        public void RegisterEntity(EntityId eid, Result<EntityEntry> result) {
-            if (!Entities.ContainsKey(eid)) {
-                Entities[eid] = result.IsOk ? result.Value : EntityEntry.NotAvailable(eid);
+                ArrayPool<Task>.Shared.Return(tasksArr);
+                ArrayPool<EntityId>.Shared.Return(keysArr);
             }
         }
         

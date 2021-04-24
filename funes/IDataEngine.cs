@@ -3,7 +3,11 @@ using System.Threading;
 using System.Threading.Tasks;
 
 namespace Funes {
-    public interface IDataEngine : IDataSource {
+    public interface IDataEngine {
+        ValueTask<Result<BinaryStamp>> Retrieve(EntityId eid, CancellationToken ct);
+        
+        ValueTask<Result<EventLog>> RetrieveEventLog(EntityId recordsId, EntityId offsetId, CancellationToken ct);
+
         ValueTask<Result<Void>> Upload(BinaryStamp stamp, CancellationToken ct, bool skipCache = false);
 
         ValueTask<Result<int>> AppendEvent(EntityId recordId, Event evt, EntityId offsetId,

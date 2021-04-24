@@ -16,12 +16,12 @@ namespace Funes {
             try {
                 for(var attempt = 1; attempt <= env.MaxAttempts; attempt++){
                     var start = env.ElapsedMilliseconds;
-                    var args = new IncrementArgs();
+                    var context = new DataContext(env.DataEngine, env.Serializer);
                     var logicResult = await LogicEngine<TModel,TMsg,TSideEffect>
-                        .Run(env.LogicEngineEnv, fact.Entity, null!, args, ct);
+                        .Run(env.LogicEngineEnv, context, fact.Entity, null!, ct);
 
                     if (logicResult.IsOk) {
-                        var incrementResult = await TryIncrement(logicResult.Value, args, attempt, start);
+                        var incrementResult = await TryIncrement(context, logicResult.Value, attempt, start);
                         
                         switch (incrementResult.Error) {
                             case Error.NoError:
@@ -72,21 +72,20 @@ namespace Funes {
                 }
             }
 
-            async ValueTask<Result<Increment>> TryIncrement(
-                LogicResult<TSideEffect> lgResult, IncrementArgs args, int attempt, long start) {
+            async ValueTask<Result<Increment>> TryIncrement(DataContext context,
+                LogicResult<TSideEffect> lgResult, int attempt, long start) {
 
                 var builder = new IncrementBuilder(fact.Key, start, attempt, env.ElapsedMilliseconds);
                 
-                var commitResult = await TryCommit(builder.IncId, args, lgResult.Entities); 
+                var commitResult = await TryCommit(context, builder.IncId, lgResult.Entities); 
                 builder.RegisterCommitResult(commitResult, env.ElapsedMilliseconds);
 
-                var outputs = new List<EntityId>(lgResult.Entities.Keys);
                 if (commitResult.IsOk) {
                     if (lgResult.Entities.Count > 0) {
                         var uploadResultsArr = ArrayPool<Result<Void>>.Shared.Rent(lgResult.Entities.Count);
                         try {
                             var uploadResults = new ArraySegment<Result<Void>>(uploadResultsArr, 0, lgResult.Entities.Count);
-                            await UploadOutputs(builder.IncId, lgResult.Entities, uploadResults);
+                            await UploadOutputs(context, builder.IncId, lgResult.Entities, uploadResults);
                             builder.RegisterResults(uploadResults);
                         }
                         finally {
@@ -97,21 +96,19 @@ namespace Funes {
                     // todo consider start tasks in parallel
                     // TODO: DRY, consider abstract records processing for sets and indexes
                     foreach (var setRecordPair in lgResult.SetRecords) {
-                        var uploadResult = await SetsModule.UploadSetRecord(env.DataEngine, ct, builder.IncId,
-                            setRecordPair.Key, setRecordPair.Value, outputs);
+                        var uploadResult = await SetsModule.UploadSetRecord(context, ct, 
+                            builder.IncId, setRecordPair.Key, setRecordPair.Value);
                         
                         builder.RegisterError(uploadResult.Error);
                         if (uploadResult.IsOk && uploadResult.Value >= env.MaxEventLogSize) {
-                            var snapshotResult = await SetsModule.UpdateSnapshot(
-                                env.DataEngine, builder.IncId, setRecordPair.Key, args, outputs, ct);
+                            var snapshotResult = await SetsModule.UpdateSnapshot(context, ct, builder.IncId, setRecordPair.Key);
                             builder.RegisterResult(snapshotResult);
                         }
-
                     }
 
                     foreach (var idxRecordPair in lgResult.IndexRecords) {
-                        var uploadResult = await IndexesModule.UploadRecord(env.DataEngine, 
-                            builder.IncId, idxRecordPair.Key, idxRecordPair.Value, outputs, ct);
+                        var uploadResult = await IndexesModule.UploadRecord(
+                            context, ct, builder.IncId, idxRecordPair.Key, idxRecordPair.Value);
                         
                         builder.RegisterError(uploadResult.Error);
                         if (uploadResult.IsOk && uploadResult.Value >= env.MaxEventLogSize) {
@@ -123,7 +120,7 @@ namespace Funes {
                 if (lgResult.SideEffects.Count > 0)
                     builder.DescribeSideEffects(DescribeSideEffects(lgResult.SideEffects));
                 
-                var increment = builder.Create(args, outputs, lgResult.Constants, env.ElapsedMilliseconds);
+                var increment = builder.Create(context, lgResult.Constants, env.ElapsedMilliseconds);
 
                 builder.RegisterResult(await Increment.Upload(env.DataEngine, increment, ct));
                 builder.RegisterResult(await Increment.UploadChild(env.DataEngine, increment.Id, fact.IncId, ct));
@@ -134,11 +131,10 @@ namespace Funes {
                     : Result<Increment>.IncrementError(increment, error);
             }
 
-            async ValueTask<Result<Void>> TryCommit(IncrementId incId, 
-                IncrementArgs args,
-                Dictionary<EntityId, Entity> outputs) {
+            async ValueTask<Result<Void>> TryCommit(
+                DataContext context, IncrementId incId, Dictionary<EntityId, Entity> outputs) {
 
-                var premisesCount = args.PremisesCount();
+                var premisesCount = context.PremisesCount();
 
                 var premisesArr = ArrayPool<StampKey>.Shared.Rent(premisesCount);
                 var premises = new ArraySegment<StampKey>(premisesArr, 0, premisesCount);
@@ -146,8 +142,8 @@ namespace Funes {
                 var conclusions = new ArraySegment<EntityId>(conclusionsArr, 0, outputs.Count);
                 try {
                     var idx = 0;
-                    foreach (var link in args.Entities)
-                        if (link.IsPremise) premises[idx++] = link.Key;
+                    foreach (var inputData in context.InputEntities.Values)
+                        if (inputData.IsRealPremise) premises[idx++] = inputData.StampResult.Value.Key;
                     
                     outputs.Keys.CopyTo(conclusionsArr, 0);
                     
@@ -159,15 +155,15 @@ namespace Funes {
                 }
             }
             
-            async ValueTask UploadOutputs(
-                IncrementId incId, Dictionary<EntityId,Entity> outputs, ArraySegment<Result<Void>> results) {
+            async ValueTask UploadOutputs(DataContext context, IncrementId incId, 
+                Dictionary<EntityId,Entity> outputs, ArraySegment<Result<Void>> results) {
                 
                 var uploadTasksArr = ArrayPool<ValueTask<Result<Void>>>.Shared.Rent(outputs.Count);
                 var uploadTasks = new ArraySegment<ValueTask<Result<Void>>>(uploadTasksArr, 0, outputs.Count);
                 try {
                     var idx = 0;
                     foreach (var outputEntity in outputs.Values)
-                        uploadTasks[idx++] = SerializeAndUpload(outputEntity, incId); 
+                        uploadTasks[idx++] = context.Upload(outputEntity, incId, ct); 
 
                     await Utils.Tasks.WhenAll(uploadTasks, results, ct);
                 }
@@ -175,15 +171,7 @@ namespace Funes {
                     ArrayPool<ValueTask<Result<Void>>>.Shared.Return(uploadTasksArr);
                 }
             }
-
-            async ValueTask<Result<Void>> SerializeAndUpload(Entity entity, IncrementId incId) {
-                var serdeResult = env.Serializer.Encode(entity.Id, entity.Value);
-                if (serdeResult.IsError) return new Result<Void>(serdeResult.Error);
-                var stamp = new BinaryStamp(new StampKey(entity.Id, incId), serdeResult.Value);
-                
-                return await env.DataEngine.Upload(stamp, ct);
-            }
-
+            
             static string DescribeSideEffects(List<TSideEffect> sideEffects) {
                 var txt = new StringBuilder();
                 foreach (var effect in sideEffects)

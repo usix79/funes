@@ -32,7 +32,7 @@ namespace Funes.Tests {
             var cache = cache_ ?? new SimpleCache();
             var tre = tre_ ?? new SimpleTransactionEngine();
             var de = new StatelessDataEngine(repo, cache, tre, logger);
-            var logicEngine = new  LogicEngineEnv<TModel, TMsg, TSideEffect>(logic, ser, de, logger, tracer);
+            var logicEngine = new  LogicEngineEnv<TModel, TMsg, TSideEffect>(logic, logger, tracer);
 
             return new IncrementEngineEnv<TModel, TMsg, TSideEffect>(logicEngine, behavior, ser, de, logger, maxAttempts, maxEventLogSize);
         }
@@ -72,8 +72,8 @@ namespace Funes.Tests {
             var increment = await LoadIncrement(repo, result.Value);
             Assert.Equal(result.Value, increment.Id);
             Assert.Equal(factEntry.Key, increment.FactKey);
-            Assert.Empty(increment.Args.Entities);
-            Assert.Empty(increment.Args.Events);
+            Assert.Empty(increment.Inputs);
+            Assert.Empty(increment.EventLogInputs);
             Assert.Empty(increment.Outputs);
             Assert.Empty(increment.Constants);
         }
@@ -123,8 +123,8 @@ namespace Funes.Tests {
             var increment = await LoadIncrement(repo, result.Value);
             Assert.Equal(result.Value, increment.Id);
             Assert.Equal(fact.Id, increment.FactKey.EntId);
-            Assert.Empty(increment.Args.Entities);
-            Assert.Empty(increment.Args.Events);
+            Assert.Empty(increment.Inputs);
+            Assert.Empty(increment.EventLogInputs);
             Assert.Empty(increment.Outputs);
             Assert.Empty(increment.Constants);
             Assert.Equal("effect\n", 
@@ -179,8 +179,8 @@ namespace Funes.Tests {
             var increment = await LoadIncrement(repo, result2.Value);
             Assert.Equal(result2.Value, increment.Id);
             Assert.Equal(fact.Id, increment.FactKey.EntId);
-            Assert.Equal(new List<IncrementArgs.InputEntityLink>
-                {new (eid.CreateStampKey(result1.Value), true)}, increment.Args.Entities);
+            Assert.Equal(new List<Increment.InputEntity>
+                {new (eid.CreateStampKey(result1.Value), true)}, increment.Inputs);
             Assert.Equal(new EntityId[]{eid}, increment.Outputs);
             Assert.Empty(increment.Constants);
             Assert.Equal("2", increment.FindDetail(Increment.DetailsAttempt));
@@ -194,9 +194,9 @@ namespace Funes.Tests {
             var childIncrement = await LoadIncrement(repo, childIncId);
             Assert.Equal(childIncId, childIncrement.Id);
             Assert.Equal(fact.Id, childIncrement.FactKey.EntId);
-            Assert.Equal(new List<IncrementArgs.InputEntityLink>
-                {new (stamp.Key, true)}, childIncrement.Args.Entities);
-            Assert.Equal(new EntityId[]{eid}, childIncrement.Outputs);
+            Assert.Equal(new List<Increment.InputEntity>
+                {new (stamp.Key, true)}, childIncrement.Inputs);
+            Assert.Empty(childIncrement.Outputs);
             Assert.Empty(childIncrement.Constants);
             Assert.Equal("1", childIncrement.FindDetail(Increment.DetailsAttempt));
         }
@@ -318,7 +318,7 @@ namespace Funes.Tests {
             Assert.True(loadSnapshotResult.IsOk, loadSnapshotResult.Error.ToString());
             var snapshot = new SetSnapshot(loadSnapshotResult.Value.Data);
 
-            var set = snapshot.GetSet();
+            var set = snapshot.CreateSet();
             Assert.Equal(3, set.Count);
             Assert.Contains("tagCCC", set);
             Assert.Contains("tagZZZ", set);
@@ -425,12 +425,12 @@ namespace Funes.Tests {
 
             var increment = await LoadIncrement(repo, result.Value);
 
-            Assert.Equal(new HashSet<IncrementArgs.InputEntityLink> {new (snapshotStamp.Key, false),}, 
-                new HashSet<IncrementArgs.InputEntityLink>(increment.Args.Entities));
-            Assert.Equal(new List<IncrementArgs.InputEventLink> {
+            Assert.Equal(new HashSet<Increment.InputEntity> {new (snapshotStamp.Key, false),}, 
+                new HashSet<Increment.InputEntity>(increment.Inputs));
+            Assert.Equal(new List<Increment.InputEventLog> {
                     new (recordId, firstInc, firstInc),
                 },
-                increment.Args.Events
+                increment.EventLogInputs
             );
         }
         
