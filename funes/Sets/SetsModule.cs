@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
@@ -36,59 +35,18 @@ namespace Funes.Sets {
         public static EntityId GetOffsetId(string setName) => GetDsc(setName).OffsetId;
         public static EntityId GetSnapshotId(string setName) => GetDsc(setName).SnapshotId;
 
-        public static bool IsSnapshot(EntityId eid) => 
+        public static bool IsSetSnapshot(EntityId eid) => 
             eid.Id.StartsWith("funes/sets/") && eid.Id.EndsWith("/snapshot");
+        
+        public static async ValueTask<Result<int>> UploadSetRecord(IDataEngine de, CancellationToken ct, 
+            IncrementId incId, string setName, SetRecord record, List<EntityId> outputs) {
 
-        public static int CalcSize(SetRecord rec) {
-            var size = 0;
-            foreach (var op in rec)
-                size += 2 + 2 * op.Tag.Length;
-            return size;
-        }
-
-        public static BinaryData EncodeRecord(SetRecord setRecord) {
-            var idx = 0;
-            var memory = new Memory<byte>(new byte[CalcSize(setRecord)]);
-            foreach (var op in setRecord) {
-                Utils.Binary.WriteByte(memory.Span, ref idx, (byte)op.OpKind);
-                Utils.Binary.WriteByte(memory.Span, ref idx, (byte)op.Tag.Length);
-                Utils.Binary.WriteString(memory.Span, ref idx, op.Tag);
-            }
-
-            return new BinaryData("bin", memory);
-        }
-
-        public static async ValueTask UploadSetRecords(IDataEngine de, int max,
-            IncrementId incId, Dictionary<string,SetRecord> records, List<EntityId> outputs, 
-            ArraySegment<Result<string>> results, CancellationToken ct) {
-            var uploadTasksArr = ArrayPool<ValueTask<Result<string>>>.Shared.Rent(records.Count);
-            var uploadTasks = new ArraySegment<ValueTask<Result<string>>>(uploadTasksArr, 0, records.Count);
-            try {
-                var idx = 0;
-                foreach (var pair in records)
-                    uploadTasks[idx++] = UploadSetRecord(de, ct, incId, pair.Key, pair.Value, max, outputs);
-                
-                await Utils.Tasks.WhenAll(uploadTasks, results, ct);
-            }
-            finally {
-                ArrayPool<ValueTask<Result<string>>>.Shared.Return(uploadTasksArr);
-            }
-        }
-
-        // return setName if the set needs snapshot updating
-        static async ValueTask<Result<string>> UploadSetRecord(IDataEngine de, CancellationToken ct, 
-            IncrementId incId, string setName, SetRecord record, int max, List<EntityId> outputs) {
-
-            var data = EncodeRecord(record);
+            var data = SetRecord.Builder.EncodeRecord(record);
             var evt = new Event(incId, data.Memory);
 
             var recordId = GetRecordId(setName);
             outputs.Add(recordId);
-            var result = await de.AppendEvent(recordId, evt, GetOffsetId(setName), ct);
-                
-            return result.IsOk
-                ? new Result<string>(result.Value >= max ? setName : "") 
-                : new Result<string>(result.Error); 
+            return await de.AppendEvent(recordId, evt, GetOffsetId(setName), ct);
         }
 
         private static readonly Utils.ObjectPool<StampKey[]> PremisesArr = new (() => new StampKey [1], 7);
@@ -114,7 +72,7 @@ namespace Funes.Sets {
 
             var eventLog = eventLogResult.Value;
             argsCollector.RegisterEvent(recordId, eventLog.First, eventLog.Last);
-            var reader = new SetRecordsReader(eventLog.Memory);
+            var reader = new SetRecord.Reader(eventLog.Memory);
             var newSnapshot = UpdateSnapshot(snapshot, reader);
 
             // try commit 
@@ -166,10 +124,10 @@ namespace Funes.Sets {
             var eventLog = eventLogResult.Value;
             argsCollector.RegisterEvent(recordId, eventLog.First, eventLog.Last);
 
-            return new Result<SetSnapshot>(UpdateSnapshot(snapshot, new SetRecordsReader(eventLog.Memory)));
+            return new Result<SetSnapshot>(UpdateSnapshot(snapshot, new SetRecord.Reader(eventLog.Memory)));
         }
 
-        public static SetSnapshot UpdateSnapshot(SetSnapshot snapshot, SetRecordsReader reader) {
+        public static SetSnapshot UpdateSnapshot(SetSnapshot snapshot, SetRecord.Reader reader) {
             var set = snapshot.GetSet();
             while (reader.MoveNext()) {
                 var op = reader.Current;

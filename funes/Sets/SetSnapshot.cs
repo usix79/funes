@@ -18,7 +18,7 @@ namespace Funes.Sets {
             var set = new HashSet<string>(count);
 
             while (idx < Data.Memory.Length) {
-                var charsCount = Utils.Binary.ReadByte(Data.Span, ref idx);
+                var charsCount = Utils.Binary.ReadInt32(Data.Span, ref idx);
                 var tag = charsCount > 0
                     ? Utils.Binary.ReadString(Data.Span, ref idx, charsCount)
                     : "";
@@ -31,7 +31,7 @@ namespace Funes.Sets {
         public static int CalcSize(HashSet<string> set) {
             var size = 4; // int count
             foreach (var tag in set) {
-                size += 1 + 2 * tag.Length;
+                size += 4 + tag.Length * 2;
             }
             return size;
         }
@@ -42,7 +42,7 @@ namespace Funes.Sets {
             
             Utils.Binary.WriteInt32(memory.Span, ref idx, set.Count);
             foreach (var tag in set) {
-                memory.Span[idx++] = (byte)tag.Length;
+                Utils.Binary.WriteInt32(memory.Span, ref idx, tag.Length);
                 Utils.Binary.WriteString(memory.Span, ref idx, tag);
             }
 

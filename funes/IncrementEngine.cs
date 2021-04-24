@@ -94,32 +94,22 @@ namespace Funes {
                         }
                     }
                     
+                    // todo consider start tasks in parallel
                     // TODO: DRY, consider abstract records processing for sets and indexes
-                    if (lgResult.SetRecords.Count > 0) {
-                        var uploadResultsArr = ArrayPool<Result<string>>.Shared.Rent(lgResult.SetRecords.Count);
-                        var uploadResults = new ArraySegment<Result<string>>(uploadResultsArr, 0, lgResult.SetRecords.Count);
-                        try {
-                            await SetsModule.UploadSetRecords(env.DataEngine, env.MaxEventLogSize, 
-                                builder.IncId, lgResult.SetRecords, outputs, uploadResults, ct);
-                            
-                            builder.RegisterResults(uploadResults);
+                    foreach (var setRecordPair in lgResult.SetRecords) {
+                        var uploadResult = await SetsModule.UploadSetRecord(env.DataEngine, ct, builder.IncId,
+                            setRecordPair.Key, setRecordPair.Value, outputs);
+                        
+                        builder.RegisterError(uploadResult.Error);
+                        if (uploadResult.IsOk && uploadResult.Value >= env.MaxEventLogSize) {
+                            var snapshotResult = await SetsModule.UpdateSnapshot(
+                                env.DataEngine, builder.IncId, setRecordPair.Key, args, outputs, ct);
+                            builder.RegisterResult(snapshotResult);
+                        }
 
-                            foreach (var res in uploadResults) {
-                                if (res.IsOk && !string.IsNullOrEmpty(res.Value)) {
-                                    // TODO: consider updating snapshots in parallel
-                                    var snapshotResult = await SetsModule.UpdateSnapshot(
-                                        env.DataEngine, builder.IncId, res.Value, args, outputs, ct);
-                                    builder.RegisterResult(snapshotResult);
-                                }
-                            }
-                        }
-                        finally {
-                            ArrayPool<Result<string>>.Shared.Return(uploadResultsArr);
-                        }
                     }
 
                     foreach (var idxRecordPair in lgResult.IndexRecords) {
-                        // todo consider start tasks in parallel
                         var uploadResult = await IndexesModule.UploadRecord(env.DataEngine, 
                             builder.IncId, idxRecordPair.Key, idxRecordPair.Value, outputs, ct);
                         

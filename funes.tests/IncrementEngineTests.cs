@@ -233,14 +233,14 @@ namespace Funes.Tests {
             Assert.True(cacheResult.IsOk, cacheResult.Error.ToString());
             Assert.Equal(incId, cacheResult.Value.First);
             Assert.Equal(incId, cacheResult.Value.Last);
-            var reader = new SetRecordsReader(cacheResult.Value.Memory);
+            var reader = new SetRecord.Reader(cacheResult.Value.Memory);
             Assert.True(reader.MoveNext());
             Assert.Equal(expectedOp, reader.Current);
             Assert.False(reader.MoveNext());
             
             var repoResult = await repo.Load(indexRecordId.CreateStampKey(incId), default);
             Assert.True(repoResult.IsOk, repoResult.Error.ToString());
-            reader = new SetRecordsReader(repoResult.Value.Data.Memory);
+            reader = new SetRecord.Reader(repoResult.Value.Data.Memory);
             Assert.True(reader.MoveNext());
             Assert.Equal(expectedOp, reader.Current);
             
@@ -299,7 +299,7 @@ namespace Funes.Tests {
             for (var i = 0; i < incrementIds.Length; i++) {
                 var loadEventResult = await repo.Load(tagRecordId.CreateStampKey(incrementIds[i]), default);
                 Assert.True(loadEventResult.IsOk, loadEventResult.Error.ToString());
-                var reader = new SetRecordsReader(loadEventResult.Value.Data.Memory);
+                var reader = new SetRecord.Reader(loadEventResult.Value.Data.Memory);
                 Assert.True(reader.MoveNext());
                 var cmd = commands[i];
                 var expectedOp = new SetOp(cmd.Op, cmd.Tag);
@@ -389,7 +389,7 @@ namespace Funes.Tests {
                 new (SetOp.Kind.Add, "BBB"),
                 new (SetOp.Kind.Del, "AAA")
             };
-            var recordData = SetsModule.EncodeRecord(record);
+            var recordData = SetRecord.Builder.EncodeRecord(record);
             var firstInc = new IncrementId("099");
             var evt = new Event(firstInc, recordData.Memory);
             var recordId = SetsModule.GetRecordId(setName);

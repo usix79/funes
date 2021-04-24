@@ -13,34 +13,24 @@ namespace Funes {
                 BinaryPrimitives.WriteInt32LittleEndian(span.Slice(offset, 4), val);
                 offset += 4;
             }
-
             public static int ReadInt32(ReadOnlySpan<byte> span, ref int offset) {
+                var result = BinaryPrimitives.ReadInt32LittleEndian(span.Slice(offset));
                 offset += 4;
-                return BinaryPrimitives.ReadInt32LittleEndian(span);
+                return result;
             }
-
-            public static void WriteByte(Span<byte> span, ref int offset, byte val) {
-                span[offset++] = val;
-            }
-
-            public static byte ReadByte(ReadOnlySpan<byte> span, ref int offset) {
-                return span[offset++];
-            }
-
             public static void WriteString(Span<byte> span, ref int offset, string str) {
                 offset += Encoding.Unicode.GetBytes(str, span.Slice(offset));
             }
-
             public static string ReadString(ReadOnlySpan<byte> span, ref int offset, int charsCount) {
                 var len = charsCount * 2;
                 var result = Encoding.Unicode.GetString(span.Slice(offset, len));
                 offset += len;
                 return result;
             }
-
+            
             public static int Compare(ReadOnlySpan<char> stringSpan, ReadOnlySpan<byte> binSpan) =>
                 MemoryMarshal.AsBytes(stringSpan).SequenceCompareTo(binSpan);
-
+            
             public static int CompareParts(ReadOnlySpan<char> part1, ReadOnlySpan<char> part2, ReadOnlySpan<byte> binSpan) {
                 var binPart1 = MemoryMarshal.AsBytes(part1);
                 var result = binPart1.SequenceCompareTo(binSpan.Slice(0, Math.Min(binPart1.Length, binSpan.Length)));

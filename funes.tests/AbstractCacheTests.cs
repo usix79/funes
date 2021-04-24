@@ -138,7 +138,7 @@ namespace Funes.Tests {
         private Event CreateEvent(string incIdStr, SetOp.Kind kind, string tag) {
             var incId = new IncrementId(incIdStr);
             var rec = new SetRecord {new(kind, tag)};
-            var data = SetsModule.EncodeRecord(rec);
+            var data = SetRecord.Builder.EncodeRecord(rec);
             return new Event(incId, data.Memory);
         }
         
@@ -160,10 +160,10 @@ namespace Funes.Tests {
             Assert.Equal(events[0].IncId, getResult.Value.First); 
             Assert.Equal(events[^1].IncId, getResult.Value.Last);
 
-            var reader = new SetRecordsReader(getResult.Value.Memory);
+            var reader = new SetRecord.Reader(getResult.Value.Memory);
             foreach (var evt in events) {
                 Assert.True(reader.MoveNext());
-                var singleReader = new SetRecordsReader(evt.Data);
+                var singleReader = new SetRecord.Reader(evt.Data);
                 Assert.True(singleReader.MoveNext());
                 Assert.Equal(reader.Current, singleReader.Current);
             }
@@ -195,10 +195,10 @@ namespace Funes.Tests {
             Assert.Equal(events1[0].IncId, getResult.Value.First); 
             Assert.Equal(events1[^1].IncId, getResult.Value.Last);
 
-            var reader = new SetRecordsReader(getResult.Value.Memory);
+            var reader = new SetRecord.Reader(getResult.Value.Memory);
             foreach (var evt in events1) {
                 Assert.True(reader.MoveNext());
-                var singleReader = new SetRecordsReader(evt.Data);
+                var singleReader = new SetRecord.Reader(evt.Data);
                 Assert.True(singleReader.MoveNext());
                 Assert.Equal(reader.Current, singleReader.Current);
             }
@@ -238,10 +238,10 @@ namespace Funes.Tests {
             Assert.Equal(events[0].IncId, getResult.Value.First); 
             Assert.Equal(evt2.IncId, getResult.Value.Last);
 
-            var reader = new SetRecordsReader(getResult.Value.Memory);
+            var reader = new SetRecord.Reader(getResult.Value.Memory);
             foreach (var evt in events.Append(evt1).Append(evt2)) {
                 Assert.True(reader.MoveNext());
-                var singleReader = new SetRecordsReader(evt.Data);
+                var singleReader = new SetRecord.Reader(evt.Data);
                 Assert.True(singleReader.MoveNext());
                 Assert.Equal(reader.Current, singleReader.Current);
             }
@@ -268,9 +268,9 @@ namespace Funes.Tests {
             Assert.Equal(events[^1].IncId, getResult.Value.First); 
             Assert.Equal(events[^1].IncId, getResult.Value.Last);
 
-            var reader = new SetRecordsReader(getResult.Value.Memory);
+            var reader = new SetRecord.Reader(getResult.Value.Memory);
             Assert.True(reader.MoveNext());
-            var singleReader = new SetRecordsReader(events[^1].Data);
+            var singleReader = new SetRecord.Reader(events[^1].Data);
             Assert.True(singleReader.MoveNext());
             Assert.Equal(reader.Current, singleReader.Current);
         }

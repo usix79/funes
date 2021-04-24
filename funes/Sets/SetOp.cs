@@ -3,7 +3,7 @@ using System;
 namespace Funes.Sets {
     
     public readonly struct SetOp : IEquatable<SetOp> {
-        public enum Kind : byte { Unknown = 0, Add = 1, Del = 2, Clear = 3, ReplaceWith = 4, }
+        public enum Kind { Unknown = 0, Add = 1, Del = 2, Clear = 3, ReplaceWith = 4, }
 
         public Kind OpKind { get; }
         public string Tag { get; }
