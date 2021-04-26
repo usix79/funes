@@ -9,10 +9,8 @@ using Funes.Sets;
 
 namespace Funes {
     public static class IncrementEngine<TModel,TMsg,TSideEffect> {
-        
         public static async Task<Result<IncrementId>> Run(
             IncrementEngineEnv<TModel,TMsg,TSideEffect> env, EntityEntry fact, CancellationToken ct = default) {
-            
             try {
                 for(var attempt = 1; attempt <= env.MaxAttempts; attempt++){
                     var start = env.ElapsedMilliseconds;
@@ -118,28 +116,6 @@ namespace Funes {
                     : Result<Increment>.IncrementError(increment, error);
             }
 
-            async ValueTask<Result<Void>> ProcessSetRecord(DataContext context, IncrementId incId,
-                string setName, SetRecord record) {
-                var uploadResult = await SetsModule.UploadSetRecord(context, ct, incId, setName, record);
-
-                if (uploadResult.IsError) return new Result<Void>(uploadResult.Error);
-
-                return uploadResult.Value >= env.MaxEventLogSize
-                    ? await SetsModule.UpdateSnapshot(context, ct, incId, setName)
-                    : new Result<Void>(Void.Value);
-            }
-            
-            async ValueTask<Result<Void>> ProcessIndexRecord(DataContext context, IncrementId incId,
-                string indexName, IndexRecord record) {
-                var uploadResult = await IndexesModule.UploadRecord(context, ct, incId, indexName, record);
-
-                if (uploadResult.IsError) return new Result<Void>(uploadResult.Error);
-
-                return uploadResult.Value >= env.MaxEventLogSize
-                    ? await IndexesModule.UpdateIndex(env.Logger, context, ct, incId, indexName, env.MaxEventLogSize)
-                    : new Result<Void>(Void.Value);
-            }
-
             async ValueTask<Result<Void>> TryCommit(
                 DataContext context, IncrementId incId, Dictionary<EntityId, Entity> outputs) {
 
@@ -163,20 +139,40 @@ namespace Funes {
                     ArrayPool<EntityId>.Shared.Return(conclusionsArr);
                 }
             }
-            
-            
-            static string DescribeSideEffects(List<TSideEffect> sideEffects) {
-                var txt = new StringBuilder();
-                foreach (var effect in sideEffects)
-                    if (effect != null) txt.AppendLine(effect.ToString());
-                return txt.ToString();
-            }
 
+            async ValueTask<Result<Void>> ProcessSetRecord(DataContext context, IncrementId incId,
+                string setName, SetRecord record) {
+                var uploadResult = await SetsModule.UploadSetRecord(context, ct, incId, setName, record);
+
+                if (uploadResult.IsError) return new Result<Void>(uploadResult.Error);
+
+                return uploadResult.Value >= env.MaxEventLogSize
+                    ? await SetsModule.UpdateSnapshot(context, ct, incId, setName)
+                    : new Result<Void>(Void.Value);
+            }
+            
+            async ValueTask<Result<Void>> ProcessIndexRecord(DataContext context, IncrementId incId,
+                string indexName, IndexRecord record) {
+                var uploadResult = await IndexesModule.UploadRecord(context, ct, incId, indexName, record);
+
+                if (uploadResult.IsError) return new Result<Void>(uploadResult.Error);
+
+                return uploadResult.Value >= env.MaxEventLogSize
+                    ? await IndexesModule.UpdateIndex(env.Logger, context, ct, incId, indexName, env.MaxEventLogSize)
+                    : new Result<Void>(Void.Value);
+            }
+            
             void LogError(IncrementId incId, string kind, Error? err = null) =>
                 env.Logger.FunesError("IncrementEngine", kind, incId, err??Error.No);
 
             void LogException(IncrementId incId, string kind, Exception exn) =>
                 env.Logger.FunesException("IncrementEngine", kind, incId, exn);
+        }
+        static string DescribeSideEffects(List<TSideEffect> sideEffects) {
+            var txt = new StringBuilder();
+            foreach (var effect in sideEffects)
+                if (effect != null) txt.AppendLine(effect.ToString());
+            return txt.ToString();
         }
     }
 }

@@ -74,7 +74,7 @@ namespace Funes.Indexes {
             if (eventLogResult.IsError) return new Result<Void>(eventLogResult.Error);
             var eventLog = eventLogResult.Value;
 
-            var rebuildResult = await RebuildIndex(logger, context, indexName, offset, eventLog, maxItemsOnPage, ct);
+            var rebuildResult = await BuildIndex(logger, context, indexName, offset, eventLog, maxItemsOnPage, ct);
             if (rebuildResult.IsError) return new Result<Void>(rebuildResult.Error);
             
             // try commit
@@ -101,7 +101,7 @@ namespace Funes.Indexes {
                 foreach (var indexPage in rebuildResult.Value.Pages)
                     tasksArr[idx++] = context.UploadBinary(indexPage.CreateStamp(incId), ct);
                 foreach (var indexKey in rebuildResult.Value.Keys)
-                    tasksArr[idx++] = context.UploadBinary(indexKey.CreateStamp(incId), ct);
+                    tasksArr[idx++] = context.UploadBinary(indexKey.Value.CreateStamp(incId), ct);
 
                 var tasks = new ArraySegment<ValueTask<Result<Void>>>(tasksArr, 0, idx);
                 var results = new ArraySegment<Result<Void>>(resultsArr, 0, idx);
@@ -141,7 +141,7 @@ namespace Funes.Indexes {
             public PageOp(IndexPage page, Kind op, int idx, string key, string value) =>
                 (Page, Idx, Op, Key, Value) = (page, idx, op, key, value);
 
-            public enum Kind {Unknown = 0, RemoveAt = 1, InsertAt = 2, ReplaceAt = 3};
+            public enum Kind {Unknown = 0, InsertAt = 1, ReplaceAt = 2, RemoveAt = 3};
             public IndexPage Page { get; }
             public int Idx { get; }
             public Kind Op { get; }
@@ -286,7 +286,7 @@ namespace Funes.Indexes {
 
         public readonly struct RebuildIndexResult {
             public List<IndexPage> Pages { get; init; }
-            public List<IndexKey> Keys { get; init; }
+            public Dictionary<string, IndexKey> Keys { get; init; }
 
             public int TotalItems => Pages.Count + Keys.Count;
 
@@ -294,7 +294,7 @@ namespace Funes.Indexes {
                 new RebuildIndexResult {Pages = new(), Keys = new()};
         }
 
-        public static async ValueTask<Result<RebuildIndexResult>> RebuildIndex(ILogger logger, IDataSource ds, 
+        public static async ValueTask<Result<RebuildIndexResult>> BuildIndex(ILogger logger, IDataSource ds, 
             string idxName, EventOffset offset, EventLog log, int maxItemsOnPage, CancellationToken ct) {
 
             var parents = new Dictionary<EntityId, IndexPage>();
@@ -341,20 +341,20 @@ namespace Funes.Indexes {
                             IndexPageHelpers.AppendItem(curMemory.Span, op.Key, op.Value);
                             curPageIdx = op.Idx;
                             if (curPage.PageKind == IndexPage.Kind.Page)
-                                result.Keys.Add(IndexKeyHelpers.CreateKey(GetKeyId(idxName, op.Key), op.Value));
+                                result.Keys[op.Key] = IndexKeyHelpers.CreateKey(GetKeyId(idxName, op.Key), op.Value);
                             break;
                         case PageOp.Kind.RemoveAt:
                             IndexPageHelpers.CopyItems(curMemory.Span, op.Page, curPageIdx, op.Idx);
                             curPageIdx = op.Idx + 1; // skip item at index
                             if (curPage.PageKind == IndexPage.Kind.Page)
-                                result.Keys.Add(IndexKeyHelpers.CreateKey(GetKeyId(idxName, op.Key), ""));
+                                result.Keys[op.Key] = IndexKeyHelpers.CreateKey(GetKeyId(idxName, op.Key), "");
                             break;
                         case PageOp.Kind.ReplaceAt:
                             IndexPageHelpers.CopyItems(curMemory.Span, op.Page, curPageIdx, op.Idx);
                             IndexPageHelpers.AppendItem(curMemory.Span, op.Key, op.Value);
                             curPageIdx = op.Idx + 1; // skip item at index
                             if (curPage.PageKind == IndexPage.Kind.Page)
-                                result.Keys.Add(IndexKeyHelpers.CreateKey(GetKeyId(idxName, op.Key), op.Value));
+                                result.Keys[op.Key] = IndexKeyHelpers.CreateKey(GetKeyId(idxName, op.Key), op.Value);
                             break;
                         default:
                             throw new NotSupportedException();

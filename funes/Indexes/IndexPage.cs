@@ -23,16 +23,8 @@ namespace Funes.Indexes {
         public string GetValueForParent() => ItemsCount > 0 ? GetValueAt(0) + GetKeyAt(0) : "";
         
         public int GetIndexForInsertion(string key, string value) {
-            var searchResult = BinarySearch(this, value);
-            if (searchResult < 0) return ~searchResult;
-            
-            var idx = searchResult;
-            while (idx < ItemsCount) {
-                if (CompareWithValue(this, idx, value) != 0) return idx;
-                if (CompareWithKey(this, idx, key) > 0) return idx;
-                idx++;
-            }
-            return ItemsCount;
+            var searchResult = BinarySearchPair(this, key, value);
+            return searchResult < 0 ? ~searchResult : searchResult;
         }
 
         public int GetIndexOfChildPage(string key, string value) {
@@ -41,16 +33,10 @@ namespace Funes.Indexes {
         }
 
         public Result<int> FindIndexOfPair(string key, string value) {
-            var searchResult = BinarySearch(this, value);
-            if (searchResult < 0) return Result<int>.NotFound;
-
-            var idx = searchResult;
-            while (idx < ItemsCount) {
-                if (CompareWithValue(this, idx, value) != 0) return Result<int>.NotFound;
-                if (CompareWithKey(this, idx, key) == 0) return new Result<int>(idx);
-                idx++;
-            }
-            return Result<int>.NotFound;
+            var searchResult = BinarySearchPair(this, key, value);
+            return searchResult < 0
+                ? Result<int>.NotFound
+                : new Result<int>(searchResult);
         }
         
         public Result<int> FindIndexOfChild(EntityId childId, string childValue) {
@@ -77,38 +63,38 @@ namespace Funes.Indexes {
         private static int GetCurrentSize(ReadOnlySpan<byte> span) =>
             GetItemOffset(span, GetItemsCount(span));
 
+        public static ReadOnlySpan<byte> GetKeySpan(in IndexPage page, int itemIdx) {
+            var itemOffset = GetItemOffset(page.Span, itemIdx);
+            var valueLength = BinaryPrimitives.ReadInt32LittleEndian(page.Span.Slice(itemOffset));
+            var keyLength = BinaryPrimitives.ReadInt32LittleEndian(page.Span.Slice(itemOffset+4));
+            var keyOffset = itemOffset + 8 + valueLength * 2;
+            return page.Span.Slice(keyOffset, keyLength * 2);
+        }
+
         public static ReadOnlySpan<byte> GetValueSpan(in IndexPage page, int itemIdx) {
             var itemOffset = GetItemOffset(page.Span, itemIdx);
-            var keyLength = BinaryPrimitives.ReadInt32LittleEndian(page.Span.Slice(itemOffset));
-            var valueLength = BinaryPrimitives.ReadInt32LittleEndian(page.Span.Slice(itemOffset+4));
-            var valueOffset = itemOffset + 8 + keyLength * 2;
+            var valueLength = BinaryPrimitives.ReadInt32LittleEndian(page.Span.Slice(itemOffset));
+            var valueOffset = itemOffset + 8;
             return page.Span.Slice(valueOffset, valueLength * 2);
         }
 
-        public static ReadOnlySpan<byte> GetKeySpan(in IndexPage page, int itemIdx) {
+        public static ReadOnlySpan<byte> GetValueKeySpan(in IndexPage page, int itemIdx) {
             var itemOffset = GetItemOffset(page.Span, itemIdx);
-            var keyLength = BinaryPrimitives.ReadInt32LittleEndian(page.Span.Slice(itemOffset));
-            var keyOffset = itemOffset + 8;
-            return page.Span.Slice(keyOffset, keyLength * 2);
+            var valueLength = BinaryPrimitives.ReadInt32LittleEndian(page.Span.Slice(itemOffset));
+            var keyLength = BinaryPrimitives.ReadInt32LittleEndian(page.Span.Slice(itemOffset+4));
+            return page.Span.Slice(itemOffset + 8, (valueLength+keyLength) * 2);
         }
 
         public static IndexPage CreateIndexPage(EntityId id, ReadOnlyMemory<byte> memory) =>
             new (id, new BinaryData("bin", memory.Slice(0, GetCurrentSize(memory.Span))));
         
-        public static int CompareWithValue(in IndexPage page, int itemIdx, string strToCompare) =>
-            Utils.Binary.Compare(strToCompare, GetValueSpan(page, itemIdx));
-        
-        public static int CompareWithKey(in IndexPage page, int itemIdx, string key) =>
-            Utils.Binary.Compare(key, GetValueSpan(page, itemIdx));
-
-
-        public static int BinarySearch(in IndexPage page, string value) {
+        public static int BinarySearchPair(in IndexPage page, string key, string value) {
             var start = 0;
             var end = page.ItemsCount - 1;
             while (start <= end) {
                 var mid = start + ((end - start) >> 1);
-                var result = CompareWithValue(page, mid, value);
-                
+                var result = Utils.Binary.CompareParts(value, key, GetValueKeySpan(page, mid)); 
+
                 if (result == 0)
                     return mid;
 
@@ -121,7 +107,7 @@ namespace Funes.Indexes {
             }
             return ~start;
         }
-        
+
         public static int BinarySearchInTable(in IndexPage page, string key, string value) {
             var start = 0;
             var end = page.ItemsCount - 1;
@@ -174,10 +160,10 @@ namespace Funes.Indexes {
         public static void AppendItem(Span<byte> span, string key, string value) {
             var offset = GetCurrentSize(span);
             
-            Utils.Binary.WriteInt32(span, ref offset, key.Length);
             Utils.Binary.WriteInt32(span, ref offset, value.Length);
-            Utils.Binary.WriteString(span, ref offset, key);
+            Utils.Binary.WriteInt32(span, ref offset, key.Length);
             Utils.Binary.WriteString(span, ref offset, value);
+            Utils.Binary.WriteString(span, ref offset, key);
             
             var count = GetItemsCount(span);
             SetItemsCount(span, count + 1);
@@ -185,6 +171,8 @@ namespace Funes.Indexes {
         }
 
         public static void CopyItems(Span<byte> span, in IndexPage page, int idxFrom, int idxTo) {
+            if (idxFrom >= idxTo) return;
+            
             var count = GetItemsCount(span);
             var appendOffset = GetCurrentSize(span);
             
@@ -199,7 +187,7 @@ namespace Funes.Indexes {
             // update offsets
             for (var idx = idxFrom; idx <= idxTo; idx++) {
                 var offset = GetItemOffset(page.Span, idx);
-                SetItemOffset(span, count + idx, appendOffset + (offset - startOffset));
+                SetItemOffset(span, count + idx - idxFrom, appendOffset + (offset - startOffset));
             }
         }
 
