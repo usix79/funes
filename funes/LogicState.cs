@@ -2,14 +2,13 @@ using System.Buffers;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Funes.Sets;
 
 namespace Funes {
     
     public class LogicState<TMsg, TSideEffect> {
         public Queue<TMsg> PendingMessages { get; } = new ();
-        public LinkedList<Cmd<TMsg, TSideEffect>> PendingCommands = new ();
-        public Dictionary<EntityId, Task> PendingTasks = new();
+        public LinkedList<Cmd<TMsg, TSideEffect>> PendingCommands { get; } = new ();
+        public Dictionary<EntityId, Task> PendingTasks { get; } = new();
 
         public void Reset() {
             PendingMessages.Clear();
@@ -18,7 +17,6 @@ namespace Funes {
         }
 
         public bool InProcessing => PendingMessages.Count > 0 || PendingCommands.First != null;
-
         public bool ShouldWait => PendingMessages.Count == 0 && PendingCommands.First != null;
         
         public async Task WhenAnyPendingTasks(CancellationToken ct) {

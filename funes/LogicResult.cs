@@ -7,6 +7,7 @@ namespace Funes {
         public Dictionary<EntityId, Entity> Entities { get; } = new ();
         public Dictionary<string, SetRecord> SetRecords { get; } = new();
         public Dictionary<string, IndexRecord> IndexRecords { get; } = new();
+        public int TotalCount => Entities.Count + SetRecords.Count + IndexRecords.Count;
         public List<TSideEffect> SideEffects { get; } = new ();
         public List<KeyValuePair<string, string>> Constants { get; } = new ();
     }

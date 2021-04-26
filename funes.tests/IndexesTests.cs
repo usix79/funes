@@ -118,8 +118,9 @@ namespace Funes.Tests {
             };
             var recordData = IndexRecord.Builder.EncodeRecord(record);
             var eventLog = new EventLog(IncrementId.None, IncrementId.None, recordData.Memory);
+            var eventOffset = new EventOffset(BinaryData.Empty);
 
-            var updateResult = await IndexesModule.UpdateIndex(logger, ds, idxName, eventLog, 10, default);
+            var updateResult = await IndexesModule.RebuildIndex(logger, ds, idxName, eventOffset, eventLog,10, default);
             Assert.True(updateResult.IsOk, updateResult.Error.ToString());
 
             var newPages = updateResult.Value.Pages;

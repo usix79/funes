@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
@@ -54,6 +55,86 @@ namespace Funes.Indexes {
             var result = await context.AppendEvent(recordId, evt, GetOffsetId(indexName), ct);
                 
             return result.IsOk ? new Result<int>(result.Value) : new Result<int>(result.Error); 
+        }
+
+        
+        private static readonly Utils.ObjectPool<StampKey[]> PremisesArr = new (() => new StampKey [1], 7);
+        private static readonly Utils.ObjectPool<EntityId[]> ConclusionsArr = new (() => new EntityId [1], 7);
+
+        public static async Task<Result<Void>> UpdateIndex(ILogger logger, DataContext context, CancellationToken ct,
+            IncrementId incId, string indexName, int maxItemsOnPage) {
+            
+            var offsetId = GetOffsetId(indexName);
+            var offsetResult = await context.Retrieve(offsetId, ct);
+            if (offsetResult.IsError) return new Result<Void>(offsetResult.Error);
+            var offset = new EventOffset(offsetResult.Value.Data);
+
+            var recordId = GetRecordId(indexName);
+            var eventLogResult = await context.RetrieveEventLog(recordId, offsetId, ct);
+            if (eventLogResult.IsError) return new Result<Void>(eventLogResult.Error);
+            var eventLog = eventLogResult.Value;
+
+            var rebuildResult = await RebuildIndex(logger, context, indexName, offset, eventLog, maxItemsOnPage, ct);
+            if (rebuildResult.IsError) return new Result<Void>(rebuildResult.Error);
+            
+            // try commit
+            var premises = PremisesArr.Rent();
+            var conclusions = ConclusionsArr.Rent();
+            try {
+                premises[0] = offsetResult.Value.Key;
+                conclusions[0] = offsetId;
+                var commitResult = await context.TryCommit(premises, conclusions, incId, ct);
+
+                if (commitResult.IsError)
+                    return new Result<Void>(commitResult.Error);
+            }
+            finally {
+                PremisesArr.Return(premises);
+                ConclusionsArr.Return(conclusions);
+            }
+            
+            // upload
+            var tasksArr = ArrayPool<ValueTask<Result<Void>>>.Shared.Rent(rebuildResult.Value.TotalItems);
+            var resultsArr = ArrayPool<Result<Void>>.Shared.Rent(rebuildResult.Value.TotalItems);
+            try {
+                var idx = 0;
+                foreach (var indexPage in rebuildResult.Value.Pages)
+                    tasksArr[idx++] = context.UploadBinary(indexPage.CreateStamp(incId), ct);
+                foreach (var indexKey in rebuildResult.Value.Keys)
+                    tasksArr[idx++] = context.UploadBinary(indexKey.CreateStamp(incId), ct);
+
+                var tasks = new ArraySegment<ValueTask<Result<Void>>>(tasksArr, 0, idx);
+                var results = new ArraySegment<Result<Void>>(resultsArr, 0, idx);
+                await Utils.Tasks.WhenAll(tasks, results, ct);
+
+                var errorsCount = 0;
+                foreach(var result in results)
+                    if (result.IsError)
+                        errorsCount++;
+
+                if (errorsCount > 0) {
+                    var errors = new Error[errorsCount];
+                    var errorIdx = 0;
+                    foreach(var result in results)
+                        if (result.IsError)
+                            errors[errorIdx++] = result.Error;
+
+                    return Result<Void>.AggregateError(errors); 
+                }
+            }
+            finally {
+                ArrayPool<ValueTask<Result<Void>>>.Shared.Return(tasksArr);
+                ArrayPool<Result<Void>>.Shared.Return(resultsArr);
+            }
+
+            var newOffset = offset.NextGen(eventLog.Last);
+            var uploadOffsetResult = await context.UploadBinary(newOffset.CreateStamp(offsetId, incId), ct);
+            if (uploadOffsetResult.IsError) return new Result<Void>(uploadOffsetResult.Error);
+
+            var truncateResult = await context.TruncateEvents(recordId, eventLog.Last, ct);
+            if (truncateResult.IsError) return new Result<Void>(truncateResult.Error);
+
+            return new Result<Void>(Void.Value);
         }
 
         public readonly struct PageOp : IComparable<PageOp> {
@@ -203,29 +284,29 @@ namespace Funes.Indexes {
             }
         }
 
-        public readonly struct UpdateIndexResult {
+        public readonly struct RebuildIndexResult {
             public List<IndexPage> Pages { get; init; }
             public List<IndexKey> Keys { get; init; }
 
-            public static UpdateIndexResult CreateNew() =>
-                new  UpdateIndexResult {Pages = new(), Keys = new()};
+            public int TotalItems => Pages.Count + Keys.Count;
+
+            public static RebuildIndexResult CreateNew() =>
+                new RebuildIndexResult {Pages = new(), Keys = new()};
         }
 
-        public static async ValueTask<Result<UpdateIndexResult>> UpdateIndex(
-            ILogger logger, IDataSource ds, string idxName, EventLog log, int maxItemsOnPage, CancellationToken ct) {
+        public static async ValueTask<Result<RebuildIndexResult>> RebuildIndex(ILogger logger, IDataSource ds, 
+            string idxName, EventOffset offset, EventLog log, int maxItemsOnPage, CancellationToken ct) {
 
             var parents = new Dictionary<EntityId, IndexPage>();
             var rootId = GetRootId(idxName);
             
             var pageOpsRes = await PreparePageOps(logger, ds, idxName, log, parents, ct);
-            if (pageOpsRes.IsError) return new Result<UpdateIndexResult>(pageOpsRes.Error);
+            if (pageOpsRes.IsError) return new Result<RebuildIndexResult>(pageOpsRes.Error);
 
-            var offsetRes = await RetrieveIndexOffset(idxName, ds, ct); 
-            if (offsetRes.IsError) return new Result<UpdateIndexResult>(offsetRes.Error);
-            var genNum = offsetRes.Value.Gen.ToString();
+            var genNum = offset.Gen.ToString();
             var createdPagesCount = 0;
 
-            var result = UpdateIndexResult.CreateNew();
+            var result = RebuildIndexResult.CreateNew();
 
             var pageOps = pageOpsRes.Value;
             while (pageOps.Count > 0) {
@@ -233,7 +314,7 @@ namespace Funes.Indexes {
                 pageOps = UpdatePages(pageOps);
             }
 
-            return new Result<UpdateIndexResult>(result);
+            return new Result<RebuildIndexResult>(result);
 
             EntityId GetNewPageId() => 
                 GetPageId(idxName, genNum + (- ++createdPagesCount).ToString("d4"));

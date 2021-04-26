@@ -59,6 +59,8 @@ namespace Funes.Indexes {
             return new Result<int>(searchResult);
         }
 
+        public BinaryStamp CreateStamp(IncrementId incId) =>
+            new (Id.CreateStampKey(incId), Data);
     }
     
     public static class IndexPageHelpers {

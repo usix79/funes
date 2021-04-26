@@ -81,39 +81,26 @@ namespace Funes {
                 builder.RegisterCommitResult(commitResult, env.ElapsedMilliseconds);
 
                 if (commitResult.IsOk) {
-                    if (lgResult.Entities.Count > 0) {
-                        var uploadResultsArr = ArrayPool<Result<Void>>.Shared.Rent(lgResult.Entities.Count);
-                        try {
-                            var uploadResults = new ArraySegment<Result<Void>>(uploadResultsArr, 0, lgResult.Entities.Count);
-                            await UploadOutputs(context, builder.IncId, lgResult.Entities, uploadResults);
-                            builder.RegisterResults(uploadResults);
-                        }
-                        finally {
-                            ArrayPool<Result<Void>>.Shared.Return(uploadResultsArr);
-                        }
-                    }
-                    
-                    // todo consider start tasks in parallel
-                    // TODO: DRY, consider abstract records processing for sets and indexes
-                    foreach (var setRecordPair in lgResult.SetRecords) {
-                        var uploadResult = await SetsModule.UploadSetRecord(context, ct, 
-                            builder.IncId, setRecordPair.Key, setRecordPair.Value);
+                    var tasksArr = ArrayPool<ValueTask<Result<Void>>>.Shared.Rent(lgResult.TotalCount);
+                    var resultsArr = ArrayPool<Result<Void>>.Shared.Rent(lgResult.TotalCount);
+                    try {
+                        var idx = 0;
+                        foreach (var pair in lgResult.Entities)
+                            tasksArr[idx++] = context.Upload(pair.Value, builder.IncId, ct);
+                        foreach (var pair in lgResult.SetRecords)
+                            tasksArr[idx++] = ProcessSetRecord(context, builder.IncId, pair.Key, pair.Value);
+                        foreach (var pair in lgResult.IndexRecords)
+                            tasksArr[idx++] = ProcessIndexRecord(context, builder.IncId, pair.Key, pair.Value);
                         
-                        builder.RegisterError(uploadResult.Error);
-                        if (uploadResult.IsOk && uploadResult.Value >= env.MaxEventLogSize) {
-                            var snapshotResult = await SetsModule.UpdateSnapshot(context, ct, builder.IncId, setRecordPair.Key);
-                            builder.RegisterResult(snapshotResult);
-                        }
+                        var tasks = new ArraySegment<ValueTask<Result<Void>>>(tasksArr, 0, idx);
+                        var results = new ArraySegment<Result<Void>>(resultsArr, 0, idx);
+                        await Utils.Tasks.WhenAll(tasks, results, ct);
+                        foreach(var result in results)
+                            builder.RegisterResult(result);
                     }
-
-                    foreach (var idxRecordPair in lgResult.IndexRecords) {
-                        var uploadResult = await IndexesModule.UploadRecord(
-                            context, ct, builder.IncId, idxRecordPair.Key, idxRecordPair.Value);
-                        
-                        builder.RegisterError(uploadResult.Error);
-                        if (uploadResult.IsOk && uploadResult.Value >= env.MaxEventLogSize) {
-                                // TODO: rebuild indexes
-                        }
+                    finally {
+                        ArrayPool<ValueTask<Result<Void>>>.Shared.Return(tasksArr);
+                        ArrayPool<Result<Void>>.Shared.Return(resultsArr);
                     }
                 }
 
@@ -129,6 +116,28 @@ namespace Funes {
                 return error == Error.No
                     ? new Result<Increment>(increment)
                     : Result<Increment>.IncrementError(increment, error);
+            }
+
+            async ValueTask<Result<Void>> ProcessSetRecord(DataContext context, IncrementId incId,
+                string setName, SetRecord record) {
+                var uploadResult = await SetsModule.UploadSetRecord(context, ct, incId, setName, record);
+
+                if (uploadResult.IsError) return new Result<Void>(uploadResult.Error);
+
+                return uploadResult.Value >= env.MaxEventLogSize
+                    ? await SetsModule.UpdateSnapshot(context, ct, incId, setName)
+                    : new Result<Void>(Void.Value);
+            }
+            
+            async ValueTask<Result<Void>> ProcessIndexRecord(DataContext context, IncrementId incId,
+                string indexName, IndexRecord record) {
+                var uploadResult = await IndexesModule.UploadRecord(context, ct, incId, indexName, record);
+
+                if (uploadResult.IsError) return new Result<Void>(uploadResult.Error);
+
+                return uploadResult.Value >= env.MaxEventLogSize
+                    ? await IndexesModule.UpdateIndex(env.Logger, context, ct, incId, indexName, env.MaxEventLogSize)
+                    : new Result<Void>(Void.Value);
             }
 
             async ValueTask<Result<Void>> TryCommit(
@@ -155,22 +164,6 @@ namespace Funes {
                 }
             }
             
-            async ValueTask UploadOutputs(DataContext context, IncrementId incId, 
-                Dictionary<EntityId,Entity> outputs, ArraySegment<Result<Void>> results) {
-                
-                var uploadTasksArr = ArrayPool<ValueTask<Result<Void>>>.Shared.Rent(outputs.Count);
-                var uploadTasks = new ArraySegment<ValueTask<Result<Void>>>(uploadTasksArr, 0, outputs.Count);
-                try {
-                    var idx = 0;
-                    foreach (var outputEntity in outputs.Values)
-                        uploadTasks[idx++] = context.Upload(outputEntity, incId, ct); 
-
-                    await Utils.Tasks.WhenAll(uploadTasks, results, ct);
-                }
-                finally {
-                    ArrayPool<ValueTask<Result<Void>>>.Shared.Return(uploadTasksArr);
-                }
-            }
             
             static string DescribeSideEffects(List<TSideEffect> sideEffects) {
                 var txt = new StringBuilder();

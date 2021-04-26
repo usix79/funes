@@ -64,16 +64,7 @@ namespace Funes {
                 }
             }
         }
-
-        public void RegisterResults(ArraySegment<Result<string>> results) {
-            foreach (var result in results) {
-                if (result.IsError) {
-                    _errors ??= new List<Error>();
-                    _errors.Add(result.Error);
-                }
-            }
-        }
-
+        
         public void DescribeSideEffects(string txt) => AppendDetails(Increment.DetailsSideEffects, txt);
         
         public Error GetError() {
