@@ -23,24 +23,24 @@ namespace Funes.Indexes {
         public string GetValueForParent() => ItemsCount > 0 ? GetValueAt(0) + GetKeyAt(0) : "";
         
         public int GetIndexForInsertion(string key, string value) {
-            var searchResult = BinarySearchPair(this, key, value);
+            var searchResult = SearchByKeyAndValue(this, key, value);
             return searchResult < 0 ? ~searchResult : searchResult;
         }
 
         public int GetIndexOfChildPage(string key, string value) {
-            var searchResult = BinarySearchInTable(this, key, value);
+            var searchResult = SearchByValueParts(this, value, key);
             return searchResult > 0 ? searchResult : ~searchResult - 1;
         }
 
         public Result<int> FindIndexOfPair(string key, string value) {
-            var searchResult = BinarySearchPair(this, key, value);
+            var searchResult = SearchByKeyAndValue(this, key, value);
             return searchResult < 0
                 ? Result<int>.NotFound
                 : new Result<int>(searchResult);
         }
         
         public Result<int> FindIndexOfChild(EntityId childId, string childValue) {
-            var searchResult = BinarySearchInTable(this, childId.GetName(), childValue);
+            var searchResult = SearchByKeyAndValue(this, childId.GetName(), childValue);
             if (searchResult < 0) return Result<int>.NotFound;
             return new Result<int>(searchResult);
         }
@@ -88,7 +88,7 @@ namespace Funes.Indexes {
         public static IndexPage CreateIndexPage(EntityId id, ReadOnlyMemory<byte> memory) =>
             new (id, new BinaryData("bin", memory.Slice(0, GetCurrentSize(memory.Span))));
         
-        public static int BinarySearchPair(in IndexPage page, string key, string value) {
+        public static int SearchByKeyAndValue(in IndexPage page, string key, string value) {
             var start = 0;
             var end = page.ItemsCount - 1;
             while (start <= end) {
@@ -108,12 +108,12 @@ namespace Funes.Indexes {
             return ~start;
         }
 
-        public static int BinarySearchInTable(in IndexPage page, string key, string value) {
+        public static int SearchByValueParts(in IndexPage page, string part1, string part2) {
             var start = 0;
             var end = page.ItemsCount - 1;
             while (start <= end) {
                 var mid = start + ((end - start) >> 1);
-                var result = Utils.Binary.CompareParts(value, key, GetValueSpan(page, mid)); 
+                var result = Utils.Binary.CompareParts(part1, part2, GetValueSpan(page, mid)); 
 
                 if (result == 0)
                     return mid;
@@ -136,7 +136,16 @@ namespace Funes.Indexes {
             return new BinaryData("bin", memory);
         }
 
+        private static BinaryData CreateEmptyRootPageData() {
+            var memory = new Memory<byte>(new byte[SizeOfEmptyPage + CalcPageItemSize("", "")]);
+            WriteHead(memory.Span, IndexPage.Kind.Page, 1);
+            AppendItem(memory.Span, "", "");
+            return new BinaryData("bin", memory);
+        }
+
         public static BinaryData EmptyPageData = CreateEmptyPageData();
+
+        public static BinaryData EmptyRootData = CreateEmptyRootPageData();
 
         public static IndexPage EmptyPage = new (EntityId.None, EmptyPageData);
 
@@ -199,7 +208,8 @@ namespace Funes.Indexes {
             var newPageItemsCount = (itemsCount - splitItemIdx);
             var size = SizeOfEmptyPage + 4 * newPageItemsCount + (memory.Length - splitItemOffset);
             var newMemory = new Memory<byte>(new byte[size]);
-            WriteHead(memory.Span, kind, itemsCount - splitItemIdx);
+            WriteHead(newMemory.Span, kind, newPageItemsCount);
+            SetItemsCount(newMemory.Span, newPageItemsCount);
             var firstItemOffset = GetItemOffset(newMemory.Span, 0);
             for (var idx = splitItemIdx; idx <= itemsCount; idx++) {
                 var offset = GetItemOffset(memory.Span, idx);

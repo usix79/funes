@@ -11,6 +11,7 @@ namespace Funes.Tests {
         private static readonly Random Rand = new Random(DateTime.Now.Millisecond);
         private static readonly ISerializer SimpleSerializer = new SimpleSerializer<Simple>();
 
+        public static int RandomInt(int max) => Rand.Next(max);
         public static string RandomString(int length) =>
             string.Create(length, length, (span, n) => {
                 for (var i = 0; i < n; i++) {

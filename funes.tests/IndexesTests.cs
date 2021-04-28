@@ -1,10 +1,13 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 using Funes.Impl;
 using Funes.Indexes;
 using Microsoft.Extensions.Logging;
-using NuGet.Frameworks;
 using Xunit;
 using Xunit.Abstractions;
+using static Funes.Tests.TestHelpers;
 
 namespace Funes.Tests {
     public class IndexesTests {
@@ -110,7 +113,6 @@ namespace Funes.Tests {
                 Assert.Equal(value, page.GetValueAt(i));
             }
         }
-
         
         [Fact]
         public async void AddingFirstIndex() {
@@ -118,17 +120,11 @@ namespace Funes.Tests {
             var ds = new DataContext(de, new SimpleSerializer<Simple>());
 
             var idxName = "testIdx";
-            var key = "key1";
-            var val = "value1";
-            
-            var record = new IndexRecord {
-                new (IndexOp.Kind.Update, key, val)
-            };
-            var recordData = IndexRecord.Builder.EncodeRecord(record);
-            var eventLog = new EventLog(IncrementId.None, IncrementId.None, recordData.Memory);
+            var testSet = new IndexesTestSet();
+            var eventLog = testSet.ProcessOps(new IndexOp(IndexOp.Kind.Update, "key1", "value1"));
             var eventOffset = new EventOffset(BinaryData.Empty);
 
-            var updateResult = await IndexesModule.BuildIndex(_logger, ds, idxName, eventOffset, eventLog, 10, default);
+            var updateResult = await IndexesModule.UpdateIndex(_logger, ds, idxName, eventOffset, eventLog, 10, default);
             Assert.True(updateResult.IsOk, updateResult.Error.ToString());
 
             var newPages = updateResult.Value.Pages;
@@ -138,13 +134,12 @@ namespace Funes.Tests {
             var root = newPages[0];
             Assert.Equal(IndexesModule.GetRootId(idxName), root.Id);
             Assert.Equal(IndexPage.Kind.Page, root.PageKind);
-            Assert.Equal(1, root.ItemsCount);
-            Assert.Equal(val, root.GetValueAt(0));
-            Assert.Equal(key, root.GetKeyAt(0));
+            Assert.Equal(2, root.ItemsCount);
+            testSet.AssertPage(root);
 
             var keys = updateResult.Value.Keys;
             Assert.Single(keys);
-            Assert.Equal("value1", keys["key1"].GetValue());
+            testSet.AssertKeys(keys);
         }
         
         [Fact]
@@ -153,20 +148,18 @@ namespace Funes.Tests {
             var ds = new DataContext(de, new SimpleSerializer<Simple>());
 
             var idxName = "testIdx";
-            
-            var record = new IndexRecord {
-                new (IndexOp.Kind.Update, "key1", "val1"),
-                new (IndexOp.Kind.Remove, "key2", ""),
-                new (IndexOp.Kind.Update, "key3", "val333"),
-                new (IndexOp.Kind.Remove, "key3", ""),
-                new (IndexOp.Kind.Update, "key3", "val444"),
-                new (IndexOp.Kind.Remove, "key1", ""),
-            };
-            var recordData = IndexRecord.Builder.EncodeRecord(record);
-            var eventLog = new EventLog(IncrementId.None, IncrementId.None, recordData.Memory);
+            var testSet = new IndexesTestSet();
+            var eventLog = testSet.ProcessOps(
+                new(IndexOp.Kind.Update, "key1", "val1"),
+                new(IndexOp.Kind.Remove, "key2", ""),
+                new(IndexOp.Kind.Update, "key3", "val333"),
+                new(IndexOp.Kind.Remove, "key3", ""),
+                new(IndexOp.Kind.Update, "key3", "val444"),
+                new(IndexOp.Kind.Remove, "key1", "")
+            );
             var eventOffset = new EventOffset(BinaryData.Empty);
 
-            var updateResult = await IndexesModule.BuildIndex(_logger, ds, idxName, eventOffset, eventLog,10, default);
+            var updateResult = await IndexesModule.UpdateIndex(_logger, ds, idxName, eventOffset, eventLog,10, default);
             Assert.True(updateResult.IsOk, updateResult.Error.ToString());
 
             var newPages = updateResult.Value.Pages;
@@ -176,60 +169,48 @@ namespace Funes.Tests {
             var root = newPages[0];
             Assert.Equal(IndexesModule.GetRootId(idxName), root.Id);
             Assert.Equal(IndexPage.Kind.Page, root.PageKind);
-            Assert.Equal(1, root.ItemsCount);
-            Assert.Equal("val444", root.GetValueAt(0));
-            Assert.Equal("key3", root.GetKeyAt(0));
+            testSet.AssertPage(root);
             
             var keys = updateResult.Value.Keys;
             Assert.Single(keys);
-            Assert.Equal("val444", keys["key3"].GetValue());
+            testSet.AssertKeys(keys);
         }
 
         [Fact]
         public async void UpdateExistingIndex() {
             var idxName = "testIdx";
-
-            var pairs = new (string, string)[] {
-                ("key1", "abc"),
+            var testSet = new IndexesTestSet();
+            testSet.Init(("key1", "abc"),
                 ("key2", "abc"),
                 ("key0", "xyz-abc"),
-                ("key314", "z"),
-            };
-            var size = IndexPageHelpers.SizeOfEmptyPage;
-            foreach (var pair in pairs)
-                size += IndexPageHelpers.CalcPageItemSize(pair.Item1, pair.Item2);
-            var memory = new Memory<byte>(new byte[size]);
-            IndexPageHelpers.WriteHead(memory.Span, IndexPage.Kind.Page, pairs.Length);
-            foreach(var pair in pairs)
-                IndexPageHelpers.AppendItem(memory.Span, pair.Item1, pair.Item2);
-            var page = IndexPageHelpers.CreateIndexPage(IndexesModule.GetRootId(idxName), memory);
+                ("key314", "z")
+            );
+
+            var page = testSet.CreateIndexPage(IndexesModule.GetRootId(idxName));
 
             var oldIncId = IncrementId.NewId();
             var repo = new SimpleRepository();
             var saveResult = await repo.Save(page.CreateStamp(oldIncId), default);
             Assert.True(saveResult.IsOk, saveResult.Error.ToString());
 
-            foreach (var pair in pairs) {
-                var indexKey = IndexKeyHelpers.CreateKey(IndexesModule.GetKeyId(idxName, pair.Item1), pair.Item2);
+            foreach (var indexKey in testSet.CreateIndexKeys(idxName)) {
                 var saveKeyResult = await repo.Save(indexKey.CreateStamp(oldIncId), default);
                 Assert.True(saveKeyResult.IsOk, saveKeyResult.Error.ToString());
             }
 
             var de = CreateDataEngine(repo);
             var context = new DataContext(de, new SimpleSerializer<Simple>());
-            
-            var record = new IndexRecord {
-                new (IndexOp.Kind.Update, "key1", "val1"),
-                new (IndexOp.Kind.Remove, "key0", ""),
-                new (IndexOp.Kind.Update, "key4", "val444"),
-            };
-            var recordData = IndexRecord.Builder.EncodeRecord(record);
-            var eventLog = new EventLog(IncrementId.None, IncrementId.None, recordData.Memory);
+
+            var eventLog = testSet.ProcessOps(
+                new(IndexOp.Kind.Update, "key1", "val1"),
+                new(IndexOp.Kind.Remove, "key0", ""),
+                new(IndexOp.Kind.Update, "key4", "val444")
+            );
             var eventOffset = new EventOffset(BinaryData.Empty);
 
-            var updateResult = await IndexesModule.BuildIndex(_logger, context, idxName, eventOffset, eventLog,10, default);
+            var updateResult = await IndexesModule.UpdateIndex(_logger, context, idxName, eventOffset, eventLog,10, default);
             Assert.True(updateResult.IsOk, updateResult.Error.ToString());
-
+            
             var newPages = updateResult.Value.Pages;
 
             Assert.Single(newPages);
@@ -237,21 +218,346 @@ namespace Funes.Tests {
             var root = newPages[0];
             Assert.Equal(IndexesModule.GetRootId(idxName), root.Id);
             Assert.Equal(IndexPage.Kind.Page, root.PageKind);
-            Assert.Equal(4, root.ItemsCount);
-            Assert.Equal("abc", root.GetValueAt(0));
-            Assert.Equal("key2", root.GetKeyAt(0));
-            Assert.Equal("val1", root.GetValueAt(1));
-            Assert.Equal("key1", root.GetKeyAt(1));
-            Assert.Equal("val444", root.GetValueAt(2));
-            Assert.Equal("key4", root.GetKeyAt(2));
-            Assert.Equal("z", root.GetValueAt(3));
-            Assert.Equal("key314", root.GetKeyAt(3));
-            
-            var keys = updateResult.Value.Keys;
-            Assert.Equal(3, keys.Count);
-            Assert.Equal("", keys["key0"].GetValue());
-            Assert.Equal("val1", keys["key1"].GetValue());
-            Assert.Equal("val444", keys["key4"].GetValue());
+            testSet.AssertPage(root);
+            testSet.AssertKeys(updateResult.Value.Keys);
         }
+
+
+        public async ValueTask PrepareTwoLayeredIndex(string idxName, DataContext context, IndexesTestSet testSet) {
+            var ops = new IndexOp[15];
+            for (var i = 0; i < ops.Length; i++) {
+                ops[i] = new IndexOp(IndexOp.Kind.Update, "key-" + RandomString(3), "val-" + RandomString(5));
+            }
+            var eventLog = testSet.ProcessOps(ops);
+            var eventOffset = new EventOffset(BinaryData.Empty);
+            
+            var buildResult = await IndexesModule.UpdateIndex(_logger, context, idxName, eventOffset, eventLog,10, default);
+            Assert.True(buildResult.IsOk, buildResult.Error.ToString());
+
+            var uploadResult = await IndexesModule.Upload(context, IncrementId.NewId(), buildResult.Value, default);
+            Assert.True(uploadResult.IsOk, uploadResult.Error.ToString());
+        } 
+            
+        [Fact]
+        public async void TransitionToTwoLayeredIndex() {
+            var idxName = "testIdx";
+            var testSet = new IndexesTestSet();
+            var ops = new IndexOp[15];
+            for (var i = 0; i < ops.Length; i++) {
+                ops[i] = new IndexOp(IndexOp.Kind.Update, "key-" + RandomString(3), "val-" + RandomString(5));
+            }
+            var eventLog = testSet.ProcessOps(ops);
+            var eventOffset = new EventOffset(BinaryData.Empty);
+            
+            var de = CreateDataEngine();
+            
+            var updateResult = await IndexesModule.UpdateIndex(_logger, 
+                new DataContext(de, new SimpleSerializer<Simple>()), idxName, eventOffset, eventLog,10, default);
+            Assert.True(updateResult.IsOk, updateResult.Error.ToString());
+
+            var newPages = updateResult.Value.Pages;
+            Assert.Equal(3, newPages.Count);
+
+            var (set1, set2) = testSet.Split();
+            var root = newPages.Find(page => page.Id == IndexesModule.GetRootId(idxName));
+            Assert.Equal(IndexPage.Kind.Table, root.PageKind);
+            Assert.Equal(2, root.ItemsCount);
+            Assert.Equal("0-0001", root.GetKeyAt(0));
+            Assert.Equal("0-0002", root.GetKeyAt(1));
+            Assert.Equal("", root.GetValueAt(0));
+            Assert.Equal(set2.GetFirstValueKey(), root.GetValueAt(1));
+            
+            var page1 = newPages.Find(page => page.Id == IndexesModule.GetPageId(idxName, "0-0001"));
+            Assert.Equal(IndexPage.Kind.Page, page1.PageKind);
+            set1.AssertPage(page1);
+
+            var page2 = newPages.Find(page => page.Id == IndexesModule.GetPageId(idxName, "0-0002"));
+            Assert.Equal(IndexPage.Kind.Page, page2.PageKind);
+            set2.AssertPage(page2);
+        }
+
+        [Fact]
+        public async void UpdatesInTwoLayeredIndex() {
+            var idxName = "testIdx";
+            var testSet = new IndexesTestSet();
+            var de = CreateDataEngine();
+
+            await PrepareTwoLayeredIndex(idxName, new DataContext(de, new SimpleSerializer<Simple>()), testSet);
+            var (_, snd) = testSet.Split();
+            var splitValueKey = snd.GetFirstValueKey();
+            
+            var ops = new IndexOp[21];
+            for (var i = 0; i < ops.Length; i++) {
+                ops[i] = new IndexOp(IndexOp.Kind.Update, "key-" + RandomString(3), "val-" + RandomString(5));
+            }
+            var eventLog = testSet.ProcessOps(ops);
+            var eventOffset = new EventOffset(BinaryData.Empty);
+            
+            var context = new DataContext(de, new SimpleSerializer<Simple>());
+            var updateResult = await IndexesModule.UpdateIndex(_logger, context, idxName, eventOffset, eventLog,100, default);
+            Assert.True(updateResult.IsOk, updateResult.Error.ToString());
+
+            var newPages = updateResult.Value.Pages;
+            Assert.Equal(2, newPages.Count);
+            
+            var (set1, set2) = testSet.Split(splitValueKey);
+            var page1 = newPages.Find(page => page.Id == IndexesModule.GetPageId(idxName, "0-0001"));
+            set1.AssertPage(page1);
+            
+            var page2 = newPages.Find(page => page.Id == IndexesModule.GetPageId(idxName, "0-0002"));
+            set2.AssertPage(page2);
+        }
+
+        private async void CompareIndexWithTestSet(
+            IDataEngine de, string idxName, IndexesTestSet testSet, int iterationsCount, bool checkIterationsCount = true) {
+            var rootResult = await de.Retrieve(IndexesModule.GetRootId(idxName), default);
+            Assert.True(rootResult.IsOk, rootResult.Error.ToString());
+            var rootPage = new IndexPage(rootResult.Value.Eid, rootResult.Value.Data);
+            if (checkIterationsCount)
+                Assert.Equal(iterationsCount + 1,  rootPage.ItemsCount);
+
+            for (var i = 0; i < rootPage.ItemsCount; i++) {
+                var pageId = IndexesModule.GetPageId(idxName, rootPage.GetKeyAt(i));
+                var retrievePageResult = await de.Retrieve(pageId, default);
+                Assert.True(retrievePageResult.IsOk, retrievePageResult.Error.ToString());
+                var page = new IndexPage(pageId, retrievePageResult.Value.Data);
+
+                if (i < rootPage.ItemsCount - 1) {
+                    var (head, tail) = testSet.Split(rootPage.GetValueAt(i+1));
+                    head.AssertPage(page);
+                    testSet = tail;
+                }
+                else {
+                    var (head, tail) = testSet.Split(rootPage.GetValueAt(i));
+                    tail.AssertPage(page);
+                    testSet = new IndexesTestSet();
+                }
+            }
+            
+        }
+        
+        [Fact]
+        public async void AppendToIndex() {
+            var idxName = "testIdx";
+            var testSet = new IndexesTestSet();
+            var de = CreateDataEngine();
+            var offset = new EventOffset(BinaryData.Empty);
+
+            var iterationsCount = 5;
+            for (var i = 0; i < iterationsCount; i++) {
+                var ops = new IndexOp[11];
+                for (var j = 0; j < ops.Length; j++) {
+                    ops[j] = new IndexOp(IndexOp.Kind.Update, $"key-{i:d2}-{j:d2}", $"val-{i:d2}-{j:d2}");
+                }
+                var eventLog = testSet.ProcessOps(ops);
+                var context = new DataContext(de, new SimpleSerializer<Simple>());
+                var buildResult = await IndexesModule.UpdateIndex(_logger, context, idxName, offset, eventLog,10, default);
+                Assert.True(buildResult.IsOk, buildResult.Error.ToString());
+                var incId = new IncrementId($"inc-{100-i:d4}");
+                var uploadResult = await IndexesModule.Upload(context, incId, buildResult.Value, default);
+                Assert.True(uploadResult.IsOk, uploadResult.Error.ToString());
+                offset = offset.NextGen(incId);
+            }
+
+            CompareIndexWithTestSet(de, idxName, testSet, iterationsCount);
+        }
+
+        [Fact]
+        public async void PrependToIndex() {
+            var idxName = "testIdx";
+            var testSet = new IndexesTestSet();
+            var de = CreateDataEngine();
+            var offset = new EventOffset(BinaryData.Empty);
+
+            var iterationsCount = 5;
+            for (var i = 0; i < iterationsCount; i++) {
+                var ops = new IndexOp[11];
+                for (var j = 0; j < ops.Length; j++) {
+                    ops[j] = new IndexOp(IndexOp.Kind.Update, $"key-{(100-i):d2}-{(100-j):d2}", $"val-{(100-i):d2}-{(100-j):d2}");
+                }
+                var eventLog = testSet.ProcessOps(ops);
+                var context = new DataContext(de, new SimpleSerializer<Simple>());
+                var buildResult = await IndexesModule.UpdateIndex(_logger, context, idxName, offset, eventLog,10, default);
+                Assert.True(buildResult.IsOk, buildResult.Error.ToString());
+                var incId = new IncrementId($"inc-{100-i:d4}");
+                var uploadResult = await IndexesModule.Upload(context, incId, buildResult.Value, default);
+                Assert.True(uploadResult.IsOk, uploadResult.Error.ToString());
+                offset = offset.NextGen(incId);
+            }
+
+            CompareIndexWithTestSet(de, idxName, testSet, iterationsCount);
+        }
+        
+        [Fact]
+        public async void DeleteFirstItemOnPage() {
+            var idxName = "testIdx";
+            var testSet = new IndexesTestSet();
+            var de = CreateDataEngine();
+            var offset = new EventOffset(BinaryData.Empty);
+            
+            var ops = new IndexOp[10];
+            for (var i = 0; i < ops.Length; i++) {
+                ops[i] = new IndexOp(IndexOp.Kind.Update, "key-" + RandomString(3), "val-" + RandomString(5));
+            }
+            var eventLog = testSet.ProcessOps(ops);
+            var context = new DataContext(de, new SimpleSerializer<Simple>());
+            var updateResult = await IndexesModule.UpdateIndex(_logger, context, idxName, offset, eventLog,10, default);
+            Assert.True(updateResult.IsOk, updateResult.Error.ToString());
+            var incId = new IncrementId("100");
+            var uploadResult = await IndexesModule.Upload(context, incId, updateResult.Value, default);
+            Assert.True(uploadResult.IsOk, uploadResult.Error.ToString());
+            
+            var newPages = updateResult.Value.Pages;
+            Assert.Equal(3, newPages.Count);
+            
+            var page2 = newPages.Find(page => page.Id == IndexesModule.GetPageId(idxName, "0-0002"));
+            var firstKey = page2.GetKeyAt(0);
+            var (_, page2Set) = testSet.Split(page2.GetValueForParent());
+            var deleteOps = new[] {new IndexOp(IndexOp.Kind.Remove, firstKey, "")};
+            var deleteEventLog = page2Set.ProcessOps(deleteOps);
+            var deleteContext = new DataContext(de, new SimpleSerializer<Simple>());
+            offset = offset.NextGen(incId);
+            var updateResult2 = await IndexesModule.UpdateIndex(_logger, deleteContext, idxName, offset, deleteEventLog,10, default);
+            Assert.True(updateResult2.IsOk, updateResult2.Error.ToString());
+            var newPages2 = updateResult2.Value.Pages;
+            Assert.Equal(2, newPages2.Count);
+
+            var root= newPages2.Find(page => page.Id == IndexesModule.GetRootId(idxName));
+            Assert.Equal(2, root.ItemsCount);
+            Assert.Equal(page2Set.GetFirstValueKey(), root.GetValueAt(1));
+            Assert.Equal("0-0002", root.GetKeyAt(1));
+            
+            var page2AfterDelete = newPages2.Find(page => page.Id == IndexesModule.GetPageId(idxName, "0-0002"));
+            page2Set.AssertPage(page2AfterDelete);
+        }
+
+        [Fact]
+        public async void DeleteAllItemsOnPage() {
+            var idxName = "testIdx";
+            var testSet = new IndexesTestSet();
+            var de = CreateDataEngine();
+            var offset = new EventOffset(BinaryData.Empty);
+            
+            var ops = new IndexOp[10];
+            for (var i = 0; i < ops.Length; i++) {
+                ops[i] = new IndexOp(IndexOp.Kind.Update, "key-" + RandomString(3), "val-" + RandomString(5));
+            }
+            var eventLog = testSet.ProcessOps(ops);
+            var context = new DataContext(de, new SimpleSerializer<Simple>());
+            var updateResult = await IndexesModule.UpdateIndex(_logger, context, idxName, offset, eventLog,10, default);
+            Assert.True(updateResult.IsOk, updateResult.Error.ToString());
+            var incId = new IncrementId("100");
+            var uploadResult = await IndexesModule.Upload(context, incId, updateResult.Value, default);
+            Assert.True(uploadResult.IsOk, uploadResult.Error.ToString());
+            
+            var newPages = updateResult.Value.Pages;
+            Assert.Equal(3, newPages.Count);
+            
+            var page2 = newPages.Find(page => page.Id == IndexesModule.GetPageId(idxName, "0-0002"));
+            var deleteOps = new IndexOp[page2.ItemsCount];
+            for (var i = 0; i < deleteOps.Length; i++) {
+                deleteOps[i] = new IndexOp(IndexOp.Kind.Remove, page2.GetKeyAt(i), "");
+            }
+            var (_, page2Set) = testSet.Split(page2.GetValueForParent());
+            var deleteEventLog = page2Set.ProcessOps(deleteOps);
+            var deleteContext = new DataContext(de, new SimpleSerializer<Simple>());
+            
+            offset = offset.NextGen(incId);
+            var updateResult2 = await IndexesModule.UpdateIndex(_logger, deleteContext, idxName, offset, deleteEventLog,10, default);
+            Assert.True(updateResult2.IsOk, updateResult2.Error.ToString());
+            var newPages2 = updateResult2.Value.Pages;
+            Assert.Single(newPages2);
+
+            var root = newPages2[0];
+            Assert.Equal(IndexesModule.GetRootId(idxName), root.Id);
+            Assert.Equal(1, root.ItemsCount);
+        }
+        
+        [Fact]
+        public async void DeleteAllItemsInIndex() {
+            var idxName = "testIdx";
+            var testSet = new IndexesTestSet();
+            var de = CreateDataEngine();
+            var offset = new EventOffset(BinaryData.Empty);
+            
+            var ops = new IndexOp[10];
+            for (var i = 0; i < ops.Length; i++) {
+                ops[i] = new IndexOp(IndexOp.Kind.Update, "key-" + RandomString(3), "val-" + RandomString(5));
+            }
+            var eventLog = testSet.ProcessOps(ops);
+            var context = new DataContext(de, new SimpleSerializer<Simple>());
+            var updateResult = await IndexesModule.UpdateIndex(_logger, context, idxName, offset, eventLog,10, default);
+            Assert.True(updateResult.IsOk, updateResult.Error.ToString());
+            var incId = new IncrementId("100");
+            var uploadResult = await IndexesModule.Upload(context, incId, updateResult.Value, default);
+            Assert.True(uploadResult.IsOk, uploadResult.Error.ToString());
+            
+            var newPages = updateResult.Value.Pages;
+            Assert.Equal(3, newPages.Count);
+            
+            
+            var deleteOps = new IndexOp[testSet.ItemsCount - 1];
+            var idx = 0;
+            foreach(var pair in testSet.GetOrderedPairs()){
+                if (pair.Key == "") continue;
+                deleteOps[idx++] = new IndexOp(IndexOp.Kind.Remove, pair.Key, "");
+            }
+        
+            var deleteEventLog = testSet.ProcessOps(deleteOps);
+            var deleteContext = new DataContext(de, new SimpleSerializer<Simple>());
+            
+            offset = offset.NextGen(incId);
+            var updateResult2 = await IndexesModule.UpdateIndex(_logger, deleteContext, idxName, offset, deleteEventLog,10, default);
+            Assert.True(updateResult2.IsOk, updateResult2.Error.ToString());
+            var newPages2 = updateResult2.Value.Pages;
+            Assert.Equal(2, newPages2.Count);
+
+            var root= newPages2.Find(page => page.Id == IndexesModule.GetRootId(idxName));
+            Assert.Equal(1, root.ItemsCount);
+            Assert.Equal("", root.GetValueAt(0));
+            Assert.Equal("0-0001", root.GetKeyAt(0));
+            
+            var page1AfterDelete = newPages2.Find(page => page.Id == IndexesModule.GetPageId(idxName, "0-0001"));
+            Assert.Equal(1, page1AfterDelete.ItemsCount);
+            Assert.Equal("", page1AfterDelete.GetValueAt(0));
+            Assert.Equal("", page1AfterDelete.GetKeyAt(0));
+        }
+
+        [Fact]
+        public async void RandomTest() {
+            var idxName = "testIdx";
+            var testSet = new IndexesTestSet();
+            var de = CreateDataEngine();
+            var offset = new EventOffset(BinaryData.Empty);
+            HashSet<string> allKeys = new ();
+
+            var iterationsCount = 12;
+            for (var i = 0; i < iterationsCount; i++) {
+                var ops = new IndexOp[21];
+                for (var j = 0; j < ops.Length; j++) {
+                    if (allKeys.Count == 0 || RandomInt(10) > 3) {
+                        var key = "key-" + RandomString(3);
+                        allKeys.Add(key);
+                        ops[j] = new IndexOp(IndexOp.Kind.Update, key, "val-" + RandomString(5));    
+                    }
+                    else {
+                        var key = allKeys.ToArray()[RandomInt(allKeys.Count)];
+                        allKeys.Remove(key);
+                        ops[j] = new IndexOp(IndexOp.Kind.Remove, key, "");    
+                    }
+                }
+                var eventLog = testSet.ProcessOps(ops);
+                var context = new DataContext(de, new SimpleSerializer<Simple>());
+                var buildResult = await IndexesModule.UpdateIndex(_logger, context, idxName, offset, eventLog,10, default);
+                Assert.True(buildResult.IsOk, buildResult.Error.ToString());
+                var incId = new IncrementId($"inc-{100-i:d4}");
+                var uploadResult = await IndexesModule.Upload(context, incId, buildResult.Value, default);
+                Assert.True(uploadResult.IsOk, uploadResult.Error.ToString());
+                offset = offset.NextGen(incId);
+            }
+
+            CompareIndexWithTestSet(de, idxName, testSet, iterationsCount, false);
+        }
+
     }
 }

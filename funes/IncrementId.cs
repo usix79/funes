@@ -86,9 +86,9 @@ namespace Funes {
         public static IncrementId NewId() => ComposeId(DateTimeOffset.UtcNow, Rand.Value, false);
         public static IncrementId NewStimulusId() => ComposeId(DateTimeOffset.UtcNow, Rand.Value, true);
 
-        public bool IsOlderThan(IncrementId other) => CompareTo(other) > 0;
+        public bool IsOlderThan(IncrementId other) => other == None || CompareTo(other) > 0;
 
-        public bool IsNewerThan(IncrementId other) => CompareTo(other) < 0;
+        public bool IsNewerThan(IncrementId other) => other == None || CompareTo(other) < 0;
 
         public bool Equals(IncrementId other) => Id == other.Id;
         public override bool Equals(object? obj) => obj is IncrementId other && Equals(other);
