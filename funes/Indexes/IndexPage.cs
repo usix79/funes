@@ -20,7 +20,10 @@ namespace Funes.Indexes {
         public int ItemsCount => GetItemsCount(Span);
         public string GetKeyAt(int idx) => Encoding.Unicode.GetString(GetKeySpan(this, idx));
         public string GetValueAt(int idx) => Encoding.Unicode.GetString(GetValueSpan(this, idx));
-        public string GetValueForParent() => ItemsCount > 0 ? GetValueAt(0) + GetKeyAt(0) : "";
+        public string GetValueForParent() => 
+            ItemsCount > 0 
+                ? PageKind == Kind.Page ? GetValueAt(0) + GetKeyAt(0) : GetValueAt(0) 
+                : "";
         
         public int GetIndexForInsertion(string key, string value) {
             var searchResult = SearchByKeyAndValue(this, key, value);
@@ -29,7 +32,7 @@ namespace Funes.Indexes {
 
         public int GetIndexOfChildPage(string key, string value) {
             var searchResult = SearchByValueParts(this, value, key);
-            return searchResult > 0 ? searchResult : ~searchResult - 1;
+            return searchResult >= 0 ? searchResult : ~searchResult - 1;
         }
 
         public Result<int> FindIndexOfPair(string key, string value) {

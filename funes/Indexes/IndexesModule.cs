@@ -402,8 +402,8 @@ namespace Funes.Indexes {
                     var itemsCount = IndexPageHelpers.GetItemsCount(curMemory.Span);
                     if (itemsCount <= 0) {
                         if (curPage.Id == rootId) {
-                            // create empty root page
-                            result.Pages.Add(new IndexPage(rootId, IndexPageHelpers.EmptyPageData));
+                            // create empty root page, never happened because root always has empty item
+                            result.Pages.Add(new IndexPage(rootId, IndexPageHelpers.EmptyRootData));
                         }
                         else {
                             var parent = GetParentPage(curPage.Id);
