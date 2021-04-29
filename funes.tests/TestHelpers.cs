@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Funes.Impl;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace Funes.Tests {
@@ -91,5 +92,17 @@ namespace Funes.Tests {
         public static readonly StampKey[] EmptyKeys = Array.Empty<StampKey>(); 
 
         public static EntityId[] EntIds(params EntityId[] entIds) => entIds;
+
+        public static bool AssertSequencesEqual<T>(IEnumerable<T> seq1, IEnumerable<T> seq2) {
+            var idx = 0;
+            var en1 = seq1.GetEnumerator();
+            var en2 = seq2.GetEnumerator();
+            while (en1.MoveNext()) {
+                if (!en2.MoveNext()) return false;
+                if (!en1.Current.Equals(en2.Current)) return false;
+            }
+
+            return !en2.MoveNext();
+        }
     }
 }

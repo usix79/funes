@@ -122,6 +122,10 @@ namespace Funes.Tests {
             GetOrderedPairs().Select(pair => pair.Value).ElementAt(idx);
 
         public (KeyValuePair<string,string>[], bool) Select(string valueFrom, string? valueTo, string afterKey, int maxCount) {
+            if (valueTo != null && string.CompareOrdinal(valueFrom, valueTo) > 0)
+                return (Array.Empty<KeyValuePair<string,string>>(), false);
+            
+            
             var from = valueFrom + afterKey;
 
             var pairs = GetOrderedPairs()
@@ -130,6 +134,14 @@ namespace Funes.Tests {
                 .ToArray();
 
             return (pairs.Take(maxCount).ToArray(), pairs.Length > maxCount);
+        }
+
+        public string GetRandomKey(int idx) {
+            foreach (var key in _data.Keys) {
+                if (idx-- == 0) return key != "" ? key : "?";
+            }
+
+            return "?";
         }
     }
 }

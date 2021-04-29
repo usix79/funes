@@ -1,11 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
 using Funes.Impl;
 using Funes.Indexes;
 using Microsoft.Extensions.Logging;
-using Microsoft.VisualStudio.TestPlatform.ObjectModel.Host;
 using Xunit;
 using Xunit.Abstractions;
 using static Funes.Tests.TestHelpers;
@@ -661,7 +661,12 @@ namespace Funes.Tests {
             for (var i = 0; i < iterationsCount; i++) {
                 var ops = new IndexOp[11];
                 for (var j = 0; j < ops.Length; j++) {
-                    ops[j] = new IndexOp(IndexOp.Kind.Update, "key-" + RandomString(3), "val-" + RandomString(5));    
+                    if (RandomInt(10) > 2) {
+                        ops[j] = new IndexOp(IndexOp.Kind.Update, "key-" + RandomString(3), "val-" + RandomString(2));    
+                    }
+                    else {
+                        ops[j] = new IndexOp(IndexOp.Kind.Remove, testSet.GetRandomKey(RandomInt(testSet.ItemsCount)), "");    
+                    }
                 }
                 var eventLog = testSet.ProcessOps(ops);
                 var context = new DataContext(de, new SimpleSerializer<Simple>());
@@ -697,8 +702,34 @@ namespace Funes.Tests {
             var selectResult = await IndexesModule.Select(selectContext, default, idxName, valueFrom, valueTo, afterKey, maxCount);
             Assert.True(selectResult.IsOk, selectResult.Error.ToString());
 
-            Assert.Equal(expectedHasMore, selectResult.Value.HasMore);
-            Assert.Equal(expectedPairs, selectResult.Value.Pairs);
+            var equals = AssertSequencesEqual(expectedPairs, selectResult.Value.Pairs);
+            if (!equals) {
+                _logger.LogInformation(PrepareMessage());
+                Assert.Equal(expectedPairs, selectResult.Value.Pairs);
+            }
+
+            if (expectedHasMore != selectResult.Value.HasMore) {
+                _logger.LogInformation(PrepareMessage());
+                Assert.Equal(expectedHasMore, selectResult.Value.HasMore);
+            }
+            
+            string PrepareMessage() {
+                var txt = new StringBuilder();
+                txt.AppendLine($"from '{valueFrom}' afterKey '{afterKey}' to '{valueTo}' {maxCount}");
+                txt.Append("Expected:");
+                foreach (var pair in expectedPairs)
+                    txt.Append($"({pair.Key},{pair.Value}) ");
+                if (expectedHasMore)
+                    txt.Append(" has more");
+                txt.AppendLine();
+                txt.Append("Actual:  ");
+                foreach (var pair in selectResult.Value.Pairs)
+                    txt.Append($"({pair.Key},{pair.Value}) ");
+                if (selectResult.Value.HasMore)
+                    txt.Append(" has more");
+                txt.AppendLine();
+                return txt.ToString();
+            }
         }
         
         [Fact]
@@ -845,7 +876,7 @@ namespace Funes.Tests {
             var idxName = "testIdx";
             var de = CreateDataEngine();
 
-            var testSet = await GenerateRandomIndex(de, idxName, 2);
+            var testSet = await GenerateRandomIndex(de, idxName, 3);
 
             var pairs = testSet.GetOrderedPairs();
             var valueFrom = pairs[3].Value;
@@ -853,7 +884,7 @@ namespace Funes.Tests {
 
             var record = new IndexRecord() {
                 new(IndexOp.Kind.Remove, pairs[4].Key, ""),
-                new(IndexOp.Kind.Update, pairs[5].Key, pairs[8].Value),
+                new(IndexOp.Kind.Update, pairs[5].Key, pairs[^1].Value),
             };
 
             AssertSelect(de, idxName, testSet,  valueFrom, valueTo, "", 5, record);
@@ -911,5 +942,23 @@ namespace Funes.Tests {
             AssertSelect(de, idxName, testSet,  valueFrom, valueTo, "", 1000);
         }
 
+        [Theory, Repeat(42)]
+        public async void RandomSelect() {
+
+            var idxName = "testIdx";
+            var de = CreateDataEngine();
+
+            var testSet = await GenerateRandomIndex(de, idxName, 100);
+            var pairs = testSet.GetOrderedPairs();
+
+            for (var i = 0; i < 100; i++) {
+                var valueFrom = pairs[RandomInt(pairs.Length)].Value;
+                var valueTo = RandomInt(10) < 5 ? null : pairs[RandomInt(pairs.Length)].Value;
+                var afterKey = RandomInt(10) < 5 ? null : pairs[RandomInt(pairs.Length)].Key;
+                var count = RandomInt(pairs.Length);
+
+                AssertSelect(de, idxName, testSet,  valueFrom, valueTo, afterKey, count);
+            }
+        }
     }
 }

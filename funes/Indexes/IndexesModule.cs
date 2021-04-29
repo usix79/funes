@@ -494,8 +494,10 @@ namespace Funes.Indexes {
 
         public static async ValueTask<Result<SelectionResult>> Select(IDataSource ds, CancellationToken ct,
             string idxName, string fromValue, string? toValue, string afterKey, int maxCount) {
-
+            
             var items = new Dictionary<string, string>(maxCount);
+            if (toValue != null && string.CompareOrdinal(fromValue, toValue) > 0)
+                return new Result<SelectionResult>(new SelectionResult(items, false));
             var hasMore = false;
             var rootId = GetRootId(idxName);
             var lastPair= new KeyValuePair<string,string>(fromValue, afterKey);
@@ -584,7 +586,8 @@ namespace Funes.Indexes {
 
                 var nextPageResult = await GetNextPage(parent);
                 if (nextPageResult.IsError) return new Result<IndexPage>(nextPageResult.Error);
-                return await GetFirstChildPage(nextPageResult.Value);
+                return nextPageResult.Value.PageKind == IndexPage.Kind.Page
+                    ? nextPageResult : await GetFirstChildPage(nextPageResult.Value);
             }
 
             async ValueTask<Result<IndexPage>> GetFirstChildPage(IndexPage page) {
