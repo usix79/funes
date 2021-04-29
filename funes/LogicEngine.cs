@@ -119,6 +119,12 @@ namespace Funes {
                     case Cmd<TMsg, TSideEffect>.SelectCmd x:
                         StartSelectionTask(x);
                         break;
+                    case Cmd<TMsg, TSideEffect>.GetIndexValueCmd x:
+                        if (!TryCompleteIndexValue(x)) {
+                            lgState.PendingCommands.AddLast(x);
+                            StartRetrievingTask(IndexesModule.GetKeyId(x.IndexName, x.Key));
+                        }
+                        break;
                     case Cmd<TMsg, TSideEffect>.LogCmd x:
                         env.Logger.Log(x.Level, x.Message, x.Args);
                         break;
@@ -213,6 +219,24 @@ namespace Funes {
                 return true;
             }
             
+            bool TryCompleteIndexValue(Cmd<TMsg, TSideEffect>.GetIndexValueCmd aCmd) {
+                var keyId = IndexesModule.GetKeyId(aCmd.IndexName, aCmd.Key);
+                if (!ds.TryGetEntity(keyId, out var stampResult)) return false;
+
+                try {
+                    var msg = stampResult.IsOk
+                            ? aCmd.OnSuccess(IndexKeyHelpers.GetValue(stampResult.Value.Data))
+                            : stampResult.Error == Error.NotFound
+                                ? aCmd.OnSuccess("")
+                                : aCmd.OnNotAvailable();
+                    lgState.PendingMessages.Enqueue(msg);
+                }
+                catch (Exception x) {
+                    env.Logger.LogError(x, "Failed index value action for {IndexName} {Key}", aCmd.IndexName, aCmd.Key);
+                }
+                return true;
+            }
+
             void ProcessPendingCommands() {
                 var node = lgState.PendingCommands.First;
                 while (node != null) {

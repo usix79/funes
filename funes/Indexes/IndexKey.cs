@@ -11,7 +11,7 @@ namespace Funes.Indexes {
         public IndexKey(EntityId id, BinaryData data) =>
             (Id, Data) = (id, data);
         
-        public string GetValue() => Encoding.Unicode.GetString(Data.Memory.Span);
+        public string GetValue() => IndexKeyHelpers.GetValue(Data);
 
         public BinaryStamp CreateStamp(IncrementId incId) =>
             new (Id.CreateStampKey(incId), Data);
@@ -23,5 +23,8 @@ namespace Funes.Indexes {
             Encoding.Unicode.GetBytes(value, memory.Span);
             return new IndexKey(id, new BinaryData("bin", memory));
         }
+        
+        public static string GetValue(BinaryData data) =>
+            Encoding.Unicode.GetString(data.Memory.Span);
     }
 }

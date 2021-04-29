@@ -15,6 +15,8 @@ namespace Funes {
         public record SelectCmd(string IndexName, string FromValue, 
             Func<KeyValuePair<string,string>[], bool, TMsg> OnSuccess, Func<Error, TMsg> OnError,
             string? ToValue = null, string AfterKey = "", int MaxCount = 1000): Cmd<TMsg,TSideEffect>;
+        public record GetIndexValueCmd(string IndexName, string Key, 
+            Func<string, TMsg> OnSuccess, Func<TMsg> OnNotAvailable): Cmd<TMsg,TSideEffect>;
         public record BatchCmd(params Cmd<TMsg, TSideEffect>[] Items) : Cmd<TMsg, TSideEffect> {
             public override string ToString() {
                 var txt = new StringBuilder("Batch[");

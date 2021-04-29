@@ -47,6 +47,16 @@ namespace Funes {
             return entry;
         }
 
+        public bool TryGetEntity(EntityId eid, out Result<BinaryStamp> stampResult) {
+            if (!_inputEntities.TryGetValue(eid, out var inputEntity)) {
+                stampResult = new Result<BinaryStamp>(Error.NotFound);
+                return false;
+            }
+
+            stampResult = inputEntity.StampResult;
+            return true;
+        }
+
         public bool TryGetEntry(EntityId eid, bool asPremise, out EntityEntry entry) {
             if (!_inputEntities.TryGetValue(eid, out var inputEntity)) {
                 entry = default;

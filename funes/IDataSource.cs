@@ -8,6 +8,9 @@ namespace Funes {
     public interface IDataSource {
 
         public bool TryGetEntry(EntityId eid, bool asPremise, out EntityEntry entry);
+
+        public bool TryGetEntity(EntityId eid, out Result<BinaryStamp> stampResult);
+
         public Result<IReadOnlySet<string>> GetSet(string setName);
         
         ValueTask<Result<BinaryStamp>> Retrieve(EntityId eid, CancellationToken ct);
