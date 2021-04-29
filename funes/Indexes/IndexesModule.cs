@@ -2,6 +2,7 @@ using System;
 using System.Buffers;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -188,15 +189,28 @@ namespace Funes.Indexes {
                 ? new Result<IndexKey>(new IndexKey(keyId, res.Value.Data))
                 : new Result<IndexKey>(res.Error);
         }
-
-        private static async ValueTask<Result<EventOffset>> RetrieveIndexOffset(
-            string idxName, IDataSource ds, CancellationToken ct) {
-            
-            var offsetRes = await ds.Retrieve(GetOffsetId(idxName), ct);
-            return offsetRes.IsOk
-                ? new Result<EventOffset>(new EventOffset(offsetRes.Value.Data))
-                : new Result<EventOffset>(offsetRes.Error);
+        
+        private static async ValueTask<Result<IndexPage>> FindPage(IDataSource ds, CancellationToken ct,
+            Dictionary<EntityId, IndexPage> parents, string idxName,string key, string value) {
+            var rootResult = await RetrieveIndexPage(GetRootId(idxName), ds, ct, true);
+            if (rootResult.IsError) return new Result<IndexPage>(rootResult.Error);
+            return await FindPageFrom(ds, ct, parents, idxName, rootResult.Value, key, value);
         }
+
+        private static async ValueTask<Result<IndexPage>> FindPageFrom(IDataSource ds, CancellationToken ct,
+            Dictionary<EntityId, IndexPage> parents, string idxName, IndexPage page, string key, string value) {
+            while (true) {
+                if (page.PageKind == IndexPage.Kind.Page) return new Result<IndexPage>(page);
+
+                var childId = page.GetKeyAt(page.GetIndexOfChildPage(key, value));
+                var childPageResult = await RetrieveIndexPage(GetPageId(idxName, childId), ds, ct);
+                if (childPageResult.IsError) return new Result<IndexPage>(childPageResult.Error);
+
+                parents[childPageResult.Value.Id] = page;
+                page = childPageResult.Value;
+            }
+        }
+
         
         private static async ValueTask<Result<List<PageOp>>> PreparePageOps(ILogger logger, IDataSource ds, 
             string idxName, EventLog log, Dictionary<EntityId, IndexPage> parents, CancellationToken ct) {
@@ -250,7 +264,7 @@ namespace Funes.Indexes {
             }
             
             async ValueTask<Result<PageOp?>> RemoveOp(string key, string value) {
-                var pageResult = await FindPage(key, value);
+                var pageResult = await FindPage(ds, ct, parents, idxName, key, value);
                 if (pageResult.IsError) return new Result<PageOp?>(pageResult.Error);
 
                 var idxResult = pageResult.Value.FindIndexOfPair(key, value);
@@ -265,32 +279,13 @@ namespace Funes.Indexes {
             }
 
             async ValueTask<Result<PageOp>> InsertOp(string key, string value) {
-                var pageResult = await FindPage(key, value);
+                var pageResult = await FindPage(ds, ct, parents, idxName, key, value);
                 if (pageResult.IsError) return new Result<PageOp>(pageResult.Error);
 
                 var idx = pageResult.Value.GetIndexForInsertion(key, value);
 
                 var op = new PageOp(pageResult.Value, PageOp.Kind.InsertAt, idx, key, value);
                 return new Result<PageOp>(op);
-            }
-            
-            async ValueTask<Result<IndexPage>> FindPage(string key, string value) {
-                var rootResult = await RetrieveIndexPage(GetRootId(idxName), ds, ct, true);
-                if (rootResult.IsError) return new Result<IndexPage>(rootResult.Error);
-                return await FindPageFrom(rootResult.Value, key, value);
-            }
-
-            async ValueTask<Result<IndexPage>> FindPageFrom(IndexPage page, string key, string value) {
-                while (true) {
-                    if (page.PageKind == IndexPage.Kind.Page) return new Result<IndexPage>(page);
-
-                    var childId = page.GetKeyAt(page.GetIndexOfChildPage(key, value));
-                    var childPageResult = await RetrieveIndexPage(GetPageId(idxName, childId), ds, ct);
-                    if (childPageResult.IsError) return new Result<IndexPage>(childPageResult.Error);
-
-                    parents[childPageResult.Value.Id] = page;
-                    page = childPageResult.Value;
-                }
             }
         }
 
@@ -481,5 +476,130 @@ namespace Funes.Indexes {
                 }                
             }
         }
+        
+        public readonly struct SelectResult {
+            public SelectResult(Dictionary<string, string> items, bool hasMore) {
+                var pairs = items.ToArray();
+                Array.Sort(pairs, (pair1, pair2) => {
+                    var cmp = String.Compare(pair1.Value, pair2.Value, StringComparison.Ordinal);
+                    return cmp == 0 ? String.Compare(pair1.Key, pair2.Key, StringComparison.Ordinal) : cmp;
+                });
+                Pairs = pairs;
+                HasMore = hasMore;
+            }
+
+            public KeyValuePair<string, string> [] Pairs { get; }
+            public bool HasMore { get; }
+        }
+
+        public static async ValueTask<Result<SelectResult>> Select(IDataSource ds, CancellationToken ct,
+            string idxName, string fromValue, string? toValue, string afterKey, int maxCount) {
+
+            var items = new Dictionary<string, string>(maxCount);
+            var hasMore = false;
+            var rootId = GetRootId(idxName);
+            var lastPair= new KeyValuePair<string,string>(fromValue, afterKey);
+
+            var eventLogResult = await ds.RetrieveEventLog(GetRecordId(idxName), GetOffsetId(idxName), ct);
+            if (eventLogResult.IsError) return new Result<SelectResult>(eventLogResult.Error);
+
+            var parents = new Dictionary<EntityId, IndexPage>();
+            var pageResult = await FindPage(ds, ct, parents, idxName, fromValue, afterKey);
+            if (pageResult.IsError) return new Result<SelectResult>(pageResult.Error);
+
+            var selectResult = await SelectPairs(pageResult.Value, pageResult.Value.GetIndexAfter(fromValue, afterKey));
+            if (selectResult.IsError) return new Result<SelectResult>(selectResult.Error);
+            
+            // process events log
+            if (!eventLogResult.Value.IsEmpty) {
+                var reader = new IndexRecord.Reader(eventLogResult.Value.Memory);
+                while (reader.MoveNext()) {
+                    var op = reader.Current;
+                    switch (op.OpKind) {
+                        case IndexOp.Kind.Remove:
+                            items.Remove(op.Key);
+                            break;
+                        case IndexOp.Kind.Update:
+                            items.Remove(op.Key);
+                            if (string.CompareOrdinal(op.Value, fromValue) >= 0 && 
+                                string.CompareOrdinal(op.Key, afterKey) > 0 &&
+                                (toValue == null || string.CompareOrdinal(op.Value, toValue) <= 0)){
+
+                                if (!hasMore || 
+                                    string.CompareOrdinal(op.Value, lastPair.Value) <= 0 &&
+                                    string.CompareOrdinal(op.Key, lastPair.Key) < 0) {
+                                    items[op.Key] = op.Value;
+                                }                            
+                            }
+                            break;
+                    }
+                }
+            }
+
+            return new Result<SelectResult>(new SelectResult(items, hasMore));
+
+            async ValueTask<Result<Void>> SelectPairs(IndexPage page, int startIdx) {
+                while (true) {
+                    for (var i = startIdx; i < page.ItemsCount; i++) {
+                        var key = page.GetKeyAt(i);
+                        var value = page.GetValueAt(i);
+                        if (toValue != null && String.Compare(toValue, value, StringComparison.Ordinal) < 0)
+                            return new Result<Void>(Void.Value);
+
+                        if (items.Count == maxCount) {
+                            hasMore = true;
+                            return new Result<Void>(Void.Value);
+                        }
+
+                        items[key] = value;
+                        lastPair = new KeyValuePair<string, string>(key, value);
+                    }
+                    
+                    if (items.Count == maxCount)
+                        return new Result<Void>(Void.Value);
+
+                    var nextPageResult = await GetNextPage(page);
+                    if (nextPageResult.IsError)
+                        return nextPageResult.Error == Error.NotFound
+                            ? new Result<Void>(Void.Value)
+                            : new Result<Void>(nextPageResult.Error);
+
+                    page = nextPageResult.Value;
+                    startIdx = 0;
+                }
+            }
+
+            async ValueTask<Result<IndexPage>> GetNextPage(IndexPage page) {
+
+                if (page.Id == rootId)
+                    return Result<IndexPage>.NotFound;
+
+                var parent = parents[page.Id];
+                var pageIdxResult = parent.FindIndexOfChild(page.Id, page.GetValueForParent());
+                if (pageIdxResult.IsError) return new Result<IndexPage>(pageIdxResult.Error);
+
+                if (pageIdxResult.Value < parent.ItemsCount) {
+                    var nextPageName = parent.GetKeyAt(pageIdxResult.Value);
+                    return await RetrieveIndexPage(GetPageId(idxName, nextPageName), ds, ct);
+                }
+
+                var nextPageResult = await GetNextPage(parent);
+                if (nextPageResult.IsError) return new Result<IndexPage>(nextPageResult.Error);
+                return await GetFirstChildPage(nextPageResult.Value);
+            }
+
+            async ValueTask<Result<IndexPage>> GetFirstChildPage(IndexPage page) {
+                var firstPageName = page.GetKeyAt(0);
+                var retrieveResult = await RetrieveIndexPage(GetPageId(idxName, firstPageName), ds, ct);
+                if (retrieveResult.IsError) return new Result<IndexPage>(retrieveResult.Error);
+
+                var childPage = retrieveResult.Value;
+                if (childPage.PageKind == IndexPage.Kind.Page) return new Result<IndexPage>(childPage);
+
+                return await GetFirstChildPage(childPage);
+            }
+
+        }
+
     }
 }

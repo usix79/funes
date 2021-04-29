@@ -654,5 +654,39 @@ namespace Funes.Tests {
             await CompareIndexWithTestSet(de, idxName, set1);
         }
 
+        [Fact]
+        public async void SimpleSelectTest() {
+            var idxName = "testIdx";
+            var testSet = new IndexesTestSet();
+            var de = CreateDataEngine();
+            
+            var ops = new IndexOp[15];
+            for (var i = 0; i < ops.Length; i++) {
+                ops[i] = new IndexOp(IndexOp.Kind.Update, "key-" + RandomString(3), "val-" + RandomString(5));
+            }
+
+            var eventLog = testSet.ProcessOps(ops);
+            var eventOffset = new EventOffset(BinaryData.Empty);
+
+            var context = new DataContext(de, new SimpleSerializer<Simple>()); 
+            var buildResult = await IndexesModule.UpdateIndex(_logger, context, idxName, eventOffset, eventLog,10, default);
+            Assert.True(buildResult.IsOk, buildResult.Error.ToString());
+
+            var uploadResult = await IndexesModule.Upload(context, IncrementId.NewId(), buildResult.Value, default);
+            Assert.True(uploadResult.IsOk, uploadResult.Error.ToString());
+
+            var pairs = testSet.GetOrderedPairs();
+            var valueFrom = pairs[3].Value;
+            var valueTo = pairs[5].Value;
+
+            var selectContext = new DataContext(de, new SimpleSerializer<Simple>());
+            var selectResult = await IndexesModule.Select(selectContext, default, idxName, valueFrom, valueTo, "", 5);
+            Assert.True(selectResult.IsOk, selectResult.Error.ToString());
+
+            var (expectedPairs, expectedHasMore) = testSet.Select(valueFrom, valueTo, "", 5);
+            Assert.Equal(expectedHasMore, selectResult.Value.HasMore);
+            Assert.Equal(expectedPairs, selectResult.Value.Pairs);
+        }
+
     }
 }

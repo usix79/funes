@@ -111,5 +111,16 @@ namespace Funes.Tests {
 
         public string GetValueAt(int idx) => 
             GetOrderedPairs().Select(pair => pair.Value).ElementAt(idx);
+
+        public (KeyValuePair<string,string>[], bool) Select(string valueFrom, string? valueTo, string afterKey, int maxCount) {
+            var from = valueFrom + afterKey;
+
+            var pairs = GetOrderedPairs()
+                .SkipWhile(pair => string.CompareOrdinal(pair.Value + pair.Key, from) <= 0)
+                .Where(pair => valueTo == null || string.CompareOrdinal(pair.Value, valueTo) <= 0)
+                .ToArray();
+
+            return (pairs.Take(maxCount).ToArray(), pairs.Length > maxCount);
+        }
     }
 }

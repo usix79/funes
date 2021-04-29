@@ -25,14 +25,19 @@ namespace Funes.Indexes {
                 ? PageKind == Kind.Page ? GetValueAt(0) + GetKeyAt(0) : GetValueAt(0) 
                 : "";
         
+        public int GetIndexOfChildPage(string key, string value) {
+            var searchResult = SearchByValueParts(this, value, key);
+            return searchResult >= 0 ? searchResult : ~searchResult - 1;
+        }
+
         public int GetIndexForInsertion(string key, string value) {
             var searchResult = SearchByKeyAndValue(this, key, value);
             return searchResult < 0 ? ~searchResult : searchResult;
         }
 
-        public int GetIndexOfChildPage(string key, string value) {
-            var searchResult = SearchByValueParts(this, value, key);
-            return searchResult >= 0 ? searchResult : ~searchResult - 1;
+        public int GetIndexAfter(string key, string value) {
+            var searchResult = SearchByKeyAndValue(this, key, value);
+            return searchResult < 0 ? ~searchResult : searchResult + 1;
         }
 
         public Result<int> FindIndexOfPair(string key, string value) {
