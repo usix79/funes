@@ -504,10 +504,10 @@ namespace Funes.Indexes {
             if (eventLogResult.IsError) return new Result<SelectResult>(eventLogResult.Error);
 
             var parents = new Dictionary<EntityId, IndexPage>();
-            var pageResult = await FindPage(ds, ct, parents, idxName, fromValue, afterKey);
+            var pageResult = await FindPage(ds, ct, parents, idxName, afterKey, fromValue);
             if (pageResult.IsError) return new Result<SelectResult>(pageResult.Error);
 
-            var selectResult = await SelectPairs(pageResult.Value, pageResult.Value.GetIndexAfter(fromValue, afterKey));
+            var selectResult = await SelectPairs(pageResult.Value, pageResult.Value.GetIndexAfter(afterKey, fromValue));
             if (selectResult.IsError) return new Result<SelectResult>(selectResult.Error);
             
             // process events log
@@ -555,9 +555,6 @@ namespace Funes.Indexes {
                         lastPair = new KeyValuePair<string, string>(key, value);
                     }
                     
-                    if (items.Count == maxCount)
-                        return new Result<Void>(Void.Value);
-
                     var nextPageResult = await GetNextPage(page);
                     if (nextPageResult.IsError)
                         return nextPageResult.Error == Error.NotFound
@@ -578,9 +575,11 @@ namespace Funes.Indexes {
                 var pageIdxResult = parent.FindIndexOfChild(page.Id, page.GetValueForParent());
                 if (pageIdxResult.IsError) return new Result<IndexPage>(pageIdxResult.Error);
 
-                if (pageIdxResult.Value < parent.ItemsCount) {
-                    var nextPageName = parent.GetKeyAt(pageIdxResult.Value);
-                    return await RetrieveIndexPage(GetPageId(idxName, nextPageName), ds, ct);
+                var nextPageIdx = pageIdxResult.Value + 1;
+                if (nextPageIdx < parent.ItemsCount) {
+                    var pageId = GetPageId(idxName, parent.GetKeyAt(nextPageIdx));
+                    parents[pageId] = parent;
+                    return await RetrieveIndexPage(pageId, ds, ct);
                 }
 
                 var nextPageResult = await GetNextPage(parent);
@@ -594,6 +593,7 @@ namespace Funes.Indexes {
                 if (retrieveResult.IsError) return new Result<IndexPage>(retrieveResult.Error);
 
                 var childPage = retrieveResult.Value;
+                parents[childPage.Id] = page;
                 if (childPage.PageKind == IndexPage.Kind.Page) return new Result<IndexPage>(childPage);
 
                 return await GetFirstChildPage(childPage);

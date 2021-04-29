@@ -18,8 +18,17 @@ namespace Funes.Tests {
             Init(pairs.ToArray());
         }
 
-        public KeyValuePair<string,string>[] GetOrderedPairs() => 
-            _data.OrderBy(pair => pair.Value + pair.Key).ToArray();
+        public KeyValuePair<string, string>[] GetOrderedPairs() {
+            var pairs = _data.ToArray();
+            Array.Sort(pairs, (pair1, pair2) => {
+                var order = string.CompareOrdinal(pair1.Value, pair2.Value);
+                if (order == 0)
+                    order = string.CompareOrdinal(pair1.Key, pair2.Key);
+                return order;
+            });
+            return pairs;
+        } 
+            
 
         public void Init(params (string, string)[] pairs) {
             foreach (var pair in pairs)

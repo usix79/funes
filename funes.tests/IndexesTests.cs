@@ -654,38 +654,260 @@ namespace Funes.Tests {
             await CompareIndexWithTestSet(de, idxName, set1);
         }
 
-        [Fact]
-        public async void SimpleSelectTest() {
-            var idxName = "testIdx";
+        private async ValueTask<IndexesTestSet> GenerateRandomIndex(IDataEngine de, string idxName, int iterationsCount) {
             var testSet = new IndexesTestSet();
-            var de = CreateDataEngine();
-            
-            var ops = new IndexOp[15];
-            for (var i = 0; i < ops.Length; i++) {
-                ops[i] = new IndexOp(IndexOp.Kind.Update, "key-" + RandomString(3), "val-" + RandomString(5));
+            var offset = new EventOffset(BinaryData.Empty);
+            for (var i = 0; i < iterationsCount; i++) {
+                var ops = new IndexOp[11];
+                for (var j = 0; j < ops.Length; j++) {
+                    ops[j] = new IndexOp(IndexOp.Kind.Update, "key-" + RandomString(3), "val-" + RandomString(5));    
+                }
+                var eventLog = testSet.ProcessOps(ops);
+                var context = new DataContext(de, new SimpleSerializer<Simple>());
+                var buildResult = await IndexesModule.UpdateIndex(_logger, context, idxName, offset, eventLog,10, default);
+                Assert.True(buildResult.IsOk, buildResult.Error.ToString());
+                var incId = new IncrementId($"inc-{1000-i:d4}");
+                var uploadResult = await IndexesModule.Upload(context, incId, buildResult.Value, default);
+                Assert.True(uploadResult.IsOk, uploadResult.Error.ToString());
+                offset = offset.NextGen(incId);
             }
 
-            var eventLog = testSet.ProcessOps(ops);
-            var eventOffset = new EventOffset(BinaryData.Empty);
+            return testSet;
+        }
 
-            var context = new DataContext(de, new SimpleSerializer<Simple>()); 
-            var buildResult = await IndexesModule.UpdateIndex(_logger, context, idxName, eventOffset, eventLog,10, default);
-            Assert.True(buildResult.IsOk, buildResult.Error.ToString());
+        private async void AssertSelect(IDataEngine de, string idxName, IndexesTestSet testSet, 
+            string valueFrom, string? valueTo, string afterKey, int maxCount, IndexRecord? record = null) {
 
-            var uploadResult = await IndexesModule.Upload(context, IncrementId.NewId(), buildResult.Value, default);
-            Assert.True(uploadResult.IsOk, uploadResult.Error.ToString());
+            var (expectedPairs, expectedHasMore) = testSet.Select(valueFrom, valueTo, afterKey, maxCount);
+
+            if (record != null) {
+                var newTestSet = new IndexesTestSet(expectedPairs.Select(pair => (pair.Key, pair.Value)));
+                var eventLog = newTestSet.ProcessOps(record.ToArray());
+                var recordId = IndexesModule.GetRecordId(idxName);
+                var offsetId = IndexesModule.GetOffsetId(idxName);
+                var incId = new IncrementId("0");
+                var appendResult = await de.AppendEvent(recordId, new Event(incId, eventLog.Memory), offsetId, default);
+                Assert.True(appendResult.IsOk, appendResult.Error.ToString());
+
+                expectedPairs = newTestSet.Select(valueFrom, valueTo, afterKey, newTestSet.ItemsCount + 1).Item1;
+            }
+
+            var selectContext = new DataContext(de, new SimpleSerializer<Simple>());
+            var selectResult = await IndexesModule.Select(selectContext, default, idxName, valueFrom, valueTo, afterKey, maxCount);
+            Assert.True(selectResult.IsOk, selectResult.Error.ToString());
+
+            Assert.Equal(expectedHasMore, selectResult.Value.HasMore);
+            Assert.Equal(expectedPairs, selectResult.Value.Pairs);
+        }
+        
+        [Fact]
+        public async void SelectWithValueTo() {
+            var idxName = "testIdx";
+            var de = CreateDataEngine();
+
+            var testSet = await GenerateRandomIndex(de, idxName, 2);
+
+            var pairs = testSet.GetOrderedPairs();
+            var valueFrom = pairs[3].Value;
+            var valueTo = pairs[5].Value;
+            
+            AssertSelect(de, idxName, testSet,  valueFrom, valueTo, "", 5);
+        }
+
+        [Fact]
+        public async void SelectWithMaxCount() {
+            var idxName = "testIdx";
+            var de = CreateDataEngine();
+
+            var testSet = await GenerateRandomIndex(de, idxName, 2);
+
+            var pairs = testSet.GetOrderedPairs();
+            var valueFrom = pairs[3].Value;
+
+            AssertSelect(de, idxName, testSet,  valueFrom, null, "", 5);
+        }
+
+        [Fact]
+        public async void SelectWithAfterKey() {
+            var idxName = "testIdx";
+            var de = CreateDataEngine();
+
+            var testSet = await GenerateRandomIndex(de, idxName, 2);
+
+            var pairs = testSet.GetOrderedPairs();
+            var valueFrom = pairs[3].Value;
+            var afterKey = pairs[3].Key;
+
+            AssertSelect(de, idxName, testSet,  valueFrom, null, afterKey, 5);
+        }
+
+        [Fact]
+        public async void SelectEmptyRangeInTheMiddleItem() {
+            var idxName = "testIdx";
+            var de = CreateDataEngine();
+
+            var testSet = await GenerateRandomIndex(de, idxName, 2);
+
+            var pairs = testSet.GetOrderedPairs();
+            var valueFrom = pairs[3].Value + "-1";
+            var valueTo = pairs[3].Value + "-2";
+
+            AssertSelect(de, idxName, testSet,  valueFrom, valueTo, "", 5);
+        }
+
+        [Fact]
+        public async void SelectLastItem() {
+            var idxName = "testIdx";
+            var de = CreateDataEngine();
+
+            var testSet = await GenerateRandomIndex(de, idxName, 2);
+
+            var pairs = testSet.GetOrderedPairs();
+            var valueFrom = pairs[^1].Value;
+
+            AssertSelect(de, idxName, testSet,  valueFrom, null, "", 5);
+        }
+
+        [Fact]
+        public async void SelectAfterLastItem() {
+            var idxName = "testIdx";
+            var de = CreateDataEngine();
+
+            var testSet = await GenerateRandomIndex(de, idxName, 2);
+
+            var pairs = testSet.GetOrderedPairs();
+            var valueFrom = pairs[^1].Value;
+            var afterKey = pairs[^1].Key;
+
+            AssertSelect(de, idxName, testSet,  valueFrom, null, afterKey, 5);
+        }
+
+        [Fact]
+        public async void SelectFromGreaterThanLastItem() {
+            var idxName = "testIdx";
+            var de = CreateDataEngine();
+
+            var testSet = await GenerateRandomIndex(de, idxName, 2);
+
+            var pairs = testSet.GetOrderedPairs();
+            var valueFrom = pairs[^1].Value + "!";
+
+            AssertSelect(de, idxName, testSet,  valueFrom, null, "", 5);
+        }
+
+        [Fact]
+        public async void SelectFromBeginning() {
+            var idxName = "testIdx";
+            var de = CreateDataEngine();
+
+            var testSet = await GenerateRandomIndex(de, idxName, 2);
+
+            var pairs = testSet.GetOrderedPairs();
+
+            AssertSelect(de, idxName, testSet,  "", null, "", 5);
+        }
+
+        [Fact]
+        public async void SelectFromFirstItem() {
+            var idxName = "testIdx";
+            var de = CreateDataEngine();
+
+            var testSet = await GenerateRandomIndex(de, idxName, 2);
+
+            var pairs = testSet.GetOrderedPairs();
+            var valueFrom = pairs[1].Value;
+
+            AssertSelect(de, idxName, testSet,  valueFrom, null, "", 5);
+        }
+
+        [Fact]
+        public async void SelectWhenEventLogHasNewItemsInRange() {
+            var idxName = "testIdx";
+            var de = CreateDataEngine();
+
+            var testSet = await GenerateRandomIndex(de, idxName, 2);
 
             var pairs = testSet.GetOrderedPairs();
             var valueFrom = pairs[3].Value;
             var valueTo = pairs[5].Value;
 
-            var selectContext = new DataContext(de, new SimpleSerializer<Simple>());
-            var selectResult = await IndexesModule.Select(selectContext, default, idxName, valueFrom, valueTo, "", 5);
-            Assert.True(selectResult.IsOk, selectResult.Error.ToString());
+            var record = new IndexRecord() {
+                new(IndexOp.Kind.Update, "key1", pairs[4].Value + "-1"),
+                new(IndexOp.Kind.Update, "key1", pairs[4].Value + "-2"),
+            };
 
-            var (expectedPairs, expectedHasMore) = testSet.Select(valueFrom, valueTo, "", 5);
-            Assert.Equal(expectedHasMore, selectResult.Value.HasMore);
-            Assert.Equal(expectedPairs, selectResult.Value.Pairs);
+            AssertSelect(de, idxName, testSet,  valueFrom, valueTo, "", 5, record);
+        }
+
+        [Fact]
+        public async void SelectWhenEventLogHasRemovedAnItemInRange() {
+            var idxName = "testIdx";
+            var de = CreateDataEngine();
+
+            var testSet = await GenerateRandomIndex(de, idxName, 2);
+
+            var pairs = testSet.GetOrderedPairs();
+            var valueFrom = pairs[3].Value;
+            var valueTo = pairs[5].Value;
+
+            var record = new IndexRecord() {
+                new(IndexOp.Kind.Remove, pairs[4].Key, ""),
+                new(IndexOp.Kind.Update, pairs[5].Key, pairs[8].Value),
+            };
+
+            AssertSelect(de, idxName, testSet,  valueFrom, valueTo, "", 5, record);
+        }
+
+        [Fact]
+        public async void SelectWhenOnlyEventLogExistForAnIndex() {
+            var idxName = "testIdx";
+            var de = CreateDataEngine();
+
+            var testSet = await GenerateRandomIndex(de, idxName, 0);
+            
+            var record = new IndexRecord() {
+                new(IndexOp.Kind.Update, "key1", "value1"),
+                new(IndexOp.Kind.Update, "key2", "value2"),
+                new(IndexOp.Kind.Update, "key3", "value3"),
+                new(IndexOp.Kind.Update, "key4", "value4"),
+                new(IndexOp.Kind.Update, "key5", "value5"),
+            };
+
+            AssertSelect(de, idxName, testSet,  record[1].Value, record[3].Value, "", 5, record);
+        }
+
+        [Fact]
+        public async void SelectWhenEventLogHasNewItemsNotInRange() {
+            var idxName = "testIdx";
+            var de = CreateDataEngine();
+
+            var testSet = await GenerateRandomIndex(de, idxName, 2);
+
+            var pairs = testSet.GetOrderedPairs();
+            var valueFrom = pairs[3].Value;
+            var valueTo = pairs[5].Value;
+
+            var record = new IndexRecord() {
+                new(IndexOp.Kind.Update, "key1", pairs[8].Value + "-1"),
+                new(IndexOp.Kind.Update, "key2", pairs[9].Value + "-2"),
+            };
+
+            AssertSelect(de, idxName, testSet,  valueFrom, valueTo, "", 5, record);
+        }
+
+        
+        [Fact]
+        public async void SelectInThreeLayeredIndex() {
+            var idxName = "testIdx";
+            var de = CreateDataEngine();
+
+            var testSet = await GenerateRandomIndex(de, idxName, 100);
+
+            var pairs = testSet.GetOrderedPairs();
+            var valueFrom = pairs[123].Value;
+            var valueTo = pairs[321].Value;
+            
+            AssertSelect(de, idxName, testSet,  valueFrom, valueTo, "", 1000);
         }
 
     }
