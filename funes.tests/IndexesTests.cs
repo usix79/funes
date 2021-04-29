@@ -682,9 +682,12 @@ namespace Funes.Tests {
         }
 
         private async void AssertSelect(IDataEngine de, string idxName, IndexesTestSet testSet, 
-            string valueFrom, string? valueTo, string afterKey, int maxCount, IndexRecord? record = null) {
+            string valueFrom, string? valueTo, string afterKey, int maxCount, bool desc = false, IndexRecord? record = null) {
 
-            var (expectedPairs, expectedHasMore) = testSet.Select(valueFrom, valueTo, afterKey, maxCount);
+            var (expectedPairs, expectedHasMore) = 
+                desc 
+                    ? testSet.SelectDesc(valueFrom, valueTo, afterKey, maxCount)
+                    : testSet.Select(valueFrom, valueTo, afterKey, maxCount);
 
             if (record != null) {
                 var newTestSet = new IndexesTestSet(expectedPairs.Select(pair => (pair.Key, pair.Value)));
@@ -699,7 +702,10 @@ namespace Funes.Tests {
             }
 
             var selectContext = new DataContext(de, new SimpleSerializer<Simple>());
-            var selectResult = await IndexesModule.Select(selectContext, default, idxName, valueFrom, valueTo, afterKey, maxCount);
+            var selectResult = desc 
+                ? await IndexesModule.SelectDesc(selectContext, default, idxName, valueFrom, valueTo, afterKey, maxCount)
+                : await IndexesModule.Select(selectContext, default, idxName, valueFrom, valueTo, afterKey, maxCount);
+            
             Assert.True(selectResult.IsOk, selectResult.Error.ToString());
 
             var equals = AssertSequencesEqual(expectedPairs, selectResult.Value.Pairs);
@@ -868,7 +874,7 @@ namespace Funes.Tests {
                 new(IndexOp.Kind.Update, "key1", pairs[4].Value + "-2"),
             };
 
-            AssertSelect(de, idxName, testSet,  valueFrom, valueTo, "", 5, record);
+            AssertSelect(de, idxName, testSet,  valueFrom, valueTo, "", 5, false, record);
         }
 
         [Fact]
@@ -887,25 +893,7 @@ namespace Funes.Tests {
                 new(IndexOp.Kind.Update, pairs[5].Key, pairs[^1].Value),
             };
 
-            AssertSelect(de, idxName, testSet,  valueFrom, valueTo, "", 5, record);
-        }
-
-        [Fact]
-        public async void SelectWhenOnlyEventLogExistForAnIndex() {
-            var idxName = "testIdx";
-            var de = CreateDataEngine();
-
-            var testSet = await GenerateRandomIndex(de, idxName, 0);
-            
-            var record = new IndexRecord() {
-                new(IndexOp.Kind.Update, "key1", "value1"),
-                new(IndexOp.Kind.Update, "key2", "value2"),
-                new(IndexOp.Kind.Update, "key3", "value3"),
-                new(IndexOp.Kind.Update, "key4", "value4"),
-                new(IndexOp.Kind.Update, "key5", "value5"),
-            };
-
-            AssertSelect(de, idxName, testSet,  record[1].Value, record[3].Value, "", 5, record);
+            AssertSelect(de, idxName, testSet,  valueFrom, valueTo, "", 5, false, record);
         }
 
         [Fact]
@@ -924,7 +912,7 @@ namespace Funes.Tests {
                 new(IndexOp.Kind.Update, "key2", pairs[9].Value + "-2"),
             };
 
-            AssertSelect(de, idxName, testSet,  valueFrom, valueTo, "", 5, record);
+            AssertSelect(de, idxName, testSet,  valueFrom, valueTo, "", 5, false, record);
         }
 
         
@@ -941,6 +929,21 @@ namespace Funes.Tests {
             
             AssertSelect(de, idxName, testSet,  valueFrom, valueTo, "", 1000);
         }
+        
+        [Fact]
+        public async void SelectDescWithValueTo() {
+            var idxName = "testIdx";
+            var de = CreateDataEngine();
+
+            var testSet = await GenerateRandomIndex(de, idxName, 2);
+
+            var pairs = testSet.GetOrderedPairsDesc();
+            var valueFrom = pairs[3].Value;
+            var valueTo = pairs[5].Value;
+            
+            AssertSelect(de, idxName, testSet,  valueFrom, valueTo, "", 5, true);
+        }
+
 
         [Theory, Repeat(42)]
         public async void RandomSelect() {
@@ -957,7 +960,7 @@ namespace Funes.Tests {
                 var afterKey = RandomInt(10) < 5 ? null : pairs[RandomInt(pairs.Length)].Key;
                 var count = RandomInt(pairs.Length);
 
-                AssertSelect(de, idxName, testSet,  valueFrom, valueTo, afterKey, count);
+                AssertSelect(de, idxName, testSet,  valueFrom, valueTo, afterKey, count, RandomInt(2) == 1);
             }
         }
     }

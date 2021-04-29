@@ -40,6 +40,11 @@ namespace Funes.Indexes {
             return searchResult < 0 ? ~searchResult : searchResult + 1;
         }
 
+        public int GetIndexBefore(string key, string value) {
+            var searchResult = SearchByKeyAndValue(this, key, value);
+            return searchResult < 0 ? ~searchResult - 1 : searchResult - 1;
+        }
+
         public Result<int> FindIndexOfPair(string key, string value) {
             var searchResult = SearchByKeyAndValue(this, key, value);
             return searchResult < 0

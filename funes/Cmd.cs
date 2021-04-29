@@ -14,7 +14,7 @@ namespace Funes {
             Func<IReadOnlySet<string>, TMsg> OnSuccess, Func<Error, TMsg> OnError) : Cmd<TMsg,TSideEffect>;
         public record SelectCmd(string IndexName, string FromValue, 
             Func<KeyValuePair<string,string>[], bool, TMsg> OnSuccess, Func<Error, TMsg> OnError,
-            string? ToValue = null, string AfterKey = "", int MaxCount = 1000): Cmd<TMsg,TSideEffect>;
+            string? ToValue = null, bool Desc = false, string AfterKey = "", int MaxCount = 1000): Cmd<TMsg,TSideEffect>;
         public record GetIndexValueCmd(string IndexName, string Key, 
             Func<string, TMsg> OnSuccess, Func<TMsg> OnNotAvailable): Cmd<TMsg,TSideEffect>;
         public record BatchCmd(params Cmd<TMsg, TSideEffect>[] Items) : Cmd<TMsg, TSideEffect> {

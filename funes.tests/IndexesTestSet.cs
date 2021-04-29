@@ -27,8 +27,13 @@ namespace Funes.Tests {
                 return order;
             });
             return pairs;
-        } 
-            
+        }
+
+        public KeyValuePair<string, string>[] GetOrderedPairsDesc() {
+            var pairs = GetOrderedPairs();
+            Array.Reverse(pairs);
+            return pairs;
+        }
 
         public void Init(params (string, string)[] pairs) {
             foreach (var pair in pairs)
@@ -121,6 +126,14 @@ namespace Funes.Tests {
         public string GetValueAt(int idx) => 
             GetOrderedPairs().Select(pair => pair.Value).ElementAt(idx);
 
+        public string GetRandomKey(int idx) {
+            foreach (var key in _data.Keys) {
+                if (idx-- == 0) return key != "" ? key : "?";
+            }
+
+            return "?";
+        }
+
         public (KeyValuePair<string,string>[], bool) Select(string valueFrom, string? valueTo, string afterKey, int maxCount) {
             if (valueTo != null && string.CompareOrdinal(valueFrom, valueTo) > 0)
                 return (Array.Empty<KeyValuePair<string,string>>(), false);
@@ -136,12 +149,22 @@ namespace Funes.Tests {
             return (pairs.Take(maxCount).ToArray(), pairs.Length > maxCount);
         }
 
-        public string GetRandomKey(int idx) {
-            foreach (var key in _data.Keys) {
-                if (idx-- == 0) return key != "" ? key : "?";
-            }
+        public (KeyValuePair<string,string>[], bool) SelectDesc(string valueFrom, string? valueTo, string afterKey, int maxCount) {
+            if (valueTo != null && string.CompareOrdinal(valueFrom, valueTo) < 0)
+                return (Array.Empty<KeyValuePair<string,string>>(), false);
+            
+            
+            var from = valueFrom + afterKey;
 
-            return "?";
+            var pairs = GetOrderedPairs()
+                .Reverse()
+                .SkipWhile(pair => string.CompareOrdinal(pair.Value + pair.Key, from) >= 0)
+                .Where(pair => valueTo == null || string.CompareOrdinal(pair.Value, valueTo) >= 0)
+                .Where(pair => pair.Key != "" && pair.Value != "")
+                .ToArray();
+
+            return (pairs.Take(maxCount).ToArray(), pairs.Length > maxCount);
         }
+
     }
 }
