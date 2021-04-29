@@ -487,7 +487,7 @@ namespace Funes.Tests {
             for (var i = 0; i < iterationsCount; i++) {
                 var ops = new IndexOp[11];
                 for (var j = 0; j < ops.Length; j++) {
-                    ops[j] = new IndexOp(IndexOp.Kind.Update, "key-" + RandomString(3), "val-" + RandomString(5));    
+                    ops[j] = new IndexOp(IndexOp.Kind.Update, "key-" + RandomString(2), "val-" + RandomString(5));    
                 }
                 var eventLog = testSet.ProcessOps(ops);
                 var context = new DataContext(de, new SimpleSerializer<Simple>());
@@ -501,7 +501,8 @@ namespace Funes.Tests {
 
             var deleteOps = new IndexOp[testSet.ItemsCount - 1];
             var idx = 0;
-            foreach(var pair in testSet.GetOrderedPairs()){
+            var pairs = testSet.GetOrderedPairs();
+            foreach(var pair in pairs){
                 if (pair.Key == "") continue;
                 deleteOps[idx++] = new IndexOp(IndexOp.Kind.Remove, pair.Key, "");
             }

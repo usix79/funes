@@ -210,7 +210,6 @@ namespace Funes.Indexes {
                 page = childPageResult.Value;
             }
         }
-
         
         private static async ValueTask<Result<List<PageOp>>> PreparePageOps(ILogger logger, IDataSource ds, 
             string idxName, EventLog log, Dictionary<EntityId, IndexPage> parents, CancellationToken ct) {
@@ -352,7 +351,8 @@ namespace Funes.Indexes {
                             IndexPageHelpers.CopyItems(curMemory.Span, op.Page, curPageIdx, op.Idx);
                             curPageIdx = op.Idx + 1; // skip item at index
                             if (curPage.PageKind == IndexPage.Kind.Page)
-                                result.Keys[op.Key] = IndexKeyHelpers.CreateKey(GetKeyId(idxName, op.Key), "");
+                                if (!result.Keys.ContainsKey(op.Key)) // do not update key it was inserted before
+                                    result.Keys[op.Key] = IndexKeyHelpers.CreateKey(GetKeyId(idxName, op.Key), "");
                             break;
                         case PageOp.Kind.ReplaceAt:
                             IndexPageHelpers.CopyItems(curMemory.Span, op.Page, curPageIdx, op.Idx);
@@ -477,8 +477,8 @@ namespace Funes.Indexes {
             }
         }
         
-        public readonly struct SelectResult {
-            public SelectResult(Dictionary<string, string> items, bool hasMore) {
+        public readonly struct SelectionResult {
+            public SelectionResult(Dictionary<string, string> items, bool hasMore) {
                 var pairs = items.ToArray();
                 Array.Sort(pairs, (pair1, pair2) => {
                     var cmp = String.Compare(pair1.Value, pair2.Value, StringComparison.Ordinal);
@@ -492,7 +492,7 @@ namespace Funes.Indexes {
             public bool HasMore { get; }
         }
 
-        public static async ValueTask<Result<SelectResult>> Select(IDataSource ds, CancellationToken ct,
+        public static async ValueTask<Result<SelectionResult>> Select(IDataSource ds, CancellationToken ct,
             string idxName, string fromValue, string? toValue, string afterKey, int maxCount) {
 
             var items = new Dictionary<string, string>(maxCount);
@@ -501,14 +501,14 @@ namespace Funes.Indexes {
             var lastPair= new KeyValuePair<string,string>(fromValue, afterKey);
 
             var eventLogResult = await ds.RetrieveEventLog(GetRecordId(idxName), GetOffsetId(idxName), ct);
-            if (eventLogResult.IsError) return new Result<SelectResult>(eventLogResult.Error);
+            if (eventLogResult.IsError) return new Result<SelectionResult>(eventLogResult.Error);
 
             var parents = new Dictionary<EntityId, IndexPage>();
             var pageResult = await FindPage(ds, ct, parents, idxName, afterKey, fromValue);
-            if (pageResult.IsError) return new Result<SelectResult>(pageResult.Error);
+            if (pageResult.IsError) return new Result<SelectionResult>(pageResult.Error);
 
             var selectResult = await SelectPairs(pageResult.Value, pageResult.Value.GetIndexAfter(afterKey, fromValue));
-            if (selectResult.IsError) return new Result<SelectResult>(selectResult.Error);
+            if (selectResult.IsError) return new Result<SelectionResult>(selectResult.Error);
             
             // process events log
             if (!eventLogResult.Value.IsEmpty) {
@@ -536,7 +536,7 @@ namespace Funes.Indexes {
                 }
             }
 
-            return new Result<SelectResult>(new SelectResult(items, hasMore));
+            return new Result<SelectionResult>(new SelectionResult(items, hasMore));
 
             async ValueTask<Result<Void>> SelectPairs(IndexPage page, int startIdx) {
                 while (true) {

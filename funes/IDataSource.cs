@@ -8,12 +8,12 @@ namespace Funes {
     public interface IDataSource {
 
         public bool TryGetEntry(EntityId eid, bool asPremise, out EntityEntry entry);
-        public bool TryGetSet(string setName, out IReadOnlySet<string> set);
+        public Result<IReadOnlySet<string>> GetSet(string setName);
         
         ValueTask<Result<BinaryStamp>> Retrieve(EntityId eid, CancellationToken ct);
         
         ValueTask<Result<EventLog>> RetrieveEventLog(EntityId recordsId, EntityId offsetId, CancellationToken ct);
 
-        ValueTask<Result<SetSnapshot>> RetrieveSetSnapshot(string setName, CancellationToken ct);
+        ValueTask<Result<IReadOnlySet<string>>> RetrieveSetSnapshot(string setName, CancellationToken ct);
     }
 }

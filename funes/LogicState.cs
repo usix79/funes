@@ -2,18 +2,27 @@ using System.Buffers;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Funes.Indexes;
+using Funes.Sets;
 
 namespace Funes {
     
     public class LogicState<TMsg, TSideEffect> {
         public Queue<TMsg> PendingMessages { get; } = new ();
         public LinkedList<Cmd<TMsg, TSideEffect>> PendingCommands { get; } = new ();
-        public Dictionary<EntityId, Task> PendingTasks { get; } = new();
+        public HashSet<Task> PendingTasks { get; } = new();
+        
+        public HashSet<EntityId> StartedRetrieving { get; } = new();
+        public HashSet<string> StartedSetRetrieving { get; } = new();
+        public Dictionary<int, Task<Result<IndexesModule.SelectionResult>>> StartedSelections { get; } = new();
 
         public void Reset() {
             PendingMessages.Clear();
             PendingCommands.Clear();
             PendingTasks.Clear();
+            StartedRetrieving.Clear();
+            StartedSetRetrieving.Clear();
+            StartedSelections.Clear();
         }
 
         public bool InProcessing => PendingMessages.Count > 0 || PendingCommands.First != null;
@@ -22,17 +31,14 @@ namespace Funes {
         public async Task WhenAnyPendingTasks(CancellationToken ct) {
             if (PendingTasks.Count == 0) return;
             
-            var keysArr = ArrayPool<EntityId>.Shared.Rent(PendingTasks.Count);
             var tasksArr = ArrayPool<Task>.Shared.Rent(PendingTasks.Count);
             var idx = 0;
-            foreach (var pair in PendingTasks) {
-                keysArr[idx] = pair.Key;
-                tasksArr[idx] = pair.Value;
+            foreach (var task in PendingTasks) {
+                tasksArr[idx] = task;
                 idx++;
             }
 
             while (idx < tasksArr.Length) {
-                keysArr[idx] = keysArr[0];
                 tasksArr[idx] = tasksArr[0];
                 idx++;
             }
@@ -43,12 +49,11 @@ namespace Funes {
                 // remove finished tasks
                 for (var i = 0; i < PendingTasks.Count; i++) {
                     if (tasksArr[i].IsCompleted)
-                        PendingTasks.Remove(keysArr[i]);
+                        PendingTasks.Remove(tasksArr[i]);
                 }
             }
             finally {
                 ArrayPool<Task>.Shared.Return(tasksArr);
-                ArrayPool<EntityId>.Shared.Return(keysArr);
             }
         }
         

@@ -348,7 +348,7 @@ namespace Funes.Tests {
                 entity => ("", new Cmd<string,string>.RetrieveSetCmd(setName, set => {
                     retrievedSet = set;
                     return $"Got set {set}";
-                })),
+                }, err => err.ToString())),
                 (model, msg) => ("", Cmd<string, string>.None),
                 model => Cmd<string, string>.None);
             
@@ -403,7 +403,7 @@ namespace Funes.Tests {
                 entity => ("", new Cmd<string,string>.RetrieveSetCmd(setName, set => {
                     retrievedSet = set;
                     return $"Got set {set}";
-                })),
+                }, err => err.ToString())),
                 (model, msg) => ("", Cmd<string, string>.None),
                 model => Cmd<string, string>.None);
             

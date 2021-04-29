@@ -10,7 +10,11 @@ namespace Funes {
         public record MsgCmd(TMsg Msg) : Cmd<TMsg,TSideEffect>;
         public record RetrieveCmd(EntityId EntityId, Func<EntityEntry, TMsg> Action, bool AsPremise = true) : Cmd<TMsg,TSideEffect>;
         public record RetrieveManyCmd(EntityId[] EntityIds, Func<ReadOnlyMemory<EntityEntry>, TMsg> Action, bool AsPremise = true) : Cmd<TMsg,TSideEffect>;
-        public record RetrieveSetCmd(string SetName, Func<IReadOnlySet<string>, TMsg> Action) : Cmd<TMsg,TSideEffect>;
+        public record RetrieveSetCmd(string SetName, 
+            Func<IReadOnlySet<string>, TMsg> OnSuccess, Func<Error, TMsg> OnError) : Cmd<TMsg,TSideEffect>;
+        public record SelectCmd(string IndexName, string FromValue, 
+            Func<KeyValuePair<string,string>[], bool, TMsg> OnSuccess, Func<Error, TMsg> OnError,
+            string? ToValue = null, string AfterKey = "", int MaxCount = 1000): Cmd<TMsg,TSideEffect>;
         public record BatchCmd(params Cmd<TMsg, TSideEffect>[] Items) : Cmd<TMsg, TSideEffect> {
             public override string ToString() {
                 var txt = new StringBuilder("Batch[");

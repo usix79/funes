@@ -116,6 +116,9 @@ namespace Funes {
                             StartRetrievingSetTask(x.SetName);
                         }
                         break;
+                    case Cmd<TMsg, TSideEffect>.SelectCmd x:
+                        StartSelectionTask(x);
+                        break;
                     case Cmd<TMsg, TSideEffect>.LogCmd x:
                         env.Logger.Log(x.Level, x.Message, x.Args);
                         break;
@@ -159,16 +162,18 @@ namespace Funes {
             }
             
             void StartRetrievingTask(EntityId entityId) {
-                if (!lgState.PendingTasks.ContainsKey(entityId)) {
-                    lgState.PendingTasks[entityId] = ds.Retrieve(entityId, ct).AsTask();
+                if (!lgState.StartedRetrieving.Contains(entityId)) {
+                    lgState.PendingTasks.Add(ds.Retrieve(entityId, ct).AsTask());
                 }
             }
             
             bool TryCompleteRetrieveSet(Cmd<TMsg, TSideEffect>.RetrieveSetCmd aCmd) {
-                if (!ds.TryGetSet(aCmd.SetName, out var set)) return false;
+                var setResult = ds.GetSet(aCmd.SetName);
+                if (setResult.Error == Error.NotFound) return false;
                 
                 try {
-                    lgState.PendingMessages.Enqueue(aCmd.Action(set));
+                    var msg = setResult.IsOk ? aCmd.OnSuccess(setResult.Value) : aCmd.OnError(setResult.Error);
+                    lgState.PendingMessages.Enqueue(msg);
                 }
                 catch (Exception x) {
                     env.Logger.FunesException("LogicEngine", "Action", IncrementId.None, x);
@@ -177,9 +182,35 @@ namespace Funes {
             }
 
             void StartRetrievingSetTask(string setName) {
-                var entityId = SetsModule.GetSnapshotId(setName);
-                if (!lgState.PendingTasks.ContainsKey(entityId)) 
-                    lgState.PendingTasks[entityId] = ds.RetrieveSetSnapshot(setName, ct).AsTask();
+                if (!lgState.StartedSetRetrieving.Contains(setName)) 
+                    lgState.PendingTasks.Add(ds.RetrieveSetSnapshot(setName, ct).AsTask());
+            }
+
+            void StartSelectionTask(Cmd<TMsg, TSideEffect>.SelectCmd aCmd) {
+                var task = IndexesModule.Select(ds, ct,
+                    aCmd.IndexName, aCmd.FromValue, aCmd.ToValue, aCmd.AfterKey, aCmd.MaxCount).AsTask();
+
+                lgState.PendingTasks.Add(task);
+                lgState.StartedSelections[aCmd.GetHashCode()] = task;
+            }
+
+            bool TryCompleteSelection(Cmd<TMsg, TSideEffect>.SelectCmd aCmd) {
+                if (!lgState.StartedSelections.TryGetValue(aCmd.GetHashCode(), out var task)) return false;
+
+                if (task.IsCompleted) {
+                    lgState.StartedSelections.Remove(aCmd.GetHashCode());
+                    if (task.IsCompletedSuccessfully && task.Result.IsOk) {
+                        lgState.PendingMessages.Enqueue(aCmd.OnSuccess(task.Result.Value.Pairs, task.Result.Value.HasMore));
+                    }
+                    else {
+                        var error = task.IsCompletedSuccessfully 
+                            ? task.Result.Error 
+                            : task.Exception != null ? new Error.ExceptionError(task.Exception) : new Error.NoError();
+                        lgState.PendingMessages.Enqueue(aCmd.OnError(error));
+                    }
+                }
+
+                return true;
             }
             
             void ProcessPendingCommands() {
@@ -190,6 +221,7 @@ namespace Funes {
                         Cmd<TMsg, TSideEffect>.RetrieveCmd x => TryCompleteRetrieve(x),
                         Cmd<TMsg, TSideEffect>.RetrieveManyCmd x => TryCompleteRetrieveMany(x),
                         Cmd<TMsg, TSideEffect>.RetrieveSetCmd x => TryCompleteRetrieveSet(x),
+                        Cmd<TMsg, TSideEffect>.SelectCmd x => TryCompleteSelection(x),
                         _ => true}) {
                         lgState.PendingCommands.Remove(node);
                     }

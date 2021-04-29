@@ -23,7 +23,7 @@ namespace Funes {
         
         private readonly ConcurrentDictionary<EntityId, InputEntity> _inputEntities = new ();
         private readonly ConcurrentDictionary<EntityId, Result<EventLog>> _inputEventLogs = new ();
-        private readonly ConcurrentDictionary<string, HashSet<string>> _sets = new ();
+        private readonly ConcurrentDictionary<string, Result<IReadOnlySet<string>>> _sets = new ();
         private readonly ConcurrentBag<EntityId> _outputs = new();
 
         public DataContext(IDataEngine dataEngine, ISerializer serializer) => 
@@ -64,14 +64,12 @@ namespace Funes {
         }
 
         private static readonly HashSet<string> EmptySet = new ();
-        public bool TryGetSet(string setName, out IReadOnlySet<string> set) {
-            if (_sets.TryGetValue(setName, out var s)) {
-                set = s;
-                return true;
-            }
+        
+        public Result<IReadOnlySet<string>> GetSet(string setName) {
+            if (_sets.TryGetValue(setName, out var setResult))
+                return setResult;
 
-            set = EmptySet;
-            return false;
+            return Result<IReadOnlySet<string>>.NotFound;
         }
 
         public async ValueTask<Result<BinaryStamp>> Retrieve(EntityId eid, CancellationToken ct) {
@@ -92,13 +90,16 @@ namespace Funes {
             return result;
         }
 
-        public async ValueTask<Result<SetSnapshot>> RetrieveSetSnapshot(string setName, CancellationToken ct) {
+        public async ValueTask<Result<IReadOnlySet<string>>> RetrieveSetSnapshot(string setName, CancellationToken ct) {
             var retrieveResult = await SetsModule.RetrieveSnapshot(this, setName, ct);
-            var set = retrieveResult.IsOk
-                ? retrieveResult.Value.CreateSet()
-                : EmptySet;
-            _sets[setName] = set;
-            return retrieveResult;
+            var setResult = retrieveResult.IsOk
+                ? new Result<IReadOnlySet<string>>(retrieveResult.Value.CreateSet())
+                : retrieveResult.Error == Error.NotFound
+                    ? new Result<IReadOnlySet<string>>(EmptySet)
+                    : new Result<IReadOnlySet<string>>(retrieveResult.Error);
+            
+            _sets[setName] = setResult;
+            return setResult;
         }
 
         public int PremisesCount() {
