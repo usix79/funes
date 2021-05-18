@@ -702,9 +702,11 @@ namespace Funes.Tests {
             }
 
             var selectContext = new DataContext(de, new SimpleSerializer<Simple>());
-            var selectResult = desc 
-                ? await IndexesModule.SelectDesc(selectContext, default, idxName, valueFrom, valueTo, afterKey, maxCount)
-                : await IndexesModule.Select(selectContext, default, idxName, valueFrom, valueTo, afterKey, maxCount);
+            var behavior = desc
+                ? IndexesModule.SelectDescBehavior.Instance
+                : IndexesModule.SelectAscBehavior.Instance;
+            var selectResult = await IndexesModule.Select(
+                selectContext, default, idxName, valueFrom, valueTo, afterKey, maxCount, behavior);
             
             Assert.True(selectResult.IsOk, selectResult.Error.ToString());
 

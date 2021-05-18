@@ -478,29 +478,83 @@ namespace Funes.Indexes {
         }
         
         public readonly struct SelectionResult {
-            public SelectionResult(Dictionary<string, string> items, bool hasMore, bool desc = false) {
-                var pairs = items.ToArray();
+            public SelectionResult(KeyValuePair<string, string>[] pairs, bool hasMore) =>
+                (Pairs, HasMore) = (pairs, hasMore);
+            public KeyValuePair<string, string> [] Pairs { get; }
+            public bool HasMore { get; }
+        }
+        
+        public interface ISelectBehavior {
+            bool IsRangeEmpty(string fromValue, string? toValue);
+            int GetStartIndex(IndexPage page, string fromValue, string afterKey);
+            int? GetNextIndex(IndexPage page, int currentIdx);  
+            int GetFirstIndexOnPage(IndexPage page);
+            bool IsAfter(string value, string toValue);
+            bool IsInRange(IndexOp op, string fromValue, string? toValue, string afterKey);
+            bool IsBefore(IndexOp op, string key, string value);
+            public void Arrange(KeyValuePair<string, string>[] pairs);
+        }
+
+        public class SelectAscBehavior : ISelectBehavior {
+            public static readonly ISelectBehavior Instance = new SelectAscBehavior();
+            public bool IsRangeEmpty(string fromValue, string? toValue) => 
+                toValue != null && string.CompareOrdinal(fromValue, toValue) > 0;
+            public int GetStartIndex(IndexPage page, string fromValue, string afterKey) => 
+                page.GetIndexAfter(afterKey, fromValue);
+            public int? GetNextIndex(IndexPage page, int currentIdx) =>
+                currentIdx + 1 < page.ItemsCount ? currentIdx + 1 : null;
+            public int GetFirstIndexOnPage(IndexPage page) => 0;
+            public bool IsAfter(string value, string toValue) =>
+                string.Compare(toValue, value, StringComparison.Ordinal) < 0;
+            public bool IsInRange(IndexOp op, string fromValue, string? toValue, string afterKey) => 
+                string.CompareOrdinal(op.Value, fromValue) >= 0 && 
+                string.CompareOrdinal(op.Key, afterKey) > 0 &&
+                (toValue == null || string.CompareOrdinal(op.Value, toValue) <= 0);
+            public bool IsBefore(IndexOp op, string key, string value) => 
+                string.CompareOrdinal(op.Value, value) <= 0 &&
+                string.CompareOrdinal(op.Key, key) < 0;
+            public void Arrange(KeyValuePair<string,string>[] pairs) {
                 Array.Sort(pairs, (pair1, pair2) => {
                     var cmp = string.CompareOrdinal(pair1.Value, pair2.Value);
                     return cmp == 0 ? string.CompareOrdinal(pair1.Key, pair2.Key) : cmp;
                 });
-                if (desc)
-                    Array.Reverse(pairs);
-                
-                Pairs = pairs;
-                HasMore = hasMore;
             }
+        }
 
-            public KeyValuePair<string, string> [] Pairs { get; }
-            public bool HasMore { get; }
+        public class SelectDescBehavior : ISelectBehavior {
+            public static readonly ISelectBehavior Instance = new SelectDescBehavior();
+            public bool IsRangeEmpty(string fromValue, string? toValue) => 
+                toValue != null && string.CompareOrdinal(fromValue, toValue) < 0;
+            public int GetStartIndex(IndexPage page, string fromValue, string afterKey) => 
+                page.GetIndexBefore(afterKey, fromValue);
+            public int? GetNextIndex(IndexPage page, int currentIdx) => 
+                currentIdx > 0 ? currentIdx - 1 : null;
+            public int GetFirstIndexOnPage(IndexPage page) => page.ItemsCount - 1;
+            public bool IsAfter(string value, string toValue) => 
+                String.Compare(toValue, value, StringComparison.Ordinal) > 0;
+            public bool IsInRange(IndexOp op, string fromValue, string? toValue, string afterKey) => 
+                string.CompareOrdinal(op.Value, fromValue) <= 0 &&
+                string.CompareOrdinal(op.Key, afterKey) < 0 &&
+                (toValue == null || string.CompareOrdinal(op.Value, toValue) >= 0);
+            public bool IsBefore(IndexOp op, string key, string value) => 
+                string.CompareOrdinal(op.Value, value) >= 0 &&
+                string.CompareOrdinal(op.Key, key) > 0;
+            public void Arrange(KeyValuePair<string,string>[] pairs) {
+                Array.Sort(pairs, (pair1, pair2) => {
+                    var cmp = string.CompareOrdinal(pair2.Value, pair1.Value);
+                    return cmp == 0 ? string.CompareOrdinal(pair2.Key, pair1.Key) : cmp;
+                });
+            }
         }
 
         public static async ValueTask<Result<SelectionResult>> Select(IDataSource ds, CancellationToken ct,
-            string idxName, string fromValue, string? toValue, string afterKey, int maxCount) {
+            string idxName, string fromValue, string? toValue, string afterKey, int maxCount, ISelectBehavior behavior) {
             
+            if (behavior.IsRangeEmpty(fromValue, toValue))
+                return new Result<SelectionResult>(
+                    new SelectionResult(Array.Empty<KeyValuePair<string, string>>(), false));
+
             var items = new Dictionary<string, string>(maxCount);
-            if (toValue != null && string.CompareOrdinal(fromValue, toValue) > 0)
-                return new Result<SelectionResult>(new SelectionResult(items, false));
             var hasMore = false;
             var rootId = GetRootId(idxName);
             var lastPair= new KeyValuePair<string,string>(fromValue, afterKey);
@@ -512,7 +566,7 @@ namespace Funes.Indexes {
             var pageResult = await FindPage(ds, ct, parents, idxName, afterKey, fromValue);
             if (pageResult.IsError) return new Result<SelectionResult>(pageResult.Error);
 
-            var selectResult = await SelectPairs(pageResult.Value, pageResult.Value.GetIndexAfter(afterKey, fromValue));
+            var selectResult = await SelectPairs(pageResult.Value);
             if (selectResult.IsError) return new Result<SelectionResult>(selectResult.Error);
             
             // process events log
@@ -526,13 +580,8 @@ namespace Funes.Indexes {
                             break;
                         case IndexOp.Kind.Update:
                             items.Remove(op.Key);
-                            if (string.CompareOrdinal(op.Value, fromValue) >= 0 && 
-                                string.CompareOrdinal(op.Key, afterKey) > 0 &&
-                                (toValue == null || string.CompareOrdinal(op.Value, toValue) <= 0)){
-
-                                if (!hasMore || 
-                                    string.CompareOrdinal(op.Value, lastPair.Value) <= 0 &&
-                                    string.CompareOrdinal(op.Key, lastPair.Key) < 0) {
+                            if (behavior.IsInRange(op, fromValue, toValue, afterKey)) {
+                                if (!hasMore || behavior.IsBefore(op, lastPair.Key, lastPair.Value)) {
                                     items[op.Key] = op.Value;
                                 }                            
                             }
@@ -541,14 +590,19 @@ namespace Funes.Indexes {
                 }
             }
 
-            return new Result<SelectionResult>(new SelectionResult(items, hasMore));
+            var pairs = items.ToArray();
+            behavior.Arrange(pairs);
+            return new Result<SelectionResult>(new SelectionResult(pairs, hasMore));
 
-            async ValueTask<Result<Void>> SelectPairs(IndexPage page, int startIdx) {
+            async ValueTask<Result<Void>> SelectPairs(IndexPage page) {
+                var idx = behavior.GetStartIndex(page, fromValue, afterKey);
                 while (true) {
-                    for (var i = startIdx; i < page.ItemsCount; i++) {
-                        var key = page.GetKeyAt(i);
-                        var value = page.GetValueAt(i);
-                        if (toValue != null && String.Compare(toValue, value, StringComparison.Ordinal) < 0)
+                    while (idx >= 0 && idx < page.ItemsCount) {
+                        var key = page.GetKeyAt(idx);
+                        var value = page.GetValueAt(idx);
+                        if (toValue != null && behavior.IsAfter(value, toValue))
+                            return new Result<Void>(Void.Value);
+                        if (key == "" && value == "")
                             return new Result<Void>(Void.Value);
 
                         if (items.Count == maxCount) {
@@ -558,6 +612,10 @@ namespace Funes.Indexes {
 
                         items[key] = value;
                         lastPair = new KeyValuePair<string, string>(key, value);
+
+                        var nextIndex = behavior.GetNextIndex(page, idx);
+                        if (nextIndex is null) break;
+                        idx = nextIndex.Value;
                     }
                     
                     var nextPageResult = await GetNextPage(page);
@@ -567,7 +625,7 @@ namespace Funes.Indexes {
                             : new Result<Void>(nextPageResult.Error);
 
                     page = nextPageResult.Value;
-                    startIdx = 0;
+                    idx = behavior.GetFirstIndexOnPage(page);
                 }
             }
             
@@ -580,9 +638,9 @@ namespace Funes.Indexes {
                 var pageIdxResult = parent.FindIndexOfChild(page.Id, page.GetValueForParent());
                 if (pageIdxResult.IsError) return new Result<IndexPage>(pageIdxResult.Error);
 
-                var nextPageIdx = pageIdxResult.Value + 1;
-                if (nextPageIdx < parent.ItemsCount) {
-                    var pageId = GetPageId(idxName, parent.GetKeyAt(nextPageIdx));
+                var nextPageIdx = behavior.GetNextIndex(parent, pageIdxResult.Value);
+                if (nextPageIdx.HasValue) {
+                    var pageId = GetPageId(idxName, parent.GetKeyAt(nextPageIdx.Value));
                     parents[pageId] = parent;
                     return await RetrieveIndexPage(pageId, ds, ct);
                 }
@@ -590,135 +648,20 @@ namespace Funes.Indexes {
                 var nextPageResult = await GetNextPage(parent);
                 if (nextPageResult.IsError) return new Result<IndexPage>(nextPageResult.Error);
                 return nextPageResult.Value.PageKind == IndexPage.Kind.Page
-                    ? nextPageResult : await GetFirstChildPage(nextPageResult.Value);
+                    ? nextPageResult : await GetStartChildPage(nextPageResult.Value);
             }
 
-            async ValueTask<Result<IndexPage>> GetFirstChildPage(IndexPage page) {
-                var firstPageName = page.GetKeyAt(0);
-                var retrieveResult = await RetrieveIndexPage(GetPageId(idxName, firstPageName), ds, ct);
+            async ValueTask<Result<IndexPage>> GetStartChildPage(IndexPage page) {
+                var startPageName = page.GetKeyAt(behavior.GetFirstIndexOnPage(page));
+                var retrieveResult = await RetrieveIndexPage(GetPageId(idxName, startPageName), ds, ct);
                 if (retrieveResult.IsError) return new Result<IndexPage>(retrieveResult.Error);
 
                 var childPage = retrieveResult.Value;
                 parents[childPage.Id] = page;
                 if (childPage.PageKind == IndexPage.Kind.Page) return new Result<IndexPage>(childPage);
 
-                return await GetFirstChildPage(childPage);
+                return await GetStartChildPage(childPage);
             }
-        }
-
-        // TODO: consider generalization of select logic
-        public static async ValueTask<Result<SelectionResult>> SelectDesc(IDataSource ds, CancellationToken ct,
-            string idxName, string fromValue, string? toValue, string afterKey, int maxCount) {
-
-            var items = new Dictionary<string, string>(maxCount);
-            if (toValue != null && string.CompareOrdinal(fromValue, toValue) < 0)
-                return new Result<SelectionResult>(new SelectionResult(items, false));
-            var hasMore = false;
-            var rootId = GetRootId(idxName);
-            var lastPair = new KeyValuePair<string, string>(fromValue, afterKey);
-
-            var eventLogResult = await ds.RetrieveEventLog(GetRecordId(idxName), GetOffsetId(idxName), ct);
-            if (eventLogResult.IsError) return new Result<SelectionResult>(eventLogResult.Error);
-
-            var parents = new Dictionary<EntityId, IndexPage>();
-            var pageResult = await FindPage(ds, ct, parents, idxName, afterKey, fromValue);
-            if (pageResult.IsError) return new Result<SelectionResult>(pageResult.Error);
-
-            var selectResult = await SelectPairsDesc(pageResult.Value, pageResult.Value.GetIndexBefore(afterKey, fromValue));
-            if (selectResult.IsError) return new Result<SelectionResult>(selectResult.Error);
-
-            // process events log
-            if (!eventLogResult.Value.IsEmpty) {
-                var reader = new IndexRecord.Reader(eventLogResult.Value.Memory);
-                while (reader.MoveNext()) {
-                    var op = reader.Current;
-                    switch (op.OpKind) {
-                        case IndexOp.Kind.Remove:
-                            items.Remove(op.Key);
-                            break;
-                        case IndexOp.Kind.Update:
-                            items.Remove(op.Key);
-                            if (string.CompareOrdinal(op.Value, fromValue) <= 0 &&
-                                string.CompareOrdinal(op.Key, afterKey) < 0 &&
-                                (toValue == null || string.CompareOrdinal(op.Value, toValue) >= 0)) {
-
-                                if (!hasMore ||
-                                    string.CompareOrdinal(op.Value, lastPair.Value) >= 0 &&
-                                    string.CompareOrdinal(op.Key, lastPair.Key) > 0) {
-                                    items[op.Key] = op.Value;
-                                }
-                            }
-                            break;
-                    }
-                }
-            }
-
-            return new Result<SelectionResult>(new SelectionResult(items, hasMore, true));
-            
-            async ValueTask<Result<Void>> SelectPairsDesc(IndexPage page, int startIdx) {
-                while (true) {
-                    for (var i = startIdx; i >= 0; i--) {
-                        var key = page.GetKeyAt(i);
-                        var value = page.GetValueAt(i);
-                        if (toValue != null && String.Compare(toValue, value, StringComparison.Ordinal) > 0)
-                            return new Result<Void>(Void.Value);
-                        if (key == "" && value == "")
-                            return new Result<Void>(Void.Value);
-
-                        if (items.Count == maxCount) {
-                            hasMore = true;
-                            return new Result<Void>(Void.Value);
-                        }
-
-                        items[key] = value;
-                        lastPair = new KeyValuePair<string, string>(key, value);
-                    }
-                    
-                    var prevPageResult = await GetPrevPage(page);
-                    if (prevPageResult.IsError)
-                        return prevPageResult.Error == Error.NotFound
-                            ? new Result<Void>(Void.Value)
-                            : new Result<Void>(prevPageResult.Error);
-
-                    page = prevPageResult.Value;
-                    startIdx = page.ItemsCount - 1;
-                }
-            }
-
-            async ValueTask<Result<IndexPage>> GetPrevPage(IndexPage page) {
-
-                if (page.Id == rootId)
-                    return Result<IndexPage>.NotFound;
-
-                var parent = parents[page.Id];
-                var pageIdxResult = parent.FindIndexOfChild(page.Id, page.GetValueForParent());
-                if (pageIdxResult.IsError) return new Result<IndexPage>(pageIdxResult.Error);
-
-                var prevPageIdx = pageIdxResult.Value - 1;
-                if (prevPageIdx >= 0) {
-                    var pageId = GetPageId(idxName, parent.GetKeyAt(prevPageIdx));
-                    parents[pageId] = parent;
-                    return await RetrieveIndexPage(pageId, ds, ct);
-                }
-
-                var prevPageResult = await GetPrevPage(parent);
-                if (prevPageResult.IsError) return new Result<IndexPage>(prevPageResult.Error);
-                return prevPageResult.Value.PageKind == IndexPage.Kind.Page
-                    ? prevPageResult : await GetLastChildPage(prevPageResult.Value);
-            }
-
-            async ValueTask<Result<IndexPage>> GetLastChildPage(IndexPage page) {
-                var firstPageName = page.GetKeyAt(page.ItemsCount - 1);
-                var retrieveResult = await RetrieveIndexPage(GetPageId(idxName, firstPageName), ds, ct);
-                if (retrieveResult.IsError) return new Result<IndexPage>(retrieveResult.Error);
-
-                var childPage = retrieveResult.Value;
-                parents[childPage.Id] = page;
-                if (childPage.PageKind == IndexPage.Kind.Page) return new Result<IndexPage>(childPage);
-
-                return await GetLastChildPage(childPage);
-            }
-            
         }
     }
 }

@@ -193,10 +193,12 @@ namespace Funes {
             }
 
             void StartSelectionTask(Cmd<TMsg, TSideEffect>.SelectCmd aCmd) {
-                var task = 
-                    aCmd.Desc
-                    ? IndexesModule.SelectDesc(ds, ct, aCmd.IndexName, aCmd.FromValue, aCmd.ToValue, aCmd.AfterKey, aCmd.MaxCount).AsTask()
-                    : IndexesModule.Select(ds, ct, aCmd.IndexName, aCmd.FromValue, aCmd.ToValue, aCmd.AfterKey, aCmd.MaxCount).AsTask();
+                var behavior = aCmd.Desc
+                    ? IndexesModule.SelectDescBehavior.Instance
+                    : IndexesModule.SelectAscBehavior.Instance;
+                
+                var task = IndexesModule.Select(ds, ct, 
+                    aCmd.IndexName, aCmd.FromValue, aCmd.ToValue, aCmd.AfterKey, aCmd.MaxCount, behavior).AsTask();
 
                 lgState.PendingTasks.Add(task);
                 lgState.StartedSelections[aCmd.GetHashCode()] = task;
