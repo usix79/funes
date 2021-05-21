@@ -1,0 +1,67 @@
+﻿@page
+@model PrivacyModel
+@{
+    ViewData["Title"] = "Books";
+}
+<h1>@ViewData["Title"]</h1>
+
+<form>
+  <div class="row g-3 align-items-center">
+    <div class="col-auto">
+      <label for="nameFrom" class="col-form-label">Name from</label>
+    </div>
+    <div class="col-auto">
+      <input id="nameFrom" class="form-control" asp-for="NameFrom">
+    </div>
+    <div class="col-auto">
+      <label for="nameTo" class="col-form-label">to</label>
+    </div>
+    <div class="col-auto">
+      <input id="nameTo" class="form-control" asp-for="NameTo">
+    </div>
+    <div class="col-auto">
+      <button type="submit" class="btn btn-info">Search</button>
+    </div>
+  </div>
+</form>
+<br/>
+@if (!string.IsNullOrEmpty(Model.Error)) {
+  <div class="alert alert-danger" role="alert"> @Model.Error </div>
+}
+else {
+  <table class="table">
+    <thead>
+      <tr>
+        <th scope="col">#</th>
+        <th scope="col">Name</th>
+        <th scope="col">Author</th>
+        <th scope="col">Likes</th>
+        <th scope="col"></th>
+      </tr>
+    </thead>    
+    <tbody>
+    @foreach (var book in Model.Books) {
+      <tr>
+        <th scope="row">@book.Id</th>
+        <td>@book.Name</td>
+        <td>@book.Author</td>
+        <td id=@("l"+book.Id)>@book.Likes.ToString()</td>
+        <td>          
+          <button type="button" class="btn btn-link" onclick="like(@book.Id)">like</button>          
+        </td>
+      </tr>
+    }
+    </tbody>
+  </table>  
+}
+<script>
+function like(bookId){
+  $.ajax({
+     url: '?handler=Like&bookId='+bookId
+  })
+  .done(function(result) {
+    $("#l"+result.id).text(result.likes);
+  })
+  .fail(function(result) {alert('fail' + result)})  
+}
+</script>

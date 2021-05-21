@@ -547,6 +547,14 @@ namespace Funes.Indexes {
             }
         }
 
+        public static ValueTask<Result<SelectionResult>> SelectAsc(IDataSource ds, CancellationToken ct,
+            string idxName, string fromValue, string? toValue, string afterKey, int maxCount) =>
+            Select(ds, ct, idxName, fromValue, toValue, afterKey, maxCount, SelectAscBehavior.Instance);
+
+        public static ValueTask<Result<SelectionResult>> SelectDesc(IDataSource ds, CancellationToken ct,
+            string idxName, string fromValue, string? toValue, string afterKey, int maxCount) =>
+            Select(ds, ct, idxName, fromValue, toValue, afterKey, maxCount, SelectDescBehavior.Instance);
+
         public static async ValueTask<Result<SelectionResult>> Select(IDataSource ds, CancellationToken ct,
             string idxName, string fromValue, string? toValue, string afterKey, int maxCount, ISelectBehavior behavior) {
             

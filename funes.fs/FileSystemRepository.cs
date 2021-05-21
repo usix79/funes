@@ -73,12 +73,14 @@ namespace Funes.Fs {
                 var path = GetMemPath(eid);
 
                 var incIds =
-                    Directory.GetFiles(path)
-                        .Select(name => ParseFileName(Path.GetFileName(name)).Item1)
-                        .Where(before.IsNewerThan)
-                        .OrderBy(x => x)
-                        .Take(maxCount)
-                        .ToArray();
+                    Directory.Exists(path)
+                        ? Directory.GetFiles(path)
+                            .Select(name => ParseFileName(Path.GetFileName(name)).Item1)
+                            .Where(before.IsNewerThan)
+                            .OrderBy(x => x)
+                            .Take(maxCount)
+                            .ToArray()
+                        : Array.Empty<IncrementId>();
 
                 return Task.FromResult(new Result<IncrementId[]>(incIds));
             }
@@ -97,11 +99,13 @@ namespace Funes.Fs {
                 var path = GetMemPath(eid);
 
                 var incIds =
-                    Directory.GetFiles(path)
-                        .Select(name => ParseFileName(Path.GetFileName(name)).Item1)
-                        .Where(after.IsOlderThan)
-                        .OrderByDescending(x => x)
-                        .ToArray();
+                    Directory.Exists(path)
+                        ? Directory.GetFiles(path)
+                            .Select(name => ParseFileName(Path.GetFileName(name)).Item1)
+                            .Where(after.IsOlderThan)
+                            .OrderByDescending(x => x)
+                            .ToArray()
+                        : Array.Empty<IncrementId>();
 
                 return Task.FromResult(new Result<IncrementId[]>(incIds));
             }

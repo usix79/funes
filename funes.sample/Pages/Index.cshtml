@@ -1,0 +1,100 @@
+﻿@page
+@model IndexModel
+@{
+    ViewData["Title"] = "Status";
+}
+
+<div class="container">
+    <div class="row align-items-start">
+        <div class="col">
+        </div>
+        <div class="col">
+            @if (App.Instance.IsInitialized){
+                <h1 class="display-4">Initialized</h1>
+                <div class="mb-3">
+                    <span>Connection Type: </span>
+                    <span>@App.Instance.CurrentConnectionType.ToString()</span>
+                </div>            
+                @switch (App.Instance.CurrentConnectionType) {
+                    case App.ConnectionType.FileSystem:
+                        <div class="mb-3">
+                            <span>File System Root: </span>
+                            <span>@App.Instance.CurrentFileSystemRoot</span>
+                        </div>
+                        break;
+                    case App.ConnectionType.Aws:
+                        <div class="mb-3">
+                            <span>Bucket Name: </span>
+                            <span>@App.Instance.CurrentBucket</span>
+                        </div>
+                        <div class="mb-3">
+                            <span>Redis Address: </span>
+                            <span>@App.Instance.CurrentRedisAddress</span>
+                        </div>
+                        break;
+                }
+            } else {
+                <form method="post">
+                    <div class="mb-3">
+                        <label for="conn_type" class="form-label">Connection type </label>
+                        <select id="conn_type" class="form-select" aria-label="App type" asp-for="ConnectionType" onchange="onSelectionChanged()">
+                            <option value="1">In-Memory</option>
+                            <option value="2">File System</option>
+                            <option value="3">AWS</option>
+                        </select>
+                    </div>
+                    <div id="fs" style="display: none"> 
+                        <div class="mb-3">
+                            <label for="fs_root" class="form-label">File System Storage Root</label>
+                            <input class="form-control" id="fs_root" asp-for="FileSystemRoot">
+                        </div>       
+                    </div>
+                    <div id="aws" style="display: none"> 
+                        <div class="mb-3 aws">
+                            <label for="s3_bucket_name" class="form-label">S3 Bucket Name</label>
+                            <input class="form-control" id="s3_bucket_name" asp-for="BucketName">
+                        </div>            
+                        <div class="mb-3 aws">
+                            <label for="redis_address" class="form-label">Redis Address</label>
+                            <input class="form-control" id="redis_address" asp-for="RedisAddress">
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <input type="checkbox" data-val="true" id="PopulateData" name="PopulateData" value="true" asp-for="PopulateData">
+                        <input name="PopulateData" type="hidden" value="false">                    
+                        <label class="form-check-label" for="PopulateData">
+                            Populate with sample data
+                        </label>
+                    </div>    
+                    <div class="mb-3">
+                        <button type="submit" class="btn btn-primary mb-3">Connect</button>
+                    </div>                
+                </form>
+                @if (!string.IsNullOrEmpty(Model.Error)) {
+                    <div class="alert alert-danger" role="alert"> @Model.Error </div>
+                }
+            }
+        </div>
+        <div class="col">
+        </div>
+    </div>
+</div>
+<script>
+function onSelectionChanged(){
+    var conType = $("#conn_type").val()
+    switch (conType){
+        case "1":
+            $("#fs").hide();
+            $("#aws").hide();
+            break;
+        case "2":
+            $("#fs").show();
+            $("#aws").hide();
+            break;
+        case "3":
+            $("#fs").hide();
+            $("#aws").show();
+            break;
+    }
+}
+</script>

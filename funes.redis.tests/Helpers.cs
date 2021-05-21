@@ -5,7 +5,6 @@ namespace Funes.Redis.Tests {
         private const string ConnectionStringEnvName = "FUNES_REDIS_TESTS_CS";
         
         public static string ResolveConnectionString() =>
-            Environment.GetEnvironmentVariable(ConnectionStringEnvName) ?? "localhost";
-        
+            Environment.GetEnvironmentVariable(ConnectionStringEnvName) ?? "localhost:6379";
     }
 }
