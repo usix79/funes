@@ -1,0 +1,12 @@
+@page "{IdValue?}"
+@namespace Funes.Explorer.Pages
+@model IncrementsModel
+
+@if (string.IsNullOrEmpty(Model.IdValue)) {
+    ViewData["Title"] = "Increments";
+    await Html.RenderPartialAsync("_IncrementsList");
+}
+else {
+    ViewData["Title"] = "Increment " + Model.IdValue;
+    await Html.RenderPartialAsync("_IncrementCard");
+}

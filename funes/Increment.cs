@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 namespace Funes {
     public record Increment(
         IncrementId Id, 
-        StampKey FactKey,
+        StampKey TriggerKey,
         List<Increment.InputEntity> Inputs,
         List<Increment.InputEventLog> EventLogInputs,
         List<EntityId> Outputs,
@@ -55,7 +55,7 @@ namespace Funes {
                 (Id, FirstIncId, LastIncId) = (id, firstIncId, lastIncId);
         }
         
-        public const string Category = "funes/increments";
+        public static readonly EntityId GlobalIncrementId = new ("funes/increments");
         public const string ChildrenCategory = "funes/children";
         public const string DetailsIncrementTime = "IncrementTime";
         public const string DetailsAttempt = "Attempt";
@@ -66,11 +66,10 @@ namespace Funes {
         public const string DetailsSideEffects = "SideEffects";
         public const string DetailsError = "Error";
 
-        public static EntityId CreateEntId(IncrementId incId) => new (Category, incId.Id);
-        public static bool IsIncrement(EntityId entId) => entId.Id.StartsWith(Category);
+        public static bool IsIncrement(EntityId entId) => entId == GlobalIncrementId;
         public static EntityId CreateChildEntId(IncrementId parentId) => new (ChildrenCategory, parentId.Id);
         public static bool IsChild(EntityId entId) => entId.Id.StartsWith(ChildrenCategory);
-        public static StampKey CreateStampKey(IncrementId incId) => new (CreateEntId(incId), incId);
+        public static StampKey CreateStampKey(IncrementId incId) => new (GlobalIncrementId, incId);
         
         public string FindDetail(string key) {
             foreach(var pair in Details)
@@ -102,7 +101,7 @@ namespace Funes {
             var stamp = new BinaryStamp(CreateStampKey(increment.Id), encodingResult.Value);
             return de.Upload(stamp, ct, true);
         }
-
+        
         public static ValueTask<Result<Void>> UploadChild(IDataEngine de, IncrementId incId, IncrementId parentId,
             CancellationToken ct) {
 

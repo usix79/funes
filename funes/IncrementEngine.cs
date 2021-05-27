@@ -10,13 +10,13 @@ using Funes.Sets;
 namespace Funes {
     public static class IncrementEngine<TModel,TMsg,TSideEffect> {
         public static async Task<Result<IncrementId>> Run(
-            IncrementEngineEnv<TModel,TMsg,TSideEffect> env, EntityEntry fact, CancellationToken ct = default) {
+            IncrementEngineEnv<TModel,TMsg,TSideEffect> env, EntityEntry trigger, CancellationToken ct = default) {
             try {
                 for(var attempt = 1; attempt <= env.MaxAttempts; attempt++){
                     var start = env.ElapsedMilliseconds;
                     var context = new DataContext(env.DataEngine, env.Serializer);
                     var logicResult = await LogicEngine<TModel,TMsg,TSideEffect>
-                        .Run(env.LogicEngineEnv, context, fact.Entity, null!, ct);
+                        .Run(env.LogicEngineEnv, context, trigger.Entity, null!, ct);
 
                     if (logicResult.IsOk) {
                         var incrementResult = await TryIncrement(context, logicResult.Value, attempt, start);
@@ -33,18 +33,18 @@ namespace Funes {
                                 LogError(x.Increment.Id, "TryIncrement", incrementResult.Error);
                                 return new Result<IncrementId>(x);
                             default:
-                                LogError(fact.IncId, "TryIncrementGeneral", incrementResult.Error);
+                                LogError(trigger.IncId, "TryIncrementGeneral", incrementResult.Error);
                                 return new Result<IncrementId>(incrementResult.Error);
                         }
                     }
-                    LogError(fact.IncId, "Logic", logicResult.Error);
+                    LogError(trigger.IncId, "Logic", logicResult.Error);
                     return new Result<IncrementId>(logicResult.Error);
                 }
-                LogError(fact.IncId, "MaxAttempts");
+                LogError(trigger.IncId, "MaxAttempts");
                 return new Result<IncrementId>(Error.MaxAttempts);
             }
             catch (Exception x) {
-                LogException(fact.IncId,  "General", x);
+                LogException(trigger.IncId,  "General", x);
                 return Result<IncrementId>.Exception(x);
             }
             
@@ -73,7 +73,7 @@ namespace Funes {
             async ValueTask<Result<Increment>> TryIncrement(DataContext context,
                 LogicResult<TSideEffect> lgResult, int attempt, long start) {
 
-                var builder = new IncrementBuilder(fact.Key, start, attempt, env.ElapsedMilliseconds);
+                var builder = new IncrementBuilder(trigger.Key, start, attempt, env.ElapsedMilliseconds);
                 
                 var commitResult = await TryCommit(context, builder.IncId, lgResult.Entities); 
                 builder.RegisterCommitResult(commitResult, env.ElapsedMilliseconds);
@@ -108,7 +108,7 @@ namespace Funes {
                 var increment = builder.Create(context, lgResult.Constants, env.ElapsedMilliseconds);
 
                 builder.RegisterResult(await Increment.Upload(env.DataEngine, increment, ct));
-                builder.RegisterResult(await Increment.UploadChild(env.DataEngine, increment.Id, fact.IncId, ct));
+                builder.RegisterResult(await Increment.UploadChild(env.DataEngine, increment.Id, trigger.IncId, ct));
                 
                 var error = builder.GetError();
                 return error == Error.No

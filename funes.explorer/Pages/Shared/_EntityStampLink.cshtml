@@ -1,0 +1,6 @@
+@model Funes.StampKey
+
+@{
+    var linkKey  = $"{Model.EntId.Id}/{Model.IncId.Id}";
+    <a asp-page="/EntityStamp" asp-route-Key=@linkKey>@linkKey</a>
+} 

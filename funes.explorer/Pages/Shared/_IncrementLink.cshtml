@@ -1,0 +1,6 @@
+@model Funes.IncrementId
+
+@{
+    var linkKey  = Model.Id;
+    <a asp-page="/Increments" asp-route-IdValue=@linkKey>@linkKey</a>
+} 

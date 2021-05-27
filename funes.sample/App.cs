@@ -88,63 +88,34 @@ namespace funes.sample {
         public ValueTask<Result<Void>> Behavior(IncrementId incId, SideEffect effect, CancellationToken ct) => 
             ValueTask.FromResult(new Result<Void>(Void.Value));
 
-        public async ValueTask<Result<Void>> UploadFact(EntityEntry factEntry) {
-            var data = _ser.Encode(factEntry.Eid, factEntry.Value);
+        public async ValueTask<Result<Void>> UploadTrigger(EntityEntry triggerEntry) {
+            var data = _ser.Encode(triggerEntry.Eid, triggerEntry.Value);
             if (data.IsError) return new Result<Void>(data.Error); 
-            var stamp = new BinaryStamp(factEntry.Key, data.Value);
+            var stamp = new BinaryStamp(triggerEntry.Key, data.Value);
             var uploadResult = await _de.Upload(stamp, default, true);
             return uploadResult;
         }
 
-        public async ValueTask<Result<Void>> RunIncrement(Entity fact) {
-            var factEntry = EntityEntry.Ok(fact, IncrementId.NewStimulusId());
+        public async ValueTask<Result<Void>> RunIncrement(Entity trigger) {
+            var triggerEntry = EntityEntry.Ok(trigger, IncrementId.NewTriggerId());
 
-            var uploadResult = await UploadFact(factEntry);
+            var uploadResult = await UploadTrigger(triggerEntry);
             if (uploadResult.IsError) return uploadResult;
 
-            var incResult = await IncrementEngine<Model, Message, SideEffect>.Run(_incEngineEnv, factEntry);
+            var incResult = await IncrementEngine<Model, Message, SideEffect>.Run(_incEngineEnv, triggerEntry);
             return incResult.IsOk 
                 ? new Result<Void>(Void.Value) 
                 : new Result<Void>(incResult.Error);
         }
 
         public ValueTask<Result<Void>> PopulateSampleData() {
-            var fact = Helpers.CreateOperationPopulate();
-            return RunIncrement(fact);
+            var trigger = Helpers.CreateOperationPopulate();
+            return RunIncrement(trigger);
         }
 
         public ValueTask<Result<Void>> LikeBook(string bookId) {
-            var fact = Helpers.CreateOperationLike(bookId);
-            return RunIncrement(fact);
-        }
-
-        public class SampleSerializer : ISerializer {
-            private readonly ISerializer _bookSer = new SimpleSerializer<Book>();
-            private readonly ISerializer _popSer = new SimpleSerializer<Operation.PopulateSampleData>();
-            private readonly ISerializer _likeSer = new SimpleSerializer<Operation.Like>();
-            public Result<BinaryData> Encode(EntityId eid, object content) => 
-                eid.GetCategory() switch {
-                    Helpers.Constants.CatBooks => _bookSer.Encode(eid, content),        
-                    Helpers.Constants.CatOperations => 
-                        eid.GetName() switch {
-                            Helpers.Constants.OperationPopulate => _popSer.Encode(eid, content),        
-                            Helpers.Constants.OperationLike => _likeSer.Encode(eid, content),        
-                            _ => Result<BinaryData>.SerdeError($"Not Supported Operation {eid.GetName()}")
-                        },
-                    _ => Result<BinaryData>.SerdeError($"Not Supported Entity {eid.Id}")
-                };
-
-            public Result<object> Decode(EntityId eid, BinaryData data) => 
-                eid.GetCategory() switch {
-                    Helpers.Constants.CatBooks => _bookSer.Decode(eid, data),        
-                    Helpers.Constants.CatOperations => 
-                        eid.GetName() switch {
-                            Helpers.Constants.OperationPopulate => _popSer.Decode(eid, data),        
-                            Helpers.Constants.OperationLike => _likeSer.Decode(eid, data),        
-                            _ => Result<object>.SerdeError($"Not Supported Operation {eid.GetName()}")
-                        },
-                    _ => Result<object>.SerdeError($"Not Supported Entity {eid.Id}")
-                };
+            var trigger = Helpers.CreateOperationLike(bookId);
+            return RunIncrement(trigger);
         }
     }
 }

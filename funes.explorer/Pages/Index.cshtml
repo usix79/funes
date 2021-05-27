@@ -1,0 +1,12 @@
+﻿@page
+@namespace Funes.Explorer.Pages
+@model IndexModel
+@{
+    ViewData["Title"] = "Status";
+}
+
+<div class="text-center">
+    <h1 class="display-4">...</h1>
+    <p>@Model.FunesConnection.Description</p>
+    <p><strong>Decoder: </strong>@Model.Deserializer.Description</p>
+</div>

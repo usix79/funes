@@ -34,14 +34,14 @@ namespace Funes {
         private const int TailLenght = 6;
         private const string FailTag = "-fail";
         private const string LostTag = "-lost";
-        private const string StimulusTag = "-stimulus";
+        private const string TriggerTag = "-trigger";
 
         private static readonly ThreadLocal<Random> Rand = new (() => new Random(DateTime.Now.Millisecond));
         
-        public static IncrementId ComposeId(DateTimeOffset dt, Random? rand, bool forStimulus = false) {
+        public static IncrementId ComposeId(DateTimeOffset dt, Random? rand, bool forTrigger = false) {
             Debug.Assert(rand != null, nameof(rand) + " != null");
 
-            var length = DigitsLength + 1 + TailLenght + (forStimulus ? StimulusTag.Length : 0);
+            var length = DigitsLength + 1 + TailLenght + (forTrigger ? TriggerTag.Length : 0);
 
             var id = string.Create(length, MillisecondsBeforeFryReawakening(dt), 
                 (span, num) => {
@@ -52,9 +52,9 @@ namespace Funes {
                     for (var i = 0; i < TailLenght; i++) {
                         span[DigitsLength + i + 1] = (char) ('a' + rand.Next(25));
                     }
-                    if (forStimulus) {
-                        for (var i = 0; i < StimulusTag.Length; i++) {
-                            span[ DigitsLength + 1 + TailLenght + i] = StimulusTag[i];
+                    if (forTrigger) {
+                        for (var i = 0; i < TriggerTag.Length; i++) {
+                            span[ DigitsLength + 1 + TailLenght + i] = TriggerTag[i];
                         }
                     }
                 });
@@ -62,8 +62,21 @@ namespace Funes {
             return new IncrementId(id);
         }
 
-        public static IncrementId ComposeId(DateTimeOffset dt, string tail, bool forFact = false) {
-            var length = DigitsLength + 1 + tail.Length + (forFact ? StimulusTag.Length : 0);
+        public static DateTimeOffset ExtractDateTime(IncrementId incId) {
+            long milliseconds = 0;
+
+            foreach (var ch in incId.Id) {
+                if (ch >= '0' && ch <= '9') {
+                    milliseconds *= 10;
+                    milliseconds += ch - '0';
+                }
+            }
+
+            return FryReawakening.AddMilliseconds(-milliseconds);
+        }
+
+        public static IncrementId ComposeId(DateTimeOffset dt, string tail, bool forTrigger = false) {
+            var length = DigitsLength + 1 + tail.Length + (forTrigger ? TriggerTag.Length : 0);
             var id = string.Create(length, MillisecondsBeforeFryReawakening(dt), 
                 (span, num) => {
                     for (var i = 0; i < DigitsLength; i++, num /= 10) {
@@ -73,9 +86,9 @@ namespace Funes {
                     for (var i = 0; i < tail.Length; i++) {
                         span[DigitsLength + i + 1] = tail[i];
                     }
-                    if (forFact) {
-                        for (var i = 0; i < StimulusTag.Length; i++) {
-                            span[ DigitsLength + 1 + tail.Length + i] = StimulusTag[i];
+                    if (forTrigger) {
+                        for (var i = 0; i < TriggerTag.Length; i++) {
+                            span[ DigitsLength + 1 + tail.Length + i] = TriggerTag[i];
                         }
                     }
                 });
@@ -84,7 +97,7 @@ namespace Funes {
         }
 
         public static IncrementId NewId() => ComposeId(DateTimeOffset.UtcNow, Rand.Value, false);
-        public static IncrementId NewStimulusId() => ComposeId(DateTimeOffset.UtcNow, Rand.Value, true);
+        public static IncrementId NewTriggerId() => ComposeId(DateTimeOffset.UtcNow, Rand.Value, true);
 
         public bool IsOlderThan(IncrementId other) => other == None || CompareTo(other) > 0;
 
@@ -96,6 +109,6 @@ namespace Funes {
         public static bool operator ==(IncrementId left, IncrementId right) => left.Equals(right);
         public static bool operator !=(IncrementId left, IncrementId right) => !left.Equals(right);
         public int CompareTo(IncrementId other) => string.Compare(Id, other.Id, StringComparison.Ordinal);
-        public override string ToString() => $"CID:{Id}";
+        public override string ToString() => $"Inc:{Id}";
     }
 }

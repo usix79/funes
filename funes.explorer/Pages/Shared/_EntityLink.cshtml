@@ -1,0 +1,6 @@
+@model Funes.EntityId
+
+@{
+    var linkKey  = Model.Id;
+    <a asp-page="/Entity" asp-route-Id=@linkKey>@linkKey</a>
+} 

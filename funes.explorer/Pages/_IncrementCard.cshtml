@@ -1,0 +1,93 @@
+@namespace Funes.Explorer.Pages
+@model IncrementsModel
+
+<div class="col-auto">
+  <h4 class="display-5">Increment @Model.Item.Id.Id</h4>
+  @if (!string.IsNullOrEmpty(Model.Error)) {
+    <div class="alert alert-danger" role="alert"> @Model.Error </div>
+  }
+  else {
+    <table class="table table-responsive table-borderless table-sm">
+      <tbody>
+      <tr>
+        <td class="text-right">Time</td>
+        <td class="text-left">@IncrementId.ExtractDateTime(Model.Item.Id).ToString("yyyy-MM-dd HH:mm:ss fff")</td>
+      </tr>
+      <tr>
+        <th class="text-right">Trigger</th>
+        <td class="text-left">
+          @await Html.PartialAsync("_EntityStampLink", Model.Item.TriggerKey)
+        </td>
+      </tr>
+      <tr>
+        <th class="text-right">Inputs</th>
+        <td class="text-left">
+          <ul>
+            @foreach (var inputKey in Model.Item.Inputs) {
+              <li>
+                @await Html.PartialAsync("_EntityStampLink", inputKey.Key)
+                @if (inputKey.AsPremise) {
+                  <span class="badge bg-info text-light">premise</span>
+                }
+              </li>
+            }
+          </ul>          
+        </td>
+      </tr>
+      <tr>
+        <th class="text-right">EventLog Inputs</th>
+        <td class="text-left">
+          <ul>
+            @foreach (var inputKey in Model.Item.EventLogInputs) {
+              @await Html.PartialAsync("_EntityLink", inputKey.Id)
+              <span>@await Html.PartialAsync("_IncrementLink", inputKey.FirstIncId)</span>
+              <span>-</span>
+              <span>@await Html.PartialAsync("_IncrementLink", inputKey.LastIncId)</span>
+              @inputKey.Id.Id
+            }
+          </ul>          
+        </td>
+      </tr>
+      <tr>
+        <th class="text-right">Outputs</th>
+        <td class="text-left">
+          <ul>
+            @foreach (var outputId in Model.Item.Outputs) {
+              <li>
+                @await Html.PartialAsync("_EntityStampLink", outputId.CreateStampKey(Model.Item.Id))
+              </li>
+            }
+          </ul>          
+        </td>
+      </tr>
+      <tr>
+        <th class="text-right">Constants</th>
+        <td class="text-left">
+          <ul>
+            @foreach (var pair in Model.Item.Constants) {
+              <li>
+                <strong>@pair.Key: </strong>
+                <span>@pair.Value</span>
+              </li>
+            }
+          </ul>          
+        </td>
+      </tr>
+      <tr>
+        <th class="text-right">Details</th>
+        <td class="text-left">
+          <ul>
+            @foreach (var pair in Model.Item.Details) {
+              <li>
+                <strong>@pair.Key: </strong>
+                <span>@pair.Value</span>
+              </li>
+            }
+          </ul>          
+        </td>
+      </tr>
+      </tbody>
+    </table>
+  }
+</div>
+

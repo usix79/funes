@@ -80,8 +80,8 @@ namespace Funes.Tests {
             }
         }
 
-        public static Entity CreateSimpleFact(int id, string value) =>
-            new Entity(new EntityId("/tests/facts"), new Simple(id, value));
+        public static Entity CreateSimpleTrigger(int id, string value) =>
+            new Entity(new EntityId("/tests/triggers"), new Simple(id, value));
 
         public static StampKey[] Keys(params (EntityId, string)[] keys) =>
             Keys(keys.Select(pair => (pair.Item1, new IncrementId(pair.Item2))).ToArray());

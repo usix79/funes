@@ -64,14 +64,14 @@ namespace Funes.Tests {
                 ValueTask.FromResult(new Result<Void>(Void.Value));
 
             var env = CreateIncrementEngineEnv(logic, Behavior, repo);
-            var fact = CreateSimpleFact(0, "");
-            var factEntry = EntityEntry.Ok(fact, IncrementId.NewStimulusId());
-            var result = await IncrementEngine<string, string, string>.Run(env, factEntry, default);
+            var trigger = CreateSimpleTrigger(0, "");
+            var triggerEntry = EntityEntry.Ok(trigger, IncrementId.NewTriggerId());
+            var result = await IncrementEngine<string, string, string>.Run(env, triggerEntry, default);
             await env.DataEngine.Flush();
             Assert.True(result.IsOk, result.Error.ToString());
             var increment = await LoadIncrement(repo, result.Value);
             Assert.Equal(result.Value, increment.Id);
-            Assert.Equal(factEntry.Key, increment.FactKey);
+            Assert.Equal(triggerEntry.Key, increment.TriggerKey);
             Assert.Empty(increment.Inputs);
             Assert.Empty(increment.EventLogInputs);
             Assert.Empty(increment.Outputs);
@@ -108,13 +108,13 @@ namespace Funes.Tests {
             }
 
             var env = CreateIncrementEngineEnv(logic, Behavior, repo);
-            var fact = CreateSimpleFact(1, "fact");
-            var factEntry = EntityEntry.Ok(fact, IncrementId.NewStimulusId());
+            var trigger = CreateSimpleTrigger(1, "fact");
+            var triggerEntry = EntityEntry.Ok(trigger, IncrementId.NewTriggerId());
 
-            var result = await IncrementEngine<string, string, string>.Run(env, factEntry, default);
+            var result = await IncrementEngine<string, string, string>.Run(env, triggerEntry, default);
             await env.DataEngine.Flush();
             Assert.True(result.IsOk, result.Error.ToString());
-            Assert.Equal(fact, initEntity);
+            Assert.Equal(trigger, initEntity);
             Assert.Equal("init", updateModel);
             Assert.Equal("msg", updateMsg);
             Assert.Equal("update", endModel);
@@ -122,7 +122,7 @@ namespace Funes.Tests {
             
             var increment = await LoadIncrement(repo, result.Value);
             Assert.Equal(result.Value, increment.Id);
-            Assert.Equal(fact.Id, increment.FactKey.EntId);
+            Assert.Equal(trigger.Id, increment.TriggerKey.EntId);
             Assert.Empty(increment.Inputs);
             Assert.Empty(increment.EventLogInputs);
             Assert.Empty(increment.Outputs);
@@ -160,13 +160,13 @@ namespace Funes.Tests {
 
             var env1 = CreateIncrementEngineEnv(logic, Behavior, repo, cache, tre);
             var env2 = CreateIncrementEngineEnv(logicWithWaiting, Behavior, repo, cache, tre);
-            var fact = CreateSimpleFact(0, "");
-            var factEntry = EntityEntry.Ok(fact, IncrementId.NewStimulusId());
-            var fact2Entry = EntityEntry.Ok(fact, IncrementId.NewStimulusId());
+            var trigger = CreateSimpleTrigger(0, "");
+            var triggerEntry = EntityEntry.Ok(trigger, IncrementId.NewTriggerId());
+            var trigger2Entry = EntityEntry.Ok(trigger, IncrementId.NewTriggerId());
 
-            var waitingTask = Task.Factory.StartNew(() => IncrementEngine<string, string, string>.Run(env2, fact2Entry)).Unwrap();
+            var waitingTask = Task.Factory.StartNew(() => IncrementEngine<string, string, string>.Run(env2, trigger2Entry)).Unwrap();
             
-            var result1 = await IncrementEngine<string, string, string>.Run(env1, factEntry);
+            var result1 = await IncrementEngine<string, string, string>.Run(env1, triggerEntry);
             Assert.True(result1.IsOk, result1.Error.ToString());
             evt.Set();
 
@@ -178,14 +178,14 @@ namespace Funes.Tests {
 
             var increment = await LoadIncrement(repo, result2.Value);
             Assert.Equal(result2.Value, increment.Id);
-            Assert.Equal(fact.Id, increment.FactKey.EntId);
+            Assert.Equal(trigger.Id, increment.TriggerKey.EntId);
             Assert.Equal(new List<Increment.InputEntity>
                 {new (eid.CreateStampKey(result1.Value), true)}, increment.Inputs);
             Assert.Equal(new EntityId[]{eid}, increment.Outputs);
             Assert.Empty(increment.Constants);
             Assert.Equal("2", increment.FindDetail(Increment.DetailsAttempt));
 
-            var childrenHistoryResult = await repo.HistoryBefore(Increment.CreateChildEntId(fact2Entry.IncId),
+            var childrenHistoryResult = await repo.HistoryBefore(Increment.CreateChildEntId(trigger2Entry.IncId),
                 IncrementId.Singularity, 42, default);
             Assert.True(childrenHistoryResult.IsOk, childrenHistoryResult.Error.ToString());
             Assert.Equal(2, childrenHistoryResult.Value.Count());
@@ -193,7 +193,7 @@ namespace Funes.Tests {
 
             var childIncrement = await LoadIncrement(repo, childIncId);
             Assert.Equal(childIncId, childIncrement.Id);
-            Assert.Equal(fact.Id, childIncrement.FactKey.EntId);
+            Assert.Equal(trigger.Id, childIncrement.TriggerKey.EntId);
             Assert.Equal(new List<Increment.InputEntity>
                 {new (stamp.Key, true)}, childIncrement.Inputs);
             Assert.Empty(childIncrement.Outputs);
@@ -218,10 +218,10 @@ namespace Funes.Tests {
                 ValueTask.FromResult(new Result<Void>(Void.Value));
 
             var env = CreateIncrementEngineEnv(logic, Behavior, repo, cache);
-            var fact = CreateSimpleFact(1, "fact");
-            var factEntry = EntityEntry.Ok(fact, IncrementId. NewStimulusId());
+            var trigger = CreateSimpleTrigger(1, "fact");
+            var triggerEntry = EntityEntry.Ok(trigger, IncrementId. NewTriggerId());
 
-            var result = await IncrementEngine<string, string, string>.Run(env, factEntry, default);
+            var result = await IncrementEngine<string, string, string>.Run(env, triggerEntry, default);
             var incId = result.Value;
             await env.DataEngine.Flush();
             Assert.True(result.IsOk, result.Error.ToString());
@@ -284,8 +284,8 @@ namespace Funes.Tests {
             var incrementIds = new IncrementId [maxLogSize];
             
             for (var i = 0; i < commands.Length; i++) {
-                var fact = CreateSimpleFact(i, i.ToString());
-                var factEntry = EntityEntry.Ok(fact, IncrementId.NewStimulusId());
+                var fact = CreateSimpleTrigger(i, i.ToString());
+                var factEntry = EntityEntry.Ok(fact, IncrementId.NewTriggerId());
                 var result = await IncrementEngine<string, string, string>.Run(env, factEntry, default);
                 Assert.True(result.IsOk, result.Error.ToString());
                 incrementIds[i] = result.Value;
@@ -357,9 +357,9 @@ namespace Funes.Tests {
 
             var env = CreateIncrementEngineEnv(logic, Behavior, repo, cache);
          
-            var fact = CreateSimpleFact(1, "Fact1");
-            var factEntry = EntityEntry.Ok(fact, IncrementId.NewStimulusId());
-            var result = await IncrementEngine<string, string, string>.Run(env, factEntry);
+            var trigger = CreateSimpleTrigger(1, "Fact1");
+            var triggerEntry = EntityEntry.Ok(trigger, IncrementId.NewTriggerId());
+            var result = await IncrementEngine<string, string, string>.Run(env, triggerEntry);
             Assert.True(result.IsOk, result.Error.ToString());
             
             Assert.NotNull(retrievedSet);
@@ -412,9 +412,9 @@ namespace Funes.Tests {
 
             var env = CreateIncrementEngineEnv(logic, Behavior, repo, cache);
          
-            var fact = CreateSimpleFact(1, "Fact1");
-            var factEntry = EntityEntry.Ok(fact, IncrementId.NewStimulusId());
-            var result = await IncrementEngine<string, string, string>.Run(env, factEntry);
+            var trigger = CreateSimpleTrigger(1, "Fact1");
+            var triggerEntry = EntityEntry.Ok(trigger, IncrementId.NewTriggerId());
+            var result = await IncrementEngine<string, string, string>.Run(env, triggerEntry);
             Assert.True(result.IsOk, result.Error.ToString());
             
             Assert.NotNull(retrievedSet);
@@ -452,10 +452,10 @@ namespace Funes.Tests {
                 ValueTask.FromResult(new Result<Void>(Void.Value));
 
             var env = CreateIncrementEngineEnv(logic, Behavior, repo, cache);
-            var fact = CreateSimpleFact(1, "fact");
-            var factEntry = EntityEntry.Ok(fact, IncrementId. NewStimulusId());
+            var trigger = CreateSimpleTrigger(1, "fact");
+            var triggerEntry = EntityEntry.Ok(trigger, IncrementId. NewTriggerId());
 
-            var result = await IncrementEngine<string, string, string>.Run(env, factEntry, default);
+            var result = await IncrementEngine<string, string, string>.Run(env, triggerEntry, default);
             var incId = result.Value;
             await env.DataEngine.Flush();
             Assert.True(result.IsOk, result.Error.ToString());

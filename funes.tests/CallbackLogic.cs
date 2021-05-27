@@ -19,9 +19,8 @@ namespace Funes.Tests {
             _onEnd = onEnd;
         }
 
-        public (TModel, Cmd<TMsg, TSideEffect>) Begin(Entity fact, IConstants constants) => _onBegin(fact);
-
-
+        public (TModel, Cmd<TMsg, TSideEffect>) Begin(Entity trigger, IConstants constants) => _onBegin(trigger);
+        
         public (TModel, Cmd<TMsg, TSideEffect>) Update(TModel model, TMsg msg) => _onUpdate(model, msg);
 
         public Cmd<TMsg, TSideEffect>.OutputCmd End(TModel model) => _onEnd(model);

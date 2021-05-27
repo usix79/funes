@@ -14,15 +14,15 @@ namespace Funes {
             new(() => new LogicState<TMsg, TSideEffect>(), 12);
         
         public static async Task<Result<LogicResult<TSideEffect>>> Run(LogicEngineEnv<TModel,TMsg,TSideEffect> env,
-            IDataSource ds, Entity fact, IConstants constants, CancellationToken ct) {
+            IDataSource ds, Entity trigger, IConstants constants, CancellationToken ct) {
             
             var lgResult = new LogicResult<TSideEffect>();
             var lgState = StatesPool.Rent();
 
             var iteration = 0;
             try {
-                var (model, cmd) = env.Logic.Begin(fact, constants);
-                await env.Tracer.BeginResult(fact, model, cmd);
+                var (model, cmd) = env.Logic.Begin(trigger, constants);
+                await env.Tracer.BeginResult(trigger, model, cmd);
                 ProcessCommand(cmd);
 
                 while (lgState.InProcessing) {

@@ -1,0 +1,60 @@
+@namespace Funes.Explorer.Pages
+@model IncrementsModel
+
+<div class="col-auto">
+ <h4 class="display-5">Increments before</h4>
+  <form>
+    <table class="table table-responsive table-borderless table-sm">
+      <tbody>
+      <tr>
+        <td><label for="beforeTimestamp" class="col-form-label">Time</label></td>
+        <td  class="w-75"><input id="beforeTimestamp" class="form-control" placeholder="yyyy-MM-dd HH:mm:ss fff" asp-for="BeforeTimestamp"></td>
+      </tr>
+      <tr>
+        <td colspan="2">or</td>
+      </tr>
+      <tr>
+        <td> <label for="beforeId" class="col-form-label">Id</label></td>
+        <td><input id="beforeId" class="form-control" placeholder="00000000000000-abcdef" asp-for="BeforeId"></td>
+      </tr>
+      <tr>
+        <td colspan="2"><button type="submit" class="btn btn-info">Show</button></td>
+      </tr>
+      <tr>
+        <td colspan="2">
+          @if (!string.IsNullOrEmpty(Model.Error)) {
+            <div class="alert alert-danger" role="alert"> @Model.Error </div>
+          }
+        </td>
+      </tr>
+      </tbody>
+    </table>
+  </form>
+    
+  <table class="table table-responsive table-sm">
+    <thead>
+    <tr>
+      <th scope="col" class="text-left">Time</th>
+      <th scope="col" class="text-left">Increment</th>
+    </tr>
+    </thead>
+    <tbody>
+    @foreach (var incId in Model.Items) {
+      <tr>
+        <td class="text-left">@IncrementId.ExtractDateTime(incId).ToString("yyyy-MM-dd HH:mm:ss fff")</td>
+        <td class="text-left">
+          <a asp-page="/Increments" asp-route-IdValue=@incId.Id>@incId.Id</a>
+        </td>
+      </tr>
+    } 
+    </tbody>
+  </table>
+  
+  @if (Model.Items.Length > 0) {
+    <nav>
+      <ul class="pagination">
+        <li class="page-item"><a class="page-link" asp-page="/Increments" asp-route-BeforeId=@Model.Items[^1].Id>Prev</a></li>
+      </ul>
+    </nav>
+  }
+</div>

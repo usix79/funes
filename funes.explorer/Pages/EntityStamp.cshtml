@@ -1,0 +1,53 @@
+@page "{**Key}"
+@namespace Funes.Explorer.Pages
+@model EntityStampModel
+
+@{
+    ViewData["Title"] = "EntityStamp " + Model.Key;
+}
+
+<div class="col-auto">
+    <h4 class="display-5">EntityStamp @Model.Key</h4>
+
+    @if (!string.IsNullOrEmpty(Model.Error)) {
+        <div class="alert alert-danger" role="alert"> @Model.Error </div>
+    }
+    else {
+        <table class="table table-responsive table-borderless table-sm">
+            <tbody>
+            <tr>
+                <th class="text-right">Entity</th>
+                <td class="text-left">
+                    @await Html.PartialAsync("_EntityLink", Model.Eid)
+                </td>
+            </tr>
+            <tr>
+                <th class="text-right">Increment</th>
+                <td class="text-left">
+                    @await Html.PartialAsync("_IncrementLink", Model.IncId)
+                </td>
+            </tr>
+            <tr>
+                <td class="text-right">Timestamp</td>
+                <td class="text-left">@IncrementId.ExtractDateTime(Model.IncId).ToString("yyyy-MM-dd HH:mm:ss fff")</td>
+            </tr>
+            @if (!Model.Data.IsEmpty) {
+                <tr>
+                    <td class="text-right">Encoding</td>
+                    <td class="text-left">@Model.Data.Encoding</td>
+                </tr>
+                <tr>
+                    <td class="text-right">Size</td>
+                    <td class="text-left">@Model.Data.Memory.Length.ToString()</td>
+                </tr>
+                <tr>
+                    <td class="text-right">Content</td>
+                    <td class="text-left">
+                        <pre>@Model.ContentAsText</pre>
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    }
+</div>

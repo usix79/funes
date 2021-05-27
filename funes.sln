@@ -18,6 +18,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "funes.redis.tests", "funes.
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "funes.sample", "funes.sample\funes.sample.csproj", "{96CA3964-1C25-47A8-9275-F55CA486FD6F}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "funes.explorer", "funes.explorer\funes.explorer.csproj", "{8E16AE34-6F51-4C34-8F38-174B8C103CCA}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -60,5 +62,9 @@ Global
 		{96CA3964-1C25-47A8-9275-F55CA486FD6F}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{96CA3964-1C25-47A8-9275-F55CA486FD6F}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{96CA3964-1C25-47A8-9275-F55CA486FD6F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8E16AE34-6F51-4C34-8F38-174B8C103CCA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8E16AE34-6F51-4C34-8F38-174B8C103CCA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8E16AE34-6F51-4C34-8F38-174B8C103CCA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8E16AE34-6F51-4C34-8F38-174B8C103CCA}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

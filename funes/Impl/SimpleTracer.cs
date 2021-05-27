@@ -4,8 +4,8 @@ using System.Threading.Tasks;
 namespace Funes.Impl {
     
     public class SimpleTracer<TModel,TMsg,TSideEffect> : ITracer<TModel,TMsg,TSideEffect> {
-        public ValueTask BeginResult(Entity fact, TModel model, Cmd<TMsg, TSideEffect> cmd) {
-            Console.WriteLine($"BEGIN Fact: {fact} => Model: {model} Cmd: {cmd}");
+        public ValueTask BeginResult(Entity trigger, TModel model, Cmd<TMsg, TSideEffect> cmd) {
+            Console.WriteLine($"BEGIN Trigger: {trigger} => Model: {model} Cmd: {cmd}");
             return ValueTask.CompletedTask;
         }
 

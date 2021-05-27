@@ -17,7 +17,7 @@ namespace Funes.Tests {
         [Fact]
         public async void IncrementEncoding() {
             var incId = IncrementId.NewId();
-            var factStamp = EntityEntry.Ok(CreateSimpleFact(0, ""), IncrementId.NewStimulusId());
+            var factStamp = EntityEntry.Ok(CreateSimpleTrigger(0, ""), IncrementId.NewTriggerId());
             var inputs = new List<Increment.InputEntity>() {
                 new(CreateRandomStampKey(), false),
                 new(CreateRandomStampKey(), true),
@@ -40,7 +40,7 @@ namespace Funes.Tests {
             Assert.True(decodingResult.IsOk, decodingResult.Error.ToString());
             var decodedIncrement = decodingResult.Value;
             Assert.Equal(increment.Id, decodedIncrement.Id);
-            Assert.Equal(increment.FactKey, decodedIncrement.FactKey);
+            Assert.Equal(increment.TriggerKey, decodedIncrement.TriggerKey);
             Assert.Equal(increment.Inputs, decodedIncrement.Inputs);
             Assert.Equal(increment.EventLogInputs, decodedIncrement.EventLogInputs);
             Assert.Equal(increment.Outputs, decodedIncrement.Outputs);
