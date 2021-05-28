@@ -8,6 +8,8 @@
 
 <div class="col-auto">
     <h4 class="display-5">Entity @Model.Id</h4>
+    @await Html.PartialAsync("_CategoryBreadcrumb", Model.Eid.GetCategory())
+    
     <form>
         <strong>Before</strong>
         <table class="table table-responsive table-borderless table-sm">
@@ -56,7 +58,7 @@
         </tbody>
     </table>
   
-    @if (Model.Items.Length > 0) {
+    @if (Model.Items.Length == Constants.ItemsOnPage) {
         <nav>
             <ul class="pagination">
                 <li class="page-item"><a class="page-link" asp-page="/Entity" asp-route-BeforeId=@Model.Items[^1].Id>Prev</a></li>

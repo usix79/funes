@@ -1,0 +1,18 @@
+@model string
+
+@{
+    var root = "";
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item">
+                <a href="/Domain">Domain</a>                    
+            </li>
+            @foreach (var cat in Model.Split('/')) {
+                <li class="breadcrumb-item">
+                    @await Html.PartialAsync("_CategoryLink", (root, cat))
+                    @{ root += root == "" ? cat : ("/" + cat); }
+                </li>
+            }
+        </ol>
+    </nav>
+} 

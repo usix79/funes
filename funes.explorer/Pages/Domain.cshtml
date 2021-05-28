@@ -1,0 +1,44 @@
+@page "{**Category}"
+@namespace Funes.Explorer.Pages
+@model DomainModel
+
+@{
+    ViewData["Title"] = "Category " + Model.Category;
+}
+
+<div class="col-auto">
+    @if (string.IsNullOrEmpty(Model.Category)) {
+        <h4 class="display-5">Domain Root</h4>
+    }
+    else {
+        @await Html.PartialAsync("_CategoryBreadcrumb", Model.Category)
+    }
+
+    <div class="m-4">
+        <form>
+            <div class="row g-3 align-items-center">
+              <div class="col-auto">
+                <label for="after" class="col-form-label">After</label>
+              </div>
+              <div class="col-auto">
+                <input id="after" class="form-control" asp-for="After">
+              </div>
+              <div class="col-auto">
+                    <td colspan="2"><button type="submit" class="btn btn-info">Show</button></td>
+              </div>
+            </div>        
+        </form>
+    </div>
+    @foreach (var cat in Model.Items) {
+        @await Html.PartialAsync("_CategoryLink", (Model.Category, cat))
+
+    }
+
+    @if (Model.Items.Length == Constants.ItemsOnPage) {
+        <nav>
+            <ul class="pagination">
+                <li class="page-item"><a class="page-link" asp-page="/Domain" asp-route-After=@Model.Items[^1]>Next</a></li>
+            </ul>
+        </nav>
+    }
+</div>

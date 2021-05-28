@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Threading.Tasks;
 using Xunit;
 
@@ -153,6 +154,51 @@ namespace Funes.Tests {
                 Assert.Equal(history[i].Item2, incIds[i]);
             }
         }
-        
+
+        [Fact]
+        public async void ListTest() {
+            var repo = CreateRepo();
+
+            var cats = Enumerable.Range(1, 5).Select(id => $"cat-{id}").ToArray();
+            var subCats = Enumerable.Range(1, 3).Select(id => $"sub-{id}").ToArray();
+            var ids = Enumerable.Range(1, 3).Select(id => id.ToString()).ToArray();
+            
+            // create 2-level hierarchy
+            foreach(var catId in cats)
+                foreach(var subCatId in subCats)
+                    foreach (var id in ids) {
+                        var entId = new EntityId($"{catId}/{subCatId}", id);
+                        var testIncId1 = IncrementId.NewId();
+                        var testStamp1 = TestHelpers.CreateSimpleStamp(testIncId1, entId);
+                        var putResult1 = await repo.Save(testStamp1, default);
+                        Assert.True(putResult1.IsOk);
+                    }
+            
+            // list top level
+            var listRes = await repo.List("");
+            Assert.True(listRes.IsOk, listRes.Error.ToString());
+            Assert.Equal(cats, listRes.Value);
+            
+            // list after
+            listRes = await repo.List("", cats[0]);
+            Assert.True(listRes.IsOk, listRes.Error.ToString());
+            Assert.Equal(cats[1..], listRes.Value);
+            
+            // list category
+            listRes = await repo.List(cats[1]);
+            Assert.True(listRes.IsOk, listRes.Error.ToString());
+            Assert.Equal(subCats, listRes.Value);
+            
+            // list entities
+            listRes = await repo.List($"{cats[3]}/{subCats[1]}");
+            Assert.True(listRes.IsOk, listRes.Error.ToString());
+            Assert.Equal(ids, listRes.Value);
+            
+            // list entity
+            listRes = await repo.List($"{cats[3]}/{subCats[1]}/{ids[0]}", "");
+            Assert.True(listRes.IsOk, listRes.Error.ToString());
+            Assert.Empty(listRes.Value);
+        }
+
     }
 }

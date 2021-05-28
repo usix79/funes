@@ -51,5 +51,25 @@ namespace Funes.Impl {
 
             return Task.FromResult(new Result<IncrementId[]>(result.ToArray()));
         }
+
+        public Task<Result<string[]>> List(string category, string after = "", int maxCount = 1000, CancellationToken ct = default) {
+            ct.ThrowIfCancellationRequested();
+            var catWithDel = category == "" ? category : category + "/";
+            var items =
+                _data.Keys
+                    .Where(key => key.EntId.Id.StartsWith(catWithDel))
+                    .Select(key => key.EntId.Id.Substring(catWithDel.Length))
+                    .OrderBy(item => item)
+                    .Select(item => {
+                        var idx = item.IndexOf('/');
+                        return idx != -1 ? item.Substring(0, idx) : item; })                    
+                    .SkipWhile(item => after != "" && string.CompareOrdinal(item, after) <= 0)
+                    .Distinct()
+                    .Take(maxCount)
+                    .ToArray();
+            
+            
+            return Task.FromResult(new Result<string[]>(items));
+        }
     }
 }

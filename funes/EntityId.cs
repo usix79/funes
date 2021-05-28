@@ -29,7 +29,8 @@ namespace Funes {
             var idx = Id.LastIndexOf('/');
             return idx != -1 ? Id.Substring(idx+1) : Id;
         }
-        
+
+        public static string SystemCategory = "__funes";
         public static EntityId None = new EntityId("");
         
         public EntityId(string id) => Id = id;

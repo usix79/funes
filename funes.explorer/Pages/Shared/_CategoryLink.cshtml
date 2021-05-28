@@ -1,0 +1,5 @@
+@model (string,string)
+
+@{
+    <a asp-page="/Domain" asp-route-Category=@(string.IsNullOrEmpty(Model.Item1) ? Model.Item2 : $"{Model.Item1}/{Model.Item2}")>@Model.Item2</a>
+} 

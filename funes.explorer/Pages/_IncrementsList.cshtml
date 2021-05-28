@@ -50,7 +50,7 @@
     </tbody>
   </table>
   
-  @if (Model.Items.Length > 0) {
+  @if (Model.Items.Length == Constants.ItemsOnPage) {
     <nav>
       <ul class="pagination">
         <li class="page-item"><a class="page-link" asp-page="/Increments" asp-route-BeforeId=@Model.Items[^1].Id>Prev</a></li>

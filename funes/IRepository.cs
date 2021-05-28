@@ -8,5 +8,6 @@ namespace Funes {
         Task<Result<BinaryStamp>> Load(StampKey key, CancellationToken ct);
         Task<Result<IncrementId[]>> HistoryBefore(EntityId eid, IncrementId before, int maxCount = 1, CancellationToken ct = default);
         Task<Result<IncrementId[]>> HistoryAfter(EntityId eid, IncrementId after, CancellationToken ct = default);
+        Task<Result<string[]>> List(string category, string after = "", int maxCount = 1000, CancellationToken ct = default);
     }
 }

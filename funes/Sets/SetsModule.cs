@@ -21,9 +21,9 @@ namespace Funes.Sets {
         private static Dsc GetDsc(string setName) {
             if (!Descriptors.TryGetValue(setName, out var dsc)) {
                 dsc = new Dsc(
-                    new EntityId($"funes/sets/{setName}/records"),
-                    new EntityId($"funes/sets/{setName}/offset"),
-                    new EntityId($"funes/sets/{setName}/snapshot")
+                    new EntityId($"{EntityId.SystemCategory}/sets/{setName}/records"),
+                    new EntityId($"{EntityId.SystemCategory}/sets/{setName}/offset"),
+                    new EntityId($"{EntityId.SystemCategory}/sets/{setName}/snapshot")
                 );
                 Descriptors[setName] = dsc;
             }
@@ -36,7 +36,7 @@ namespace Funes.Sets {
         public static EntityId GetSnapshotId(string setName) => GetDsc(setName).SnapshotId;
 
         public static bool IsSetSnapshot(EntityId eid) => 
-            eid.Id.StartsWith("funes/sets/") && eid.Id.EndsWith("/snapshot");
+            eid.Id.StartsWith($"{EntityId.SystemCategory}/sets/") && eid.Id.EndsWith("/snapshot");
         
         public static async ValueTask<Result<int>> UploadSetRecord(DataContext context, CancellationToken ct, 
             IncrementId incId, string setName, SetRecord record) {

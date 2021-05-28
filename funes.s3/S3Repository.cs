@@ -150,6 +150,32 @@ namespace Funes.S3 {
             catch (Exception e) { return Result<IncrementId[]>.Exception(e); }
         }
 
+        public async Task<Result<string[]>> List(string category, string after = "", int maxCount = 1000, CancellationToken ct = default) {
+            try {
+                var prefix = category != "" ? $"{Prefix}/{category}/" : $"{Prefix}/"; 
+                var req = new ListObjectsV2Request {
+                    BucketName = BucketName,
+                    Prefix = prefix,
+                    Delimiter = "/",
+                    StartAfter = after != "" ? $"{prefix}{after}/" : null,
+                    MaxKeys = maxCount
+                };
+
+                var resp = await _client.ListObjectsV2Async(req, ct);
+                
+                var arr = new string[resp!.CommonPrefixes.Count];
+                for (var i = 0; i < arr.Length; i++) {
+                    var fullPrefix = resp!.CommonPrefixes[i];
+                    arr[i] = fullPrefix.Substring(prefix.Length, fullPrefix.Length - prefix.Length - 1); 
+                }
+
+                return new Result<string[]>(arr);
+            }
+            catch (TaskCanceledException) { throw; }
+            catch (AmazonS3Exception e) { return Result<string[]>.IoError(e.ToString()); }
+            catch (Exception e) { return Result<string[]>.Exception(e); }
+        }
+
         private string CreateMemS3Key(StampKey key) => $"{Prefix}/{key.EntId.Id}/{key.IncId.Id}";
         private string CreateMemS3Id(EntityId id) => $"{Prefix}/{id.Id}/";
     }

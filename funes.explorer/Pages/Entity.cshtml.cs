@@ -46,7 +46,7 @@ namespace Funes.Explorer.Pages {
                 }
             }
 
-            var historyResult = await _fconn.Repo.HistoryBefore(Eid, incId, 100);
+            var historyResult = await _fconn.Repo.HistoryBefore(Eid, incId, Constants.ItemsOnPage);
             if (historyResult.IsError) {
                 Error = historyResult.Error.ToString();
                 return;

@@ -185,7 +185,7 @@ namespace Funes.Tests {
             Assert.Empty(increment.Constants);
             Assert.Equal("2", increment.FindDetail(Increment.DetailsAttempt));
 
-            var childrenHistoryResult = await repo.HistoryBefore(Increment.CreateChildEntId(trigger2Entry.IncId),
+            var childrenHistoryResult = await repo.HistoryBefore(Increment.CreateTriggerEntId(trigger2Entry.IncId),
                 IncrementId.Singularity, 42, default);
             Assert.True(childrenHistoryResult.IsOk, childrenHistoryResult.Error.ToString());
             Assert.Equal(2, childrenHistoryResult.Value.Count());

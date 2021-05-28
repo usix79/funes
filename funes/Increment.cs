@@ -55,8 +55,8 @@ namespace Funes {
                 (Id, FirstIncId, LastIncId) = (id, firstIncId, lastIncId);
         }
         
-        public static readonly EntityId GlobalIncrementId = new ("funes/increments");
-        public const string ChildrenCategory = "funes/children";
+        public static readonly EntityId GlobalIncrementId = new (EntityId.SystemCategory + "/increments");
+        public static readonly string TriggersCategory = EntityId.SystemCategory + "/triggers";
         public const string DetailsIncrementTime = "IncrementTime";
         public const string DetailsAttempt = "Attempt";
         public const string DetailsLogicDuration = "LogicDuration";
@@ -67,8 +67,8 @@ namespace Funes {
         public const string DetailsError = "Error";
 
         public static bool IsIncrement(EntityId entId) => entId == GlobalIncrementId;
-        public static EntityId CreateChildEntId(IncrementId parentId) => new (ChildrenCategory, parentId.Id);
-        public static bool IsChild(EntityId entId) => entId.Id.StartsWith(ChildrenCategory);
+        public static EntityId CreateTriggerEntId(IncrementId parentId) => new (TriggersCategory, parentId.Id);
+        public static bool IsTrigger(EntityId entId) => entId.Id.StartsWith(TriggersCategory);
         public static StampKey CreateStampKey(IncrementId incId) => new (GlobalIncrementId, incId);
         
         public string FindDetail(string key) {
@@ -105,7 +105,7 @@ namespace Funes {
         public static ValueTask<Result<Void>> UploadChild(IDataEngine de, IncrementId incId, IncrementId parentId,
             CancellationToken ct) {
 
-            var stampKey = CreateChildEntId(parentId).CreateStampKey(incId);
+            var stampKey = CreateTriggerEntId(parentId).CreateStampKey(incId);
             return de.Upload(new BinaryStamp(stampKey, BinaryData.Empty), ct, true);
         }
         

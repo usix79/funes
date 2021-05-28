@@ -17,17 +17,18 @@
           <a asp-page="/Index" class="nav-link text-white">Funes Explorer</a>
         </li>
         <hr style="height:2px; width:90%; border-width:0; color:grey; background-color:grey"/>
+        <li>
+          <a href="/Domain" class="nav-link text-white @(Model is DomainModel ? "active" : "")">Domain</a>
+        </li>
+        <hr style="height:2px; width:90%; border-width:0; color:grey; background-color:grey"/>
         <li class="nav-item">
           <a href="/Increments" class="nav-link text-white @(Model is IncrementsModel ? "active" : "")">Increments</a>
         </li>
         <li>
-          <a href="#" class="nav-link text-white">Domain</a>
+          <a href="/Indexes" class="nav-link text-white @(Model is IndexesModel ? "active" : "")">Indexes</a>
         </li>
         <li>
-          <a href="#" class="nav-link text-white">Indexes</a>
-        </li>
-        <li>
-          <a href="#" class="nav-link text-white">Sets</a>
+          <a href="/Sets" class="nav-link text-white @(Model is SetsModel ? "active" : "")">Sets</a>
         </li>
       </ul>
       <div class="dropdown"></div>

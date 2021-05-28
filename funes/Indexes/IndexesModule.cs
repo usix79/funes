@@ -28,10 +28,10 @@ namespace Funes.Indexes {
         private static Dsc GetDsc(string idxName) {
             if (!Descriptors.TryGetValue(idxName, out var dsc)) {
                 dsc = new Dsc(
-                    new EntityId($"funes/indexes/{idxName}/records"),
-                    new EntityId($"funes/indexes/{idxName}/offset"),
-                    $"funes/indexes/{idxName}/pages",
-                    $"funes/indexes/{idxName}/keys"
+                    new EntityId($"{EntityId.SystemCategory}/indexes/{idxName}/records"),
+                    new EntityId($"{EntityId.SystemCategory}/indexes/{idxName}/offset"),
+                    $"{EntityId.SystemCategory}/indexes/{idxName}/pages",
+                    $"{EntityId.SystemCategory}/indexes/{idxName}/keys"
                 );
                 Descriptors[idxName] = dsc;
             }
@@ -46,7 +46,7 @@ namespace Funes.Indexes {
         public static EntityId GetPageId(string idxName, string pageName) =>
             new (GetDsc(idxName).PagesCat, pageName);
         public static bool IsIndexPage(EntityId eid) => 
-            eid.Id.StartsWith("funes/indexes/") && eid.Id.Contains("/pages/");
+            eid.Id.StartsWith($"{EntityId.SystemCategory}/indexes/") && eid.Id.Contains("/pages/");
         
         public static async ValueTask<Result<int>> UploadRecord(
             DataContext context, CancellationToken ct, IncrementId incId, string indexName, IndexRecord record) {

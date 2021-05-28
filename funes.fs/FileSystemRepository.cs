@@ -67,9 +67,9 @@ namespace Funes.Fs {
         
         public Task<Result<IncrementId[]>> HistoryBefore(EntityId eid,
             IncrementId before, int maxCount = 1, CancellationToken ct = default) {
+            ct.ThrowIfCancellationRequested();
+            
             try {
-                ct.ThrowIfCancellationRequested();
-                
                 var path = GetMemPath(eid);
 
                 var incIds =
@@ -84,7 +84,6 @@ namespace Funes.Fs {
 
                 return Task.FromResult(new Result<IncrementId[]>(incIds));
             }
-            catch (TaskCanceledException) { throw; }
             catch (Exception e) {
                 return Task.FromResult(Result<IncrementId[]>.Exception(e));
             }
@@ -93,9 +92,9 @@ namespace Funes.Fs {
         public Task<Result<IncrementId[]>> HistoryAfter(EntityId eid,
             IncrementId after, CancellationToken ct = default) {
 
+            ct.ThrowIfCancellationRequested();
+
             try {
-                ct.ThrowIfCancellationRequested();
-                
                 var path = GetMemPath(eid);
 
                 var incIds =
@@ -109,9 +108,30 @@ namespace Funes.Fs {
 
                 return Task.FromResult(new Result<IncrementId[]>(incIds));
             }
-            catch (TaskCanceledException) { throw; }
             catch (Exception e) {
                 return Task.FromResult(Result<IncrementId[]>.Exception(e));
+            }
+        }
+
+        public Task<Result<string[]>> List(string category, string after = "", int maxCount = 1000, CancellationToken ct = default) {
+            ct.ThrowIfCancellationRequested();
+
+            try {
+                var path = Path.Combine(Root, category);
+                var items =
+                    Directory.Exists(path)
+                        ? Directory.GetDirectories(path)
+                            .Select(x => x.Substring(path.Length + 1))
+                            .Where(x => after == "" || string.CompareOrdinal(x, after) > 0)
+                            .OrderBy(x => x)
+                            .Take(maxCount)
+                            .ToArray()
+                        : Array.Empty<string>();
+                
+                return Task.FromResult(new Result<string[]>(items));
+            }
+            catch (Exception e) {
+                return Task.FromResult(Result<string[]>.Exception(e));
             }
         }
 
